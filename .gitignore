@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# generated
+dist/
+
+# runtime artifacts
+_rag-builds/
+*.db
+
+# OS
+.DS_Store

@@ -1,0 +1,40 @@
+{
+  "name": "graphrag-ts",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reference implementation of a chunked GraphRAG engine: markdown-aware ingestion, Leiden community detection, hybrid vector+keyword retrieval and evidence-grounded answers (Bun + TypeScript).",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "test": "NODE_ENV=test bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "benchmark": "bun run src/benchmark/run.ts",
+    "demo": "bun run examples/demo.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "@langchain/core": "^1.2.9",
+    "@langchain/deepseek": "^1.1.10",
+    "@langchain/openai": "^1.5.9",
+    "@langchain/textsplitters": "^1.0.1",
+    "@graphrs/igraph-wasm": "^0.1.4",
+    "marked": "^18.0.11",
+    "pino": "^8.20.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/bun": "latest",
+    "@types/node": "^24.7.0",
+    "eslint": "^9.18.0",
+    "globals": "^15.14.0",
+    "prisma": "6.19.3",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.21.0"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  }
+}

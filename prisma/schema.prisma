@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model RAGParent {
+  id        String   @id @default(cuid())
+  namespace String   @map("namespace")
+  title     String?  @db.VarChar(255)
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  children  RAGChild[]
+  edges     RAGGraphEdge[]
+  claims    RAGClaim[]
+
+  @@index([namespace])
+  @@map("rag_parents")
+}
+
+model RAGChild {
+  id        String   @id @default(cuid())
+  namespace String   @map("namespace")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  parentId  String   @map("parent_id")
+  parent    RAGParent @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  embedding Unsupported("vector(768)")
+  ftsTokens Unsupported("tsvector") @map("fts_tokens")
+  claims    RAGClaim[]
+
+  @@index([namespace])
+  @@index([parentId])
+  @@map("rag_children")
+}
+
+model RAGEntity {
+  id            String          @id @default(uuid())
+  namespace     String          @map("namespace")
+  name          String          @db.VarChar(200)
+  description   String?         @db.Text
+  createdAt     DateTime        @default(now()) @map("created_at")
+  sourceEdges   RAGGraphEdge[]  @relation("SourceEntity")
+  targetEdges   RAGGraphEdge[]  @relation("TargetEntity")
+  claimSubjects RAGClaim[]      @relation("ClaimSubject")
+  claimObjects  RAGClaim[]      @relation("ClaimObject")
+
+  @@unique([namespace, name])
+  @@index([namespace])
+  @@map("rag_entities")
+}
+
+model RAGGraphEdge {
+  id               String             @id @default(uuid())
+  namespace        String             @map("namespace")
+  parentId         String?            @map("parent_id")
+  parent           RAGParent?         @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  sourceEntityId   String             @map("source_entity_id")
+  targetEntityId   String             @map("target_entity_id")
+  sourceEntity     RAGEntity          @relation("SourceEntity", fields: [sourceEntityId], references: [id], onDelete: Cascade)
+  targetEntity     RAGEntity          @relation("TargetEntity", fields: [targetEntityId], references: [id], onDelete: Cascade)
+  relationshipDesc String             @map("relationship_desc") @db.Text
+  weight           Int                @default(1)
+  communitySummaryId String?          @map("community_summary_id")
+  communitySummary RAGCommunitySummary? @relation(fields: [communitySummaryId], references: [id], onDelete: SetNull)
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  @@index([namespace])
+  @@index([parentId])
+  @@index([sourceEntityId])
+  @@index([targetEntityId])
+  @@index([communitySummaryId])
+  @@unique([namespace, sourceEntityId, targetEntityId], map: "unique_namespace_source_target")
+  @@map("rag_graph_edges")
+}
+
+model RAGCommunitySummary {
+  id               String        @id @default(uuid())
+  namespace        String        @map("namespace")
+  communityName    String        @map("community_name") @db.VarChar(100)
+  summaryContent   String        @map("summary_content") @db.Text
+  summaryEmbedding Unsupported("vector(768)")? @map("summary_embedding")
+  edges            RAGGraphEdge[]
+  claims           RAGClaim[]
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@index([namespace])
+  @@index([communityName])
+  @@map("rag_community_summaries")
+}
+
+model RAGClaim {
+  id                 String               @id @default(uuid())
+  namespace          String               @map("namespace")
+  subjectEntityId    String               @map("subject_entity_id")
+  subjectEntity      RAGEntity            @relation("ClaimSubject", fields: [subjectEntityId], references: [id], onDelete: Cascade)
+  objectEntityId     String?              @map("object_entity_id")
+  objectEntity       RAGEntity?           @relation("ClaimObject", fields: [objectEntityId], references: [id], onDelete: SetNull)
+  description        String               @db.Text
+  descriptionHash    String               @map("description_hash") @db.Char(64)
+  sourceParentId     String?              @map("source_parent_id")
+  sourceParent       RAGParent?           @relation(fields: [sourceParentId], references: [id], onDelete: SetNull)
+  sourceChunkId      String?              @map("source_chunk_id")
+  sourceChunk        RAGChild?            @relation(fields: [sourceChunkId], references: [id], onDelete: SetNull)
+  communitySummaryId String?              @map("community_summary_id")
+  communitySummary   RAGCommunitySummary? @relation(fields: [communitySummaryId], references: [id], onDelete: SetNull)
+  createdAt          DateTime             @default(now()) @map("created_at")
+
+  @@index([namespace])
+  @@index([subjectEntityId])
+  @@index([objectEntityId])
+  @@index([sourceParentId])
+  @@index([communitySummaryId])
+  @@unique([namespace, subjectEntityId, descriptionHash])
+  @@map("rag_claims")
+}
