@@ -3,13 +3,13 @@ import type { Community, WeightedGraphEdge } from '../../build/detectCommunity';
 export type EntityId = string;
 export type CommunityId = string;
 
-// 对应 schema 中的 RAGEntity（rag_entities）：id + name。别名/类型不在 schema 中，不在此建模。
+// Represents RAGEntity (`rag_entities`) in the schema: id + name. Aliases/types are not present in the schema, so they are not modeled here.
 export interface EntityRecord {
   id: EntityId;
   name: string;
 }
 
-// schema 中没有别名表，由调用方（service 层）以内存结构提供。
+// There is no alias table in the schema; callers (the service layer) provide aliases as in-memory structures.
 export interface EntityAlias {
   entityId: EntityId;
   alias: string;
@@ -30,8 +30,8 @@ export interface CommunityMember {
   entityId: EntityId;
 }
 
-// “claim” 现来自真实表 RAGClaim（rag_claims）：entityIds 为实体名（subject/object 名称），
-// text 为原文 description；sourceDocumentId/sourceChunkId 对应父块/子块溯源。
+// “claim” now comes from the real RAGClaim (`rag_claims`) table: entityIds hold entity names (subject/object names),
+// text stores the original description; sourceDocumentId/sourceChunkId point back to the parent/child chunk provenance.
 export interface ClaimRecord {
   id: string;
   entityIds: EntityId[];

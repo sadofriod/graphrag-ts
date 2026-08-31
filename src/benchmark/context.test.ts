@@ -8,40 +8,40 @@ const sample = (overrides: Partial<RetrievalResult> = {}): RetrievalResult => ({
   communities: [
     {
       id: 'c1',
-      name: '社区A',
-      summary: '社区摘要内容',
-      members: ['凯', '老陈'],
-      matchedEntities: ['凯'],
+      name: 'Community A',
+      summary: 'Community summary content',
+      members: ['Kai', 'Chen'],
+      matchedEntities: ['Kai'],
       score: 0.9,
     },
   ],
-  evidence: [{ text: '证据原文片段' }],
-  answer: 'LLM 生成的回答',
+  evidence: [{ text: 'Source evidence snippet' }],
+  answer: 'LLM-generated answer',
   ...overrides,
 });
 
 describe('buildRetrievedContext', () => {
   it('includes community name, members and summary', () => {
     const context = buildRetrievedContext(sample());
-    expect(context).toContain('社区A');
-    expect(context).toContain('凯');
-    expect(context).toContain('老陈');
-    expect(context).toContain('社区摘要内容');
+    expect(context).toContain('Community A');
+    expect(context).toContain('Kai');
+    expect(context).toContain('Chen');
+    expect(context).toContain('Community summary content');
   });
 
   it('includes evidence text', () => {
     const context = buildRetrievedContext(sample());
-    expect(context).toContain('证据原文片段');
+    expect(context).toContain('Source evidence snippet');
   });
 
   it('excludes answer by default', () => {
     const context = buildRetrievedContext(sample());
-    expect(context).not.toContain('LLM 生成的回答');
+    expect(context).not.toContain('LLM-generated answer');
   });
 
   it('includes answer when includeAnswer is true', () => {
     const context = buildRetrievedContext(sample(), { includeAnswer: true });
-    expect(context).toContain('LLM 生成的回答');
+    expect(context).toContain('LLM-generated answer');
   });
 
   it('skips empty optional fields', () => {

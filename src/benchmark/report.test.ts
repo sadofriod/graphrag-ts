@@ -8,8 +8,8 @@ import { aggregateResults } from './report';
 const queryOf = (id: string, volume: 1 | 2 | 3): BenchmarkQuery => ({
   id,
   volume,
-  story: '故事线',
-  fact: '事实',
+  story: 'storyline',
+  fact: 'fact',
   query: `q-${id}`,
   topK: 5,
   expectation: { entities: ['A'], phrases: ['P'] },

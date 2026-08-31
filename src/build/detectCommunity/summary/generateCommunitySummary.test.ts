@@ -15,20 +15,20 @@ describe('generateCommunitySummary', () => {
         invoke: async (prompt: string) => {
           expect(prompt).toContain('communityId');
           expect(prompt).toContain('communityName');
-          expect(prompt).toContain('【成员】A、B、C');
+          expect(prompt).toContain('[Members] A, B, C');
           return JSON.stringify({
-            communityName: '核心联盟',
-            summaryContent: '成员围绕共同目标协作。',
+            communityName: 'Core Alliance',
+            summaryContent: 'Members collaborate around a shared goal.',
           });
         },
       },
     } as any;
 
     try {
-      const summary = await generateCommunitySummary(community, '【成员】A、B、C');
+      const summary = await generateCommunitySummary(community, '[Members] A, B, C');
       expect(summary).toEqual({
-        communityName: '核心联盟',
-        summaryContent: '成员围绕共同目标协作。',
+        communityName: 'Core Alliance',
+        summaryContent: 'Members collaborate around a shared goal.',
       });
     } finally {
       modelLoaderSingleton.models = originalModels;
@@ -41,18 +41,18 @@ describe('generateCommunitySummary', () => {
         invoke: async () =>
           '```json\n' +
           JSON.stringify({
-            communityName: '核心联盟',
-            summaryContent: '成员围绕共同目标协作。',
+            communityName: 'Core Alliance',
+            summaryContent: 'Members collaborate around a shared goal.',
           }) +
           '\n```',
       },
     } as any;
 
     try {
-      const summary = await generateCommunitySummary(community, '【成员】A、B、C');
+      const summary = await generateCommunitySummary(community, '[Members] A, B, C');
       expect(summary).toEqual({
-        communityName: '核心联盟',
-        summaryContent: '成员围绕共同目标协作。',
+        communityName: 'Core Alliance',
+        summaryContent: 'Members collaborate around a shared goal.',
       });
     } finally {
       modelLoaderSingleton.models = originalModels;

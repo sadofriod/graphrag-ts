@@ -9,8 +9,10 @@ evidence-grounded answer generation.
 > This repository is **generated** from the rag module of a larger project. The
 > code under `src/` is automatically synced by a migration pipeline; everything
 > else (this README, `docs/`, `examples/`) is hand-maintained. See
-> [docs/architecture.md](docs/architecture.md) for the design and
-> [docs/migration.md](docs/migration.md) for how the sync works.
+> [docs/architecture.md](docs/architecture.md) for the design,
+> [docs/migration.md](docs/migration.md) for how the sync works,
+> [docs/comparison.md](docs/comparison.md) for ecosystem positioning, and
+> [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## Requirements
 

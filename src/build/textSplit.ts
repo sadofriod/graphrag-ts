@@ -66,7 +66,7 @@ export interface TextSplitInput {
   mode?: TextSplitMode;
 }
 
-/** .md 扩展名优先，内容含 markdown 标题行兜底。 */
+/** Prefer the .md extension; fall back to content that contains markdown heading lines. */
 const isMarkdown = (content: string, title?: string): boolean => {
   const byName = title ? /\.md$/i.test(title) : false;
   const byContent = /^#{1,6}\s+\S+/m.test(content);
@@ -75,9 +75,9 @@ const isMarkdown = (content: string, title?: string): boolean => {
 
 
 const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextTitle?: string): Promise<ChunkResult[]> => {
-  // 结构切分场景注入当前小节标题，帮助 LLM 聚焦实体/关系抽取。
+  // In structural splitting mode, inject the current section title to help the LLM focus on entity/relation extraction.
   const prompt = await assmblyAgent(
-    contextTitle ? `【当前小节：${contextTitle}】\n${content}` : content,
+    contextTitle ? `[Current section: ${contextTitle}】\n${content}` : content,
     agentRegistry.ragSliceAgent,
   );
   const response = await invokeModelText(sliceModel, prompt);
@@ -87,7 +87,7 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
   });
 
   try {
-    // JSON mode 下输出可能是数组 [{...}]，也可能是 { "chunks": [...] } 包裹对象，两者都兼容。
+    // In JSON mode, the output may be an array ([{...}]) or a wrapper object ({ "chunks": [...] }); support both.
     const parsed = parseLlmJson<Partial<ChunkResult>[] | { chunks?: Partial<ChunkResult>[] }>(response);
     const rawChunks = Array.isArray(parsed) ? parsed : (parsed?.chunks ?? []);
     const llmChunks = rawChunks.map((chunk) => ({
@@ -99,10 +99,10 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
       entities: chunk.entities ?? [],
     }));
 
-    // 质量门槛：chunks 为空或全无实体/边（完全空洞）视为不可信，回退确定性切分。
+    // Quality gate: treat the output as untrustworthy and fall back to deterministic splitting when chunks are empty or contain no entities/edges at all.
     const hasSignal = llmChunks.some((chunk) => chunk.entities.length > 0 || chunk.edges.length > 0);
     if (llmChunks.length === 0 || !hasSignal) {
-      throw new Error('LLM 切片输出空洞（无实体/边）');
+      throw new Error('LLM slice output was empty (no entities/edges)');
     }
 
     return await Promise.all(llmChunks.map(async (chunk) => {
@@ -117,7 +117,7 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
     }));
 
   } catch (error) {
-    logger.warn('LLM 分块输出不可用，回退到确定性切分', error);
+    logger.warn('LLM chunk output is unusable; falling back to deterministic splitting', error);
     const fallbackChunks = await backupSplitter.splitText(content);
     return [{
       parentContent: content,
@@ -175,7 +175,7 @@ const saveChunkResults = async (
   );
 };
 
-/** 确定性切分：RecursiveCharacterTextSplitter，无实体/边/断言。 */
+/** Deterministic splitting: RecursiveCharacterTextSplitter, with no entities, edges, or claims. */
 const deterministicSplit = async (
   content: string,
   embeddingModel: OpenAIEmbeddings,
@@ -195,7 +195,7 @@ const deterministicSplit = async (
   );
 };
 
-/** LLM 语义切分：JSON mode 结构化输出，失败/空洞由 getSmartChunk 内部回退确定性。 */
+/** LLM semantic splitting: structured JSON-mode output; failures or empty results fall back to deterministic splitting inside getSmartChunk. */
 const llmSplit = async (
   content: string,
   sliceModel: ChatDeepSeek,
@@ -207,7 +207,7 @@ const llmSplit = async (
   return saveChunkResults(smartChunk, embeddingModel, namespace, title);
 };
 
-/** markdown 超长：按顶层标题切块 → 合并小段 → 每段串行 LLM 语义切分（段落级兜底）。 */
+/** For very long markdown: split by top-level headings -> merge small sections -> run LLM semantic splitting serially for each section (with section-level fallback). */
 const markdownStructureSplit = async (
   content: string,
   sliceModel: ChatDeepSeek,
@@ -219,7 +219,7 @@ const markdownStructureSplit = async (
   const results: SplitResult[] = [];
 
   for (const section of sections) {
-    // 标题注入父块 title，供溯源；段内 LLM 失败由 getSmartChunk 独立回退，不影响其他段。
+    // Inject the heading into the parent chunk title for traceability; if the LLM fails inside one section, getSmartChunk falls back independently without affecting other sections.
     const sectionTitle = title ? `${title}#${section.title}` : (section.title || undefined);
     const smartChunk = await getSmartChunk(section.content, sliceModel, section.title);
     results.push(...(await saveChunkResults(smartChunk, embeddingModel, namespace, sectionTitle)));
@@ -240,7 +240,7 @@ export const textSplit = async (input: TextSplitInput): Promise<SplitResult[]> =
     const embeddingModel = modelLoaderSingleton.models.embedding;
     const sliceModel = modelLoaderSingleton.models.slice;
 
-    // 显式模式优先：deterministic 强制确定性，llm 强制 LLM（不受短文本阈值影响）。
+    // Explicit modes take priority: deterministic forces deterministic splitting, and llm forces the LLM path (ignoring the short-text threshold).
     if (mode === 'deterministic') {
       return deterministicSplit(content, embeddingModel as OpenAIEmbeddings, namespace, title);
     }
@@ -249,12 +249,12 @@ export const textSplit = async (input: TextSplitInput): Promise<SplitResult[]> =
       return llmSplit(content, sliceModel, embeddingModel as OpenAIEmbeddings, namespace, title);
     }
 
-    // auto：短文本不值得付 LLM 成本，直接确定性切分。
+    // auto: short text is not worth an LLM call, so split deterministically.
     if (content.length < DETERMINISTIC_THRESHOLD) {
       return deterministicSplit(content, embeddingModel as OpenAIEmbeddings, namespace, title);
     }
 
-    // auto：超长 markdown 先按标题结构切块再逐段 LLM，其余直接 LLM 语义切分。
+    // auto: very long markdown is split by heading structure first and then processed section by section with the LLM; all other content goes directly to LLM semantic splitting.
     if (content.length > MARKDOWN_STRUCTURE_THRESHOLD && isMarkdown(content, title)) {
       return markdownStructureSplit(content, sliceModel, embeddingModel as OpenAIEmbeddings, namespace, title);
     }

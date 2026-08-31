@@ -9,7 +9,7 @@ export interface MarkdownSection {
 const headingTokens = (markdown: string): Tokens.Heading[] =>
   lexer(markdown).filter((token) => token.type === 'heading') as Tokens.Heading[];
 
-/** 提取顶层标题层级：h1 数量足够（>=2）用 h1；否则降级 h2 兜底；两者都少时退回 h1。 */
+/** Choose the top-level heading depth: use h1 when there are enough h1 headings (>=2); otherwise fall back to h2; if both are scarce, return to h1. */
 export const resolveTopLevelHeading = (markdown: string): number => {
   const headings = headingTokens(markdown);
   const h1 = headings.filter((h) => h.depth === 1).length;
@@ -21,7 +21,7 @@ export const resolveTopLevelHeading = (markdown: string): number => {
 
 const renderToken = (token: Token): string => parser([token]);
 
-/** 按顶层标题切块；顶层标题之前的内容归入首个无标题前言块。 */
+/** Split by top-level headings; content before the first heading is placed into an untitled preface section. */
 export const splitByTopLevelHeadings = (markdown: string): MarkdownSection[] => {
   const topLevel = resolveTopLevelHeading(markdown);
   const sections: MarkdownSection[] = [];
@@ -50,7 +50,7 @@ export const splitByTopLevelHeadings = (markdown: string): MarkdownSection[] => 
   return sections;
 };
 
-/** 合并过小的相邻块：大块（>=minSize）独立保留，小块累积成合理输入区间，减少 LLM 调用次数。 */
+/** Merge adjacent undersized sections: keep large sections (>= minSize) separate, and accumulate small sections into reasonable input ranges to reduce LLM calls. */
 export const mergeSmallSections = (
   sections: readonly MarkdownSection[],
   minSize: number,

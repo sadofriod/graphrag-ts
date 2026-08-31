@@ -10,26 +10,26 @@ import {
 describe('buildKeywordTerms', () => {
   it('orders intent entities, exact/alias matches and keywords before fuzzy/semantic ones', () => {
     const terms = buildKeywordTerms({
-      intentEntities: ['有限重置'],
-      intentKeywords: ['关闭'],
+      intentEntities: ['limited reset'],
+      intentKeywords: ['shutdown'],
       matched: [
-        { name: '凯', matchType: 'exact' },
-        { name: '防静电袋', matchType: 'semantic' },
-        { name: '暗路', matchType: 'fuzzy' },
+        { name: 'Kai', matchType: 'exact' },
+        { name: 'anti-static bag', matchType: 'semantic' },
+        { name: 'dark path', matchType: 'fuzzy' },
       ],
     });
 
-    expect(terms).toEqual(['有限重置', '凯', '关闭', '防静电袋', '暗路']);
+    expect(terms).toEqual(['limited reset', 'Kai', 'shutdown', 'anti-static bag', 'dark path']);
   });
 
   it('returns only precise sources when there are no fuzzy matches', () => {
     const terms = buildKeywordTerms({
-      intentEntities: ['先知'],
-      intentKeywords: ['离线'],
-      matched: [{ name: '幽灵数据团', matchType: 'exact' }],
+      intentEntities: ['prophet'],
+      intentKeywords: ['offline'],
+      matched: [{ name: 'Ghost Data Guild', matchType: 'exact' }],
     });
 
-    expect(terms).toEqual(['先知', '幽灵数据团', '离线']);
+    expect(terms).toEqual(['prophet', 'Ghost Data Guild', 'offline']);
   });
 });
 
@@ -41,17 +41,17 @@ describe('searchChildChunksByKeywords', () => {
     prismaClient.$queryRaw = (async (query: unknown) => {
       calls.push(query);
       return [
-        { id: 'c1', content: '零点协议需要三把钥匙', matches: 2 },
-        { id: 'c2', content: '老星轨是创始人', matches: 1 },
+        { id: 'c1', content: 'The midnight protocol needs three keys', matches: 2 },
+        { id: 'c2', content: 'Old Starrail is the founder', matches: 1 },
       ];
     }) as never;
 
     try {
-      const result = await searchChildChunksByKeywords(['零点协议', '三把钥匙']);
+      const result = await searchChildChunksByKeywords(['midnight protocol', 'three keys']);
 
       expect(result).toEqual([
-        { id: 'c1', content: '零点协议需要三把钥匙', matches: 2 },
-        { id: 'c2', content: '老星轨是创始人', matches: 1 },
+        { id: 'c1', content: 'The midnight protocol needs three keys', matches: 2 },
+        { id: 'c2', content: 'Old Starrail is the founder', matches: 1 },
       ]);
 
       const sql = calls[0] as { text?: string };
@@ -74,14 +74,14 @@ describe('searchChildChunksByKeywords', () => {
     }) as never;
 
     try {
-      await searchChildChunksByKeywords([' 零点协议 ', '零点协议', '']);
+      await searchChildChunksByKeywords([' midnight protocol ', 'midnight protocol', '']);
 
       const sql = calls[0] as { values?: unknown[] };
       const patterns = (sql.values ?? []).filter(
-        (value) => typeof value === 'string' && value.includes('零点协议'),
+        (value) => typeof value === 'string' && value.includes('midnight protocol'),
       );
-      // 去重 + 去空白 + 过滤空串后只保留 1 个关键词；它在「评分表达式 + WHERE」各出现一次
-      expect(patterns).toEqual(['%零点协议%', '%零点协议%']);
+      // After deduplication, trimming, and empty-string filtering, only one keyword remains; it appears once in the scoring expression and once in WHERE.
+      expect(patterns).toEqual(['%midnight protocol%', '%midnight protocol%']);
     } finally {
       prismaClient.$queryRaw = originalQueryRaw;
     }

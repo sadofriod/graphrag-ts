@@ -1,7 +1,7 @@
 import type { BenchmarkQuery } from './dataset';
 import type { QueryEvaluation } from './evaluate';
 
-/** 单条查询的评估结果（含原始查询定义，便于输出明细表）。 */
+/** Evaluation result for a single query, including the original query definition so detailed tables can be rendered. */
 export interface PerQueryResult {
   query: BenchmarkQuery;
   evaluation: QueryEvaluation;

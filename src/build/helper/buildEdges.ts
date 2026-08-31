@@ -38,7 +38,7 @@ interface AggregatedEdge {
   parentId: string | null;
 }
 
-/** 按规范化的 (source::target) 对聚合边并累加权重。 */
+/** Aggregate edges by normalized (source::target) pairs and accumulate weights. */
 const aggregateEdges = (chunks: ChunkEdge[], parentId: string | null): AggregatedEdge[] => {
   const byPair = new Map<string, AggregatedEdge>();
   for (const { source, target, relation, weight } of chunks) {
@@ -59,7 +59,7 @@ const aggregateEdges = (chunks: ChunkEdge[], parentId: string | null): Aggregate
   return [...byPair.values()];
 };
 
-/** 串行 upsert 全部唯一实体并解析 id，避免多个边共享实体时并行 upsert 触发唯一约束冲突。 */
+/** Upsert all unique entities serially and resolve their ids to avoid unique-constraint conflicts when multiple edges share entities. */
 const resolveEntities = async (
   edges: readonly AggregatedEdge[],
   namespace: string,

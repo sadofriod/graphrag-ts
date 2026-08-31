@@ -42,7 +42,9 @@ export const persistCommunitySummaries = async (
     profileRows.map((profile) => [profile.entityId, profile.profile]),
   );
 
-  // M6（单向只读）：【节点摘要】优先读 EntityProfile（规范设定档案），未命中回退 build 抽取的 description。
+  // M6 (one-way read-only): [Node summaries] prefer EntityProfile (canonical
+  // setting profiles); if unavailable, fall back to the description extracted
+  // during build.
   const entityDescriptions = new Map(
     entityRows.map((entity) => [
       entity.name,

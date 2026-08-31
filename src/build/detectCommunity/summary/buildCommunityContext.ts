@@ -32,7 +32,7 @@ const buildCoreLines = (
   members: readonly string[],
   entityDescriptions: ReadonlyMap<string, string | undefined>,
 ): string[] => {
-  const lines = [`【成员】${members.join('、')}`];
+  const lines = [`[Members]${members.join('、')}`];
   const described = members
     .map((name) => {
       const description = entityDescriptions.get(name.trim());
@@ -41,7 +41,7 @@ const buildCoreLines = (
     .filter((entity) => entity !== null);
 
   if (described.length > 0) {
-    lines.push('【节点摘要】');
+    lines.push('[Node summaries]');
     for (const entity of described) {
       lines.push(`- ${entity.name}: ${entity.description}`);
     }
@@ -50,8 +50,10 @@ const buildCoreLines = (
 };
 
 /**
- * 把社区真实内容组装成接地文本：四段结构【成员】【节点摘要】【关键关系】【事实声明】。
- * 边按两端点度之和降序，声明按其引用实体的最高度降序；超预算时按优先级截断低显著项。
+ * Assemble grounded community text with four sections: [Members], [Node summaries],
+ * [Key relationships], and [Claims].
+ * Sort edges by the sum of endpoint degrees, sort claims by the highest degree
+ * among referenced entities, and truncate the lowest-priority items when over budget.
  */
 export const buildCommunityContext = (
   input: CommunityContextInput,
@@ -96,7 +98,7 @@ export const buildCommunityContext = (
 
   if (sortedEdges.length > 0) {
     appendSection(
-      '【关键关系】',
+      '[Key relationships]',
       sortedEdges.map(
         (edge, index) => `${index + 1}. ${edge.source} --${edge.relationshipDesc}--> ${edge.target}`,
       ),
@@ -105,9 +107,9 @@ export const buildCommunityContext = (
 
   if (sortedClaims.length > 0) {
     appendSection(
-      '【事实声明】',
+      '[Claims]',
       sortedClaims.map((claim, index) => {
-        const suffix = claim.object ? `（关联 ${claim.object}）` : '';
+        const suffix = claim.object ? ` (relates to ${claim.object})` : '';
         return `${index + 1}. ${claim.subject}${suffix}: ${claim.description}`;
       }),
     );
@@ -115,4 +117,3 @@ export const buildCommunityContext = (
 
   return kept.join('\n');
 };
-

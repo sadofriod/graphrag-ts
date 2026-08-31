@@ -9,9 +9,9 @@ export async function generateAnswer(
   evidence: readonly EvidenceSnippet[],
 ): Promise<string> {
   const context = [
-    '【社区摘要】',
+    '[Community summaries]',
     ...communitySummaries,
-    '【证据】',
+    '[Evidence]',
     ...evidence.map((snippet, index) => `${index + 1}. ${snippet.text}`),
   ].join('\n');
   const prompt = await assmblyAgent(

@@ -8,17 +8,17 @@ const resultOf = (overrides: Partial<PerQueryResult>): PerQueryResult => ({
   query: {
     id: 'v1-q1',
     volume: 1,
-    story: '完美记忆的裂隙',
-    fact: '事实',
-    query: '问题',
+    story: 'The Fracture of Perfect Memory',
+    fact: 'fact',
+    query: 'question',
     topK: 5,
-    expectation: { entities: ['凯'], phrases: ['完美记忆'] },
+    expectation: { entities: ['Kai'], phrases: ['perfect memory'] },
   },
   evaluation: {
-    foundEntities: ['凯'],
+    foundEntities: ['Kai'],
     missingEntities: [],
-    foundPhrases: ['完美记忆'],
-    missingPhrases: ['深紫色脉冲'],
+    foundPhrases: ['perfect memory'],
+    missingPhrases: ['deep violet pulse'],
     entityRecall: 1,
     phraseRecall: 0.5,
     combinedRecall: 0.5,
@@ -33,11 +33,11 @@ describe('formatMarkdownReport', () => {
     const report = aggregateResults(results);
     const markdown = formatMarkdownReport(report, results);
 
-    expect(markdown).toContain('# GraphRAG 召回率 Benchmark');
-    expect(markdown).toContain('查询总数: 1');
-    expect(markdown).toContain('严格命中: 0 / 1');
-    expect(markdown).toContain('平均实体召回率: 100.0%');
-    expect(markdown).toContain('| v1-q1 | 第1卷 | 完美记忆的裂隙 | ❌ | 100% | 50% | - | 深紫色脉冲 |');
+    expect(markdown).toContain('# GraphRAG Recall Benchmark');
+    expect(markdown).toContain('Total queries: 1');
+    expect(markdown).toContain('Strict hits: 0 / 1');
+    expect(markdown).toContain('Average entity recall: 100.0%');
+    expect(markdown).toContain('| v1-q1 | Volume 1 | The Fracture of Perfect Memory | ❌ | 100% | 50% | - | deep violet pulse |');
   });
 
   it('lists missing items in the detail row', () => {
@@ -45,9 +45,9 @@ describe('formatMarkdownReport', () => {
       resultOf({
         evaluation: {
           foundEntities: [],
-          missingEntities: ['凯', '老陈'],
+          missingEntities: ['Kai', 'Chen'],
           foundPhrases: [],
-          missingPhrases: ['完美记忆'],
+          missingPhrases: ['perfect memory'],
           entityRecall: 0,
           phraseRecall: 0,
           combinedRecall: 0,
@@ -58,6 +58,6 @@ describe('formatMarkdownReport', () => {
     const report = aggregateResults(results);
     const markdown = formatMarkdownReport(report, results);
 
-    expect(markdown).toContain('| 凯、老陈 | 完美记忆 |');
+    expect(markdown).toContain('| Kai、Chen | perfect memory |');
   });
 });

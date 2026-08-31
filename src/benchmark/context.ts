@@ -1,14 +1,14 @@
 import type { RetrievalResult } from '../retrieval/types/retrieval';
 
 /**
- * 从检索 API 响应中提取可匹配的上下文文本：
- * - 每个命中社区的 name / members / summary
- * - 每条 evidence 的 text（原文子块，recall 的主要依据）
- * - 可选：answer（LLM 生成的回答）
+ * Extract matchable context text from a retrieval API response:
+ * - name / members / summary for each hit community
+ * - the text of each evidence item (source child chunk, the main basis for recall)
+ * - optionally, answer (the LLM-generated answer)
  *
- * 召回率默认只看「检索上下文」（社区 + 证据），不包含 answer，
- * 以避免把生成质量混入检索召回率；需要端到端口径时可通过
- * `includeAnswer: true` 打开。
+ * Recall looks only at the retrieval context by default (communities + evidence), excluding answer,
+ * to avoid mixing generation quality into retrieval recall; enable end-to-end evaluation via
+ * `includeAnswer: true`.
  */
 
 export interface RetrievedContextOptions {

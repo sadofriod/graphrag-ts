@@ -28,7 +28,7 @@ describe('recallCommunitiesByTopology', () => {
       expect(sql.text).toContain('RECURSIVE');
       expect(sql.text).toContain('hop');
       expect(sql.text).toContain('"namespace"');
-      // 回归：仅允许单个递归分支（单 UNION），否则 PG 抛 42P19
+      // Regression: allow only a single recursive branch (one UNION), or PostgreSQL throws 42P19
       // "recursive reference to query reachable must not appear within its non-recursive term"。
       expect(sql.text?.match(/UNION/g)?.length).toBe(1);
       expect(sql.text).toContain('CASE WHEN');

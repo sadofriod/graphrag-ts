@@ -8,7 +8,7 @@ describe('descriptionHash', () => {
     const hash = descriptionHash('  Hello World  ');
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hash).toBe(descriptionHash('hello world'));
-    // 不折叠空格：不同措辞不合并
+    // Do not collapse whitespace: differently phrased claims should not be merged
     expect(hash).not.toBe(descriptionHash('hello  world'));
   });
 });
@@ -112,9 +112,9 @@ describe('buildClaims', () => {
     try {
       await buildClaims(
         [
-          { subject: 'Alpha', description: 'Alpha 是主角' },
-          { subject: 'Alpha', description: 'Alpha 是主角' },
-          { subject: 'Alpha', description: 'alpha 是主角' },
+          { subject: 'Alpha', description: 'Alpha is the protagonist' },
+          { subject: 'Alpha', description: 'Alpha is the protagonist' },
+          { subject: 'Alpha', description: 'alpha is the protagonist' },
         ],
         { parentId: 'parent-1', childIds: [], namespace: 'ns-a' },
       );
