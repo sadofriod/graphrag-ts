@@ -53,6 +53,6 @@ describe('normalizeSlug', () => {
   });
 
   it('rejects non-ASCII characters', () => {
-    expect(normalizeSlug('workspace')).toBeUndefined();
+    expect(normalizeSlug('café')).toBeUndefined();
   });
 });

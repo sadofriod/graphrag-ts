@@ -20,6 +20,14 @@ export const persistCommunitySummaries = async (
     throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
   }
 
+  const entityProfileClient = (prismaClient as unknown as {
+    entityProfile?: {
+      findMany: (args: {
+        select: { entityId: true; profile: true };
+      }) => Promise<Array<{ entityId: string; profile: string | null }>>;
+    };
+  }).entityProfile;
+
   const [edgeRows, claimRows, entityRows, profileRows] = await Promise.all([
     prismaClient.rAGGraphEdge.findMany({
       orderBy: [{ sourceEntityId: 'asc' }, { targetEntityId: 'asc' }],
@@ -35,7 +43,7 @@ export const persistCommunitySummaries = async (
       },
     }),
     prismaClient.rAGEntity.findMany({ select: { id: true, name: true, description: true } }),
-    prismaClient.entityProfile.findMany({ select: { entityId: true, profile: true } }),
+    entityProfileClient?.findMany({ select: { entityId: true, profile: true } }) ?? Promise.resolve([]),
   ]);
 
   const profileByEntityId = new Map(

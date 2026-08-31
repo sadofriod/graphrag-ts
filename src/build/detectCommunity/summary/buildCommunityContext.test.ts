@@ -25,7 +25,7 @@ describe('buildCommunityContext', () => {
   it('builds the four sections with members and node summaries first', () => {
     const output = buildCommunityContext(sampleInput, { maxTokens: 1000 });
 
-    expect(output).toContain('[Members] A, B, C、D、E');
+    expect(output).toContain('[Members] A, B, C, D, E');
     expect(output).toContain('[Node summaries]');
     expect(output).toContain('- A: central entity');
     expect(output).toContain('- D: leaves often');
@@ -49,7 +49,7 @@ describe('buildCommunityContext', () => {
   it('truncates low-priority items when the token budget is exceeded', () => {
     const output = buildCommunityContext(sampleInput, { maxTokens: 10 });
 
-    expect(output).toContain('[Members] A, B, C、D、E');
+    expect(output).toContain('[Members] A, B, C, D, E');
     expect(output).not.toContain('--leads-->');
     expect(output).not.toContain('[Claims]');
   });

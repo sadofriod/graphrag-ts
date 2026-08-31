@@ -32,7 +32,7 @@ const buildCoreLines = (
   members: readonly string[],
   entityDescriptions: ReadonlyMap<string, string | undefined>,
 ): string[] => {
-  const lines = [`[Members]${members.join('、')}`];
+  const lines = [`[Members]${members.length > 0 ? ` ${members.join(', ')}` : ''}`];
   const described = members
     .map((name) => {
       const description = entityDescriptions.get(name.trim());

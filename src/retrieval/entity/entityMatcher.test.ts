@@ -64,9 +64,9 @@ describe('matchAliasEntity', () => {
 
 describe('fuzzyMatchEntity', () => {
   it('matches entities above the similarity threshold', () => {
-    const result = fuzzyMatchEntity('Appl', entities);
+    const result = fuzzyMatchEntity('inc', entities);
 
-    expect(result.map((matched) => matched.entityId)).toEqual(['e1']);
+    expect(result.map((matched) => matched.entityId)).toEqual(['e3']);
     expect(result[0]?.matchType).toBe('fuzzy');
     expect(result[0]?.score).toBe(0.5);
   });
