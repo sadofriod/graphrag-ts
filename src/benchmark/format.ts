@@ -4,27 +4,27 @@ const percent = (value: number, digits = 1): string => `${(value * 100).toFixed(
 
 const joinMissing = (items: readonly string[]): string => (items.length === 0 ? '-' : items.join('、'));
 
-/** 把聚合报告渲染为 Markdown，便于在终端直接查看与存档。 */
+/** Render the aggregated report as Markdown so it can be viewed and archived directly from the terminal. */
 export const formatMarkdownReport = (
   report: BenchmarkReport,
   results: readonly PerQueryResult[],
 ): string => {
   const lines: string[] = [];
-  lines.push('# GraphRAG 召回率 Benchmark');
+  lines.push('# GraphRAG Recall Benchmark');
   lines.push('');
-  lines.push(`- 查询总数: ${report.total}`);
-  lines.push(`- 严格命中: ${report.hits} / ${report.total}（${percent(report.strictHitRate)}）`);
-  lines.push(`- 平均实体召回率: ${percent(report.avgEntityRecall)}`);
-  lines.push(`- 平均信息召回率: ${percent(report.avgPhraseRecall)}`);
-  lines.push(`- 平均综合召回率: ${percent(report.avgCombinedRecall)}`);
+  lines.push(`- Total queries: ${report.total}`);
+  lines.push(`- Strict hits: ${report.hits} / ${report.total}（${percent(report.strictHitRate)})`);
+  lines.push(`- Average entity recall: ${percent(report.avgEntityRecall)}`);
+  lines.push(`- Average phrase recall: ${percent(report.avgPhraseRecall)}`);
+  lines.push(`- Average combined recall: ${percent(report.avgCombinedRecall)}`);
   lines.push('');
-  lines.push('## 分卷统计');
+  lines.push('## Per-volume summary');
   lines.push('');
-  lines.push('| 卷 | 查询数 | 命中 | 命中率 | 实体召回 | 信息召回 |');
+  lines.push('| Volume | Queries | Hits | Hit rate | Entity recall | Phrase recall |');
   lines.push('|---|:---:|:---:|:---:|:---:|:---:|');
   for (const [volume, summary] of Object.entries(report.byVolume)) {
     const row = [
-      `第${volume}卷`,
+      `Volume ${volume}`,
       String(summary.total),
       String(summary.hits),
       percent(summary.total === 0 ? 0 : summary.hits / summary.total),
@@ -34,14 +34,14 @@ export const formatMarkdownReport = (
     lines.push(`| ${row} |`);
   }
   lines.push('');
-  lines.push('## 逐题明细');
+  lines.push('## Per-query details');
   lines.push('');
-  lines.push('| id | 卷 | 故事线 | 命中 | 实体召回 | 信息召回 | 缺失实体 | 缺失信息 |');
+  lines.push('| id | Volume | Storyline | Hit | Entity recall | Phrase recall | Missing entities | Missing phrases |');
   lines.push('|---|:---:|---|:---:|:---:|:---:|---|---|');
   for (const { query, evaluation } of results) {
     const row = [
       query.id,
-      `第${query.volume}卷`,
+      `Volume ${query.volume}`,
       query.story,
       evaluation.hit ? '✅' : '❌',
       percent(evaluation.entityRecall, 0),

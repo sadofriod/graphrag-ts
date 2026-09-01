@@ -1,8 +1,8 @@
 import type { RagApiClient } from './client';
 
 /**
- * 通过 API 触达大纲文件夹建索引，并轮询构建状态直到成功/失败。
- * 返回 buildId；失败或超时抛错。
+ * Build an index for the outline folder via the API and poll the build status until it succeeds or fails.
+ * Returns the buildId; throws if the build fails or times out.
  */
 
 export interface BuildAndWaitOptions {

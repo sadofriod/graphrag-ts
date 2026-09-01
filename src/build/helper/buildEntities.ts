@@ -5,7 +5,7 @@ export interface ChunkEntity {
   description?: string;
 }
 
-/** 实体描述后写覆盖：description 为空时不更新已有值。 */
+/** Entity descriptions use last-write-wins, but an empty description does not overwrite an existing value. */
 export const buildEntities = async (
   entities: readonly ChunkEntity[],
   namespace: string,

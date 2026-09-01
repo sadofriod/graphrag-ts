@@ -13,9 +13,9 @@ import {
 } from './entityMatcher';
 
 const entities: EntityRecord[] = [
-  { id: 'e1', name: '苹果' },
-  { id: 'e2', name: '香蕉' },
-  { id: 'e3', name: '苹果公司' },
+  { id: 'e1', name: 'Apple' },
+  { id: 'e2', name: 'Banana' },
+  { id: 'e3', name: 'Apple Inc.' },
 ];
 
 const aliases: EntityAlias[] = [
@@ -25,7 +25,7 @@ const aliases: EntityAlias[] = [
 
 describe('matchExactEntity', () => {
   it('matches entity names contained in the query', () => {
-    const result = matchExactEntity('苹果和香蕉的合作', entities);
+    const result = matchExactEntity('Apple and Banana partnership', entities);
 
     expect(result.map((matched) => matched.entityId)).toEqual(['e1', 'e2']);
     expect(result[0]?.matchType).toBe('exact');
@@ -33,21 +33,21 @@ describe('matchExactEntity', () => {
   });
 
   it('matches a full multi-char entity name inside the query', () => {
-    const result = matchExactEntity('苹果公司怎么样', entities);
+    const result = matchExactEntity('How is Apple Inc. doing', entities);
 
     expect(result.map((matched) => matched.entityId)).toEqual(['e1', 'e3']);
   });
 
   it('returns empty when nothing matches', () => {
-    expect(matchExactEntity('天气', entities)).toEqual([]);
+    expect(matchExactEntity('weather', entities)).toEqual([]);
   });
 });
 
 describe('matchAliasEntity', () => {
   it('resolves an alias back to its entity name', () => {
-    const result = matchAliasEntity('我喜欢 apple', aliases, entities);
+    const result = matchAliasEntity('I like apple', aliases, entities);
 
-    expect(result).toEqual([{ entityId: 'e1', name: '苹果', matchType: 'alias', score: 1 }]);
+    expect(result).toEqual([{ entityId: 'e1', name: 'Apple', matchType: 'alias', score: 1 }]);
   });
 
   it('deduplicates when multiple aliases of one entity match', () => {
@@ -64,15 +64,15 @@ describe('matchAliasEntity', () => {
 
 describe('fuzzyMatchEntity', () => {
   it('matches entities above the similarity threshold', () => {
-    const result = fuzzyMatchEntity('苹苹', entities);
+    const result = fuzzyMatchEntity('inc', entities);
 
-    expect(result.map((matched) => matched.entityId)).toEqual(['e1']);
+    expect(result.map((matched) => matched.entityId)).toEqual(['e3']);
     expect(result[0]?.matchType).toBe('fuzzy');
     expect(result[0]?.score).toBe(0.5);
   });
 
   it('excludes entities below the threshold', () => {
-    expect(fuzzyMatchEntity('无关', entities)).toEqual([]);
+    expect(fuzzyMatchEntity('irrelevant', entities)).toEqual([]);
   });
 });
 
@@ -80,9 +80,9 @@ describe('semanticMatchEntity', () => {
   it('matches entities whose embeddings are close to the query', async () => {
     const originalModels = modelLoaderSingleton.models;
     const vectorMap: Record<string, number[]> = {
-      '苹果': [1, 0],
-      '香蕉': [0, 1],
-      '苹果公司': [0.8, 0.6],
+      'Apple': [1, 0],
+      'Banana': [0, 1],
+      'Apple Inc.': [0.8, 0.6],
     };
 
     modelLoaderSingleton.models = {
@@ -91,7 +91,7 @@ describe('semanticMatchEntity', () => {
     } as never;
 
     try {
-      const result = await semanticMatchEntity('苹果', entities);
+      const result = await semanticMatchEntity('Apple', entities);
 
       expect(result.map((matched) => matched.entityId)).toEqual(['e1', 'e3']);
       expect(result[0]?.matchType).toBe('semantic');
@@ -105,8 +105,8 @@ describe('semanticMatchEntity', () => {
   it('respects the similarity threshold', async () => {
     const originalModels = modelLoaderSingleton.models;
     const vectorMap: Record<string, number[]> = {
-      '苹果': [1, 0],
-      '苹果公司': [0.8, 0.6],
+      'Apple': [1, 0],
+      'Apple Inc.': [0.8, 0.6],
     };
 
     modelLoaderSingleton.models = {
@@ -115,7 +115,7 @@ describe('semanticMatchEntity', () => {
     } as never;
 
     try {
-      const result = await semanticMatchEntity('苹果', entities, 0.9);
+      const result = await semanticMatchEntity('Apple', entities, 0.9);
 
       expect(result.map((matched) => matched.entityId)).toEqual(['e1']);
     } finally {
@@ -128,9 +128,9 @@ describe('matchEntitiesWithSemantic', () => {
   it('fuses all four channels including semantic', async () => {
     const originalModels = modelLoaderSingleton.models;
     const vectorMap: Record<string, number[]> = {
-      '苹果': [1, 0],
-      '香蕉': [0, 1],
-      '苹果公司': [0.8, 0.6],
+      'Apple': [1, 0],
+      'Banana': [0, 1],
+      'Apple Inc.': [0.8, 0.6],
     };
 
     modelLoaderSingleton.models = {
@@ -139,7 +139,7 @@ describe('matchEntitiesWithSemantic', () => {
     } as never;
 
     try {
-      const result = await matchEntitiesWithSemantic('苹果', entities, aliases);
+      const result = await matchEntitiesWithSemantic('Apple', entities, aliases);
 
       expect(result.map((matched) => matched.entityId)).toEqual(['e1', 'e3']);
       expect(result[0]?.matchType).toBe('exact');
@@ -152,12 +152,12 @@ describe('matchEntitiesWithSemantic', () => {
 describe('fuseMatchedEntitiesWithRRF', () => {
   it('fuses channels and ranks multi-channel hits higher', () => {
     const exact: MatchedEntity[] = [
-      { entityId: 'e1', name: '苹果', matchType: 'exact', score: 1 },
-      { entityId: 'e2', name: '香蕉', matchType: 'exact', score: 1 },
+      { entityId: 'e1', name: 'Apple', matchType: 'exact', score: 1 },
+      { entityId: 'e2', name: 'Banana', matchType: 'exact', score: 1 },
     ];
     const alias: MatchedEntity[] = [
-      { entityId: 'e2', name: '香蕉', matchType: 'alias', score: 1 },
-      { entityId: 'e3', name: '苹果公司', matchType: 'alias', score: 1 },
+      { entityId: 'e2', name: 'Banana', matchType: 'alias', score: 1 },
+      { entityId: 'e3', name: 'Apple Inc.', matchType: 'alias', score: 1 },
     ];
 
     const result = fuseMatchedEntitiesWithRRF([exact, alias]);

@@ -20,6 +20,14 @@ export const persistCommunitySummaries = async (
     throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
   }
 
+  const entityProfileClient = (prismaClient as unknown as {
+    entityProfile?: {
+      findMany: (args: {
+        select: { entityId: true; profile: true };
+      }) => Promise<Array<{ entityId: string; profile: string | null }>>;
+    };
+  }).entityProfile;
+
   const [edgeRows, claimRows, entityRows, profileRows] = await Promise.all([
     prismaClient.rAGGraphEdge.findMany({
       orderBy: [{ sourceEntityId: 'asc' }, { targetEntityId: 'asc' }],
@@ -35,14 +43,16 @@ export const persistCommunitySummaries = async (
       },
     }),
     prismaClient.rAGEntity.findMany({ select: { id: true, name: true, description: true } }),
-    prismaClient.entityProfile.findMany({ select: { entityId: true, profile: true } }),
+    entityProfileClient?.findMany({ select: { entityId: true, profile: true } }) ?? Promise.resolve([]),
   ]);
 
   const profileByEntityId = new Map(
     profileRows.map((profile) => [profile.entityId, profile.profile]),
   );
 
-  // M6（单向只读）：【节点摘要】优先读 EntityProfile（规范设定档案），未命中回退 build 抽取的 description。
+  // M6 (one-way read-only): [Node summaries] prefer EntityProfile (canonical
+  // setting profiles); if unavailable, fall back to the description extracted
+  // during build.
   const entityDescriptions = new Map(
     entityRows.map((entity) => [
       entity.name,

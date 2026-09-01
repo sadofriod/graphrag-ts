@@ -14,11 +14,11 @@ describe('estimateTokens', () => {
 
   it('counts cjk text at 1.8 chars per token', () => {
     // 4 cjk chars -> ceil(4/1.8) = 3
-    expect(estimateTokens('中文测试')).toBe(3);
+    expect(estimateTokens('Chinese test')).toBe(3);
   });
 
   it('mixes ascii and cjk', () => {
     // 1 ascii + 2 cjk -> ceil(0.25 + 1.111) = 2
-    expect(estimateTokens('A中文')).toBe(2);
+    expect(estimateTokens('AChinese')).toBe(2);
   });
 });

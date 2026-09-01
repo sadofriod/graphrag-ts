@@ -4,11 +4,12 @@ import { prismaClient } from '../../build/helper/prismaClient';
 import { getCurrentNamespace } from '../../namespace/namespaceContext';
 
 /**
- * 子块关键词召回：按查询关键词（实体名 + 关键词）做子串（ILIKE）匹配，
- * 直接命中包含精确事实短语的原始子块，弥补向量召回「相关但不精确」的短板。
- * 按「命中关键词数 + 子块长度」排序（更长的块更可能含完整事实）。
+ * Child-chunk keyword recall: perform substring (ILIKE) matching using query terms (entity names + keywords),
+ * to directly hit source child chunks that contain exact fact phrases and compensate for vector recall returning relevant-but-imprecise results.
+ * Sort by the number of matched keywords plus child-chunk length (longer chunks
+ * are more likely to contain a complete fact).
  *
- * 与 `searchSimilarChildChunks`（向量）合并去重后进入证据，见 `mergeChildChunks`。
+ * Merge and deduplicate the results with `searchSimilarChildChunks` (vector search) before they enter evidence; see `mergeChildChunks`.
  */
 
 export interface KeywordChunkHit {
@@ -24,7 +25,7 @@ export interface MergeableChunk {
 
 const KEYWORD_CAP = 16;
 
-/** 供关键词召回取词的候选源（来自查询意图 + 实体匹配结果）。 */
+/** Candidate term sources for keyword recall (from query intent + entity matching results). */
 export interface KeywordSource {
   intentEntities: readonly string[];
   intentKeywords: readonly string[];
@@ -32,9 +33,9 @@ export interface KeywordSource {
 }
 
 /**
- * 组装关键词候选，按「精确优先」排序：
- * intent 实体（LLM 高置信） → 实体精确/别名匹配 → 查询关键词 → 模糊/语义匹配。
- * 先让高置信词进入（keywordSearch 内部会截断到 KEYWORD_CAP），避免低分模糊匹配挤掉精确词。
+ * Assemble keyword candidates with exact matches first:
+ * intent entities (high-confidence from the LLM) -> exact/alias entity matches -> query keywords -> fuzzy/semantic matches.
+ * Let high-confidence terms enter first (`keywordSearch` truncates internally to KEYWORD_CAP) so low-scoring fuzzy matches do not crowd out exact ones.
  */
 export function buildKeywordTerms(source: KeywordSource): string[] {
   const exact = source.matched
@@ -93,7 +94,7 @@ export async function searchChildChunksByKeywords(
   return rows.map((row) => ({ id: row.id, content: row.content, matches: row.matches }));
 }
 
-/** 主序（向量）优先、次序（关键词）补充，按 id 去重后截断到 cap。 */
+/** Keep the primary order from vector recall, supplement with keyword recall, deduplicate by id, and then truncate to cap. */
 export function mergeChildChunks(
   primary: readonly MergeableChunk[],
   secondary: readonly MergeableChunk[],

@@ -170,7 +170,7 @@ describe('textSplit', () => {
   });
 
   it('falls back to deterministic splitting when the slice model output is not JSON', async () => {
-    stubModels({ invoke: async () => '抱歉，我无法输出 JSON。' });
+    stubModels({ invoke: async () => 'Sorry, I cannot output JSON.' });
     const createdParents: Array<{ data: { namespace: string; content: string; title?: string } }> = [];
     const { originalTransaction } = installFakeTx(createdParents);
 
@@ -258,17 +258,17 @@ describe('textSplit', () => {
     const { originalTransaction } = installFakeTx(createdParents);
 
     const content =
-      '# 时空设定\n\n' +
-      '世界规则描述。'.repeat(300) +
-      '\n\n# 角色设定\n\n' +
-      '林默与苏晚的故事。'.repeat(300);
+      '# Space-Time Setting\n\n' +
+      'World rules description. '.repeat(300) +
+      '\n\n# Character Setup\n\n' +
+      'The story of Lin Mo and Su Wan. '.repeat(300);
 
     try {
       const result = await textSplit({ content, title: 'doc.md', namespace: 'ns-a' });
       expect(llmCalls).toBe(2);
       expect(createdParents).toHaveLength(2);
-      expect(createdParents[0]?.data.title).toBe('doc.md#时空设定');
-      expect(createdParents[1]?.data.title).toBe('doc.md#角色设定');
+      expect(createdParents[0]?.data.title).toBe('doc.md#Space-Time Setting');
+      expect(createdParents[1]?.data.title).toBe('doc.md#Character Setup');
       expect(result).toHaveLength(2);
     } finally {
       prismaClient.$transaction = originalTransaction;

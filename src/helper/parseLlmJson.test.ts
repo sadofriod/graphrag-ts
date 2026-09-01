@@ -23,12 +23,12 @@ describe('parseLlmJson', () => {
   });
 
   it('extracts JSON embedded in surrounding prose', () => {
-    const raw = '以下是结果：\n{"answer":"ok"}\n请查收。';
+    const raw = 'Here is the result:\n{"answer":"ok"}\nPlease review it.';
     expect(parseLlmJson<{ answer: string }>(raw)).toEqual({ answer: 'ok' });
   });
 
   it('throws with a preview of the raw output when no JSON is present', () => {
-    expect(() => parseLlmJson('抱歉，我无法理解你的请求。')).toThrow(/不是合法 JSON/);
+    expect(() => parseLlmJson('Sorry, I could not understand your request.')).toThrow(/is not valid JSON/);
   });
 
   it('truncates long raw output in the error preview', () => {

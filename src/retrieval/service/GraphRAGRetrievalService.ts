@@ -43,11 +43,11 @@ interface LoadedEdge {
   communityId: string | null;
 }
 
-/** 向量召回子块窗口。 */
+/** Vector recall child-chunk window. */
 const VECTOR_CHILD_TOPK = 8;
-/** 关键词（实体名 + 查询词）子块召回条数。 */
+/** Number of child chunks recalled by keywords (entity names + query terms). */
 const KEYWORD_SEARCH_LIMIT = 16;
-/** 证据子块上限（向量 + 关键词合并去重后）。 */
+/** Maximum number of evidence child chunks after merging and deduplicating vector + keyword recall. */
 const EVIDENCE_CHILD_LIMIT = 20;
 
 const loadEntities = async (): Promise<EntityRecord[]> => {

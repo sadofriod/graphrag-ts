@@ -11,23 +11,23 @@ describe('parseQuery', () => {
       embedding: {},
       slice: {
         invoke: async (prompt: string) => {
-          expect(prompt).toContain('Apple and Banana 合作背景');
+          expect(prompt).toContain('Apple and Banana partnership background');
           return JSON.stringify({
             entities: ['Apple', 'Banana'],
             keywords: ['apple', 'banana'],
-            themes: ['合作'],
+            themes: ['partnership'],
           });
         },
       },
     } as never;
 
     try {
-      const intent = await parseQuery('Apple and Banana 合作背景');
+      const intent = await parseQuery('Apple and Banana partnership background');
 
-      expect(intent.rawQuery).toBe('Apple and Banana 合作背景');
+      expect(intent.rawQuery).toBe('Apple and Banana partnership background');
       expect(intent.entities).toEqual(['Apple', 'Banana']);
       expect(intent.keywords).toEqual(['apple', 'banana']);
-      expect(intent.themes).toEqual(['合作']);
+      expect(intent.themes).toEqual(['partnership']);
     } finally {
       modelLoaderSingleton.models = originalModels;
     }
@@ -44,14 +44,14 @@ describe('parseQuery', () => {
           JSON.stringify({
             entities: ['Apple'],
             keywords: ['apple'],
-            themes: ['合作'],
+            themes: ['partnership'],
           }) +
           '\n```',
       },
     } as never;
 
     try {
-      const intent = await parseQuery('Apple and Banana 合作背景');
+      const intent = await parseQuery('Apple and Banana partnership background');
 
       expect(intent.entities).toEqual(['Apple']);
     } finally {

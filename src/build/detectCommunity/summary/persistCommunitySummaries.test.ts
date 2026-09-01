@@ -6,12 +6,17 @@ import { persistCommunitySummaries } from './persistCommunitySummaries';
 import type { CommunityDetectionResult } from '../types';
 
 describe('persistCommunitySummaries', () => {
+  const entityProfileClient = prismaClient as unknown as {
+    entityProfile?: {
+      findMany: (...args: unknown[]) => unknown;
+    };
+  };
   const originalModels = modelLoaderSingleton.models;
   const originalSummaryCreate = prismaClient.rAGCommunitySummary.create;
   const originalEdgeFindMany = prismaClient.rAGGraphEdge.findMany;
   const originalClaimFindMany = prismaClient.rAGClaim.findMany;
   const originalEntityFindMany = prismaClient.rAGEntity.findMany;
-  const originalProfileFindMany = prismaClient.entityProfile.findMany;
+  const originalProfileFindMany = entityProfileClient.entityProfile?.findMany;
   const originalEdgeUpdate = prismaClient.rAGGraphEdge.update;
   const originalClaimUpdate = prismaClient.rAGClaim.update;
   const originalExecuteRaw = prismaClient.$executeRaw;
@@ -52,8 +57,9 @@ describe('persistCommunitySummaries', () => {
     prismaClient.rAGEntity.findMany = (() =>
       Promise.resolve([]) as never) as typeof prismaClient.rAGEntity.findMany;
 
-    prismaClient.entityProfile.findMany = (() =>
-      Promise.resolve([]) as never) as typeof prismaClient.entityProfile.findMany;
+    entityProfileClient.entityProfile = {
+      findMany: (() => Promise.resolve([]) as never) as () => Promise<never>,
+    };
 
     prismaClient.rAGCommunitySummary.create = ((args: unknown) => {
       summaryCreateCalls.push(args);
@@ -98,7 +104,11 @@ describe('persistCommunitySummaries', () => {
       prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
       prismaClient.rAGClaim.findMany = originalClaimFindMany;
       prismaClient.rAGEntity.findMany = originalEntityFindMany;
-      prismaClient.entityProfile.findMany = originalProfileFindMany;
+      if (originalProfileFindMany) {
+        entityProfileClient.entityProfile = { findMany: originalProfileFindMany };
+      } else {
+        delete entityProfileClient.entityProfile;
+      }
       prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
       prismaClient.rAGClaim.update = originalClaimUpdate;
       prismaClient.$executeRaw = originalExecuteRaw;
@@ -125,8 +135,10 @@ describe('persistCommunitySummaries', () => {
         { id: 'e1', name: 'A', description: 'desc-A' },
         { id: 'e2', name: 'B', description: 'desc-B' },
       ]) as never) as typeof prismaClient.rAGEntity.findMany;
-    prismaClient.entityProfile.findMany = (() =>
-      Promise.resolve([{ entityId: 'e1', profile: 'PROFILE-A' }]) as never) as typeof prismaClient.entityProfile.findMany;
+    entityProfileClient.entityProfile = {
+      findMany: (() =>
+        Promise.resolve([{ entityId: 'e1', profile: 'PROFILE-A' }]) as never) as () => Promise<never>,
+    };
 
     prismaClient.rAGCommunitySummary.create = (() =>
       Promise.resolve({ id: 'summary-1' }) as never) as typeof prismaClient.rAGCommunitySummary.create;
@@ -150,7 +162,11 @@ describe('persistCommunitySummaries', () => {
       prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
       prismaClient.rAGClaim.findMany = originalClaimFindMany;
       prismaClient.rAGEntity.findMany = originalEntityFindMany;
-      prismaClient.entityProfile.findMany = originalProfileFindMany;
+      if (originalProfileFindMany) {
+        entityProfileClient.entityProfile = { findMany: originalProfileFindMany };
+      } else {
+        delete entityProfileClient.entityProfile;
+      }
       prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
       prismaClient.rAGClaim.update = originalClaimUpdate;
       prismaClient.$executeRaw = originalExecuteRaw;

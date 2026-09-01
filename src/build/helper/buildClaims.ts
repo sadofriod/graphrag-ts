@@ -25,7 +25,7 @@ interface BuildClaimsOptions {
   namespace: string;
 }
 
-/** 仅用于生成去重 hash：trim + 小写，不做空格折叠，避免过度合并。 */
+/** Used only to generate the deduplication hash: trim + lowercase, without collapsing whitespace, to avoid over-merging. */
 const normalizeForHash = (text: string) => text.trim().toLowerCase();
 
 export const descriptionHash = (text: string) =>

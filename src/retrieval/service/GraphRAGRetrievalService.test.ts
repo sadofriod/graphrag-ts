@@ -24,20 +24,20 @@ describe('GraphRAGRetrievalService', () => {
       targetEntityId: 'eB',
       sourceEntity: { name: 'A' },
       targetEntity: { name: 'B' },
-      relationshipDesc: '合作',
+      relationshipDesc: 'partnership',
       weight: 2,
       communitySummaryId: 'c1',
     },
   ];
   const summaries = [
-    { id: 'c1', communityName: '社区A', summaryContent: 'A 与 B 的合作摘要' },
+    { id: 'c1', communityName: 'Community A', summaryContent: 'Summary of the partnership between A and B' },
   ];
   const claimRows = [
     {
       id: 'claim-1',
       subjectEntity: { name: 'A' },
       objectEntity: { name: 'B' },
-      description: 'A 与 B 是多年合作伙伴',
+      description: 'A and B have been partners for years',
       sourceParentId: 'p1',
       sourceChunkId: 'child-1',
     },
@@ -61,12 +61,12 @@ describe('GraphRAGRetrievalService', () => {
       }
       if (text.includes('rag_children') && text.includes('ILIKE')) {
         return Promise.resolve([
-          { id: 'child-kw', content: 'A 与 B 的关键词补充子块', matches: 2 },
+          { id: 'child-kw', content: 'Keyword supplement chunk for A and B', matches: 2 },
         ]);
       }
       if (text.includes('rag_children')) {
         return Promise.resolve([
-          { id: 'child-9', content: 'A 与 B 合作的原始子块', similarity: 0.85 },
+          { id: 'child-9', content: 'Source chunk about A and B working together', similarity: 0.85 },
         ]);
       }
       return Promise.resolve([]);
@@ -92,28 +92,28 @@ describe('GraphRAGRetrievalService', () => {
 
   it('retrieves ranked communities with evidence and a generated answer', async () => {
     installMocks([
-      JSON.stringify({ rawQuery: 'A 和 B 的合作背景', entities: ['A'], keywords: ['合作'], themes: [] }),
+      JSON.stringify({ rawQuery: 'A and B partnership background', entities: ['A'], keywords: ['partnership'], themes: [] }),
       JSON.stringify({ selectedCommunityIds: ['c1'] }),
-      '答案：A 与 B 存在合作关系',
+      'Answer: A and B have a partnership',
     ]);
 
     const service = new GraphRAGRetrievalService();
     try {
-      const result = await service.retrieve({ query: 'A 和 B 的合作背景', topK: 5 });
+      const result = await service.retrieve({ query: 'A and B partnership background', topK: 5 });
 
-      expect(result.answer).toBe('答案：A 与 B 存在合作关系');
+      expect(result.answer).toBe('Answer: A and B have a partnership');
       expect(result.communities.map((community) => community.id)).toEqual(['c1']);
       expect(result.communities[0]?.matchedEntities).toContain('A');
       expect(result.communities[0]?.score).toBeTypeOf('number');
       expect(result.evidence).toEqual([
         {
           claimId: 'claim-1',
-          text: 'A 与 B 是多年合作伙伴',
+          text: 'A and B have been partners for years',
           sourceDocumentId: 'p1',
           sourceChunkId: 'child-1',
         },
-        { text: 'A 与 B 合作的原始子块', sourceChunkId: 'child-9' },
-        { text: 'A 与 B 的关键词补充子块', sourceChunkId: 'child-kw' },
+        { text: 'Source chunk about A and B working together', sourceChunkId: 'child-9' },
+        { text: 'Keyword supplement chunk for A and B', sourceChunkId: 'child-kw' },
       ]);
     } finally {
       restoreMocks();
@@ -129,13 +129,13 @@ describe('GraphRAGRetrievalService', () => {
 
       expect(details.id).toBe('c1');
       expect(details.memberEntities).toEqual(['A', 'B']);
-      expect(details.summary).toBe('A 与 B 的合作摘要');
+      expect(details.summary).toBe('Summary of the partnership between A and B');
       expect(details.relatedEdges.map((edge) => edge.source)).toEqual(['A']);
       expect(details.claims).toEqual([
         {
           id: 'claim-1',
           entityIds: ['A', 'B'],
-          text: 'A 与 B 是多年合作伙伴',
+          text: 'A and B have been partners for years',
           sourceDocumentId: 'p1',
           sourceChunkId: 'child-1',
         },
@@ -143,7 +143,7 @@ describe('GraphRAGRetrievalService', () => {
       expect(details.evidence).toEqual([
         {
           claimId: 'claim-1',
-          text: 'A 与 B 是多年合作伙伴',
+          text: 'A and B have been partners for years',
           sourceDocumentId: 'p1',
           sourceChunkId: 'child-1',
         },
@@ -172,7 +172,7 @@ describe('GraphRAGRetrievalService', () => {
       const result = await service.getEntityNeighbors('A', 1);
 
       expect(result.neighbors).toEqual([
-        { entityId: 'eB', entityName: 'B', relationType: '合作', weight: 2 },
+        { entityId: 'eB', entityName: 'B', relationType: 'partnership', weight: 2 },
       ]);
       expect(result.communityIds).toEqual(['c1']);
     } finally {

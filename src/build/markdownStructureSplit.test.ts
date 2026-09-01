@@ -8,11 +8,11 @@ import {
 
 describe('resolveTopLevelHeading', () => {
   it('uses h1 when there are at least two h1 headings', () => {
-    expect(resolveTopLevelHeading('# A\n\n正文甲\n\n# B\n\n正文乙')).toBe(1);
+    expect(resolveTopLevelHeading('# A\n\nBody A\n\n# B\n\nBody B')).toBe(1);
   });
 
   it('falls back to h2 when h1 is sparse', () => {
-    expect(resolveTopLevelHeading('# 总览\n\n## A\n\n甲\n\n## B\n\n乙')).toBe(2);
+    expect(resolveTopLevelHeading('# Overview\n\n## A\n\nAlpha\n\n## B\n\nBeta')).toBe(2);
   });
 
   it('returns 1 when no headings are present', () => {
@@ -23,37 +23,37 @@ describe('resolveTopLevelHeading', () => {
 describe('splitByTopLevelHeadings', () => {
   it('splits by top-level headings and groups preamble into a separate section', () => {
     const sections = splitByTopLevelHeadings(
-      '引言段落\n\n# 第一章\n\n内容甲\n\n# 第二章\n\n内容乙',
+      'Intro paragraph\n\n# Chapter One\n\nContent A\n\n# Chapter Two\n\nContent B',
     );
 
     expect(sections).toHaveLength(3);
     expect(sections[0]?.title).toBe('');
-    expect(sections[0]?.content).toContain('引言段落');
-    expect(sections[1]?.title).toBe('第一章');
-    expect(sections[1]?.content).toContain('内容甲');
-    expect(sections[2]?.title).toBe('第二章');
-    expect(sections[2]?.content).toContain('内容乙');
+    expect(sections[0]?.content).toContain('Intro paragraph');
+    expect(sections[1]?.title).toBe('Chapter One');
+    expect(sections[1]?.content).toContain('Content A');
+    expect(sections[2]?.title).toBe('Chapter Two');
+    expect(sections[2]?.content).toContain('Content B');
   });
 
   it('keeps sub-headings inside their parent section', () => {
-    const sections = splitByTopLevelHeadings('# 设定\n\n## 角色\n\n林默');
+    const sections = splitByTopLevelHeadings('# Setting\n\n## Characters\n\nLin Mo');
 
     expect(sections).toHaveLength(1);
-    expect(sections[0]?.title).toBe('设定');
-    expect(sections[0]?.content).toContain('角色');
-    expect(sections[0]?.content).toContain('林默');
+    expect(sections[0]?.title).toBe('Setting');
+    expect(sections[0]?.content).toContain('Characters');
+    expect(sections[0]?.content).toContain('Lin Mo');
   });
 
   it('splits by h2 when h1 is sparse, keeping the lone h1 in the preamble', () => {
-    const sections = splitByTopLevelHeadings('# 总览\n\n## A\n\n甲\n\n## B\n\n乙');
+    const sections = splitByTopLevelHeadings('# Overview\n\n## A\n\nAlpha\n\n## B\n\nBeta');
 
     expect(sections).toHaveLength(3);
     expect(sections[0]?.title).toBe('');
-    expect(sections[0]?.content).toContain('总览');
+    expect(sections[0]?.content).toContain('Overview');
     expect(sections[1]?.title).toBe('A');
-    expect(sections[1]?.content).toContain('甲');
+    expect(sections[1]?.content).toContain('Alpha');
     expect(sections[2]?.title).toBe('B');
-    expect(sections[2]?.content).toContain('乙');
+    expect(sections[2]?.content).toContain('Beta');
   });
 });
 

@@ -9,11 +9,11 @@ import { main, parseCliOptions, runBenchmark } from './run';
 const queryOf = (id: string, volume: 1 | 2 | 3, query: string): BenchmarkQuery => ({
   id,
   volume,
-  story: '故事线',
-  fact: '事实',
+  story: 'storyline',
+  fact: 'fact',
   query,
   topK: 3,
-  expectation: { entities: ['凯'], phrases: ['金属碎片'] },
+  expectation: { entities: ['Kai'], phrases: ['metal shard'] },
 });
 
 const makeFakeClient = (options: {
@@ -84,7 +84,7 @@ describe('runBenchmark', () => {
         return {
           query: input.query,
           communities: [],
-          evidence: hit ? [{ text: '凯 金属碎片' }] : [],
+          evidence: hit ? [{ text: 'Kai metal shard' }] : [],
           answer: '',
         };
       },
@@ -209,9 +209,9 @@ describe('main', () => {
     }
 
     const output = logged.join('\n');
-    expect(output).toContain('# GraphRAG 召回率 Benchmark');
-    expect(output).toContain(`查询总数: ${BENCHMARK_QUERIES.length}`);
-    expect(output).toContain('| v1-q1 | 第1卷 |');
+    expect(output).toContain('# GraphRAG Recall Benchmark');
+    expect(output).toContain(`Total queries: ${BENCHMARK_QUERIES.length}`);
+    expect(output).toContain('| v1-q1 | Volume 1 |');
   });
 });
 

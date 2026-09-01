@@ -1,11 +1,11 @@
 /**
- * 解析 LLM 输出中的 JSON。
- * LLM 常在 JSON 外包 Markdown 代码块或前后附带解释文字，直接 JSON.parse
- * 会抛 "JSON 格式检测错误"。这里做容错提取：
- *  1. 去掉 ```json ... ``` 代码块包裹；
- *  2. 直接 JSON.parse；
- *  3. 失败后截取首个 [ 或 { 到末尾对应 ] 或 } 的子串再解析。
- * 仍失败时抛出携带原始输出预览的错误，便于日志定位真实原因。
+ * Parse JSON from LLM output.
+ * LLMs often wrap JSON in markdown code fences or add explanatory text before/after it, so a direct JSON.parse
+ * can fail with a JSON parsing error. This helper extracts JSON more defensively:
+ *  1. Remove any ```json ... ``` code fences;
+ *  2. Try JSON.parse directly;
+ *  3. If that fails, extract the substring from the first [ or { to the matching closing ] or } and parse that instead.
+ * If parsing still fails, throw an error with a preview of the raw output so logs can reveal the real cause.
  */
 
 const FENCE_PATTERN = /```(?:json)?\s*([\s\S]*?)```/i;
@@ -40,6 +40,6 @@ export const parseLlmJson = <T>(raw: string): T => {
         // fall through to the error below
       }
     }
-    throw new Error(`LLM 输出不是合法 JSON：${preview(raw)}`);
+    throw new Error(`LLM output is not valid JSON: ${preview(raw)}`);
   }
 };

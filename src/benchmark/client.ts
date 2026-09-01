@@ -2,12 +2,12 @@ import type { BuildJob } from '../build/buildRegistry';
 import type { RetrievalResult } from '../retrieval/types/retrieval';
 
 /**
- * RAG HTTP API 客户端。仅依赖基准所需的三个端点：
- * - POST /api/rag/folders （构建索引）
- * - GET  /api/rag/builds/:buildId （查询构建状态）
- * - POST /api/rag/retrieve （检索）
+ * RAG HTTP API client. It depends only on the three endpoints used by the benchmark:
+ * - POST /api/rag/folders (build an index)
+ * - GET  /api/rag/builds/:buildId (check build status)
+ * - POST /api/rag/retrieve (retrieve)
  *
- * `fetch` 可注入以便测试。
+ * `fetch` can be injected for tests.
  */
 
 export interface BuildFolderInput {

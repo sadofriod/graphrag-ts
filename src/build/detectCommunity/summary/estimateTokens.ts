@@ -1,4 +1,4 @@
-/** 粗略 token 估算：中文约 1.8 字符/token，英文约 4 字符/token。 */
+/** Rough token estimate: about 1 token per 1.8 Chinese characters and per 4 English characters. */
 export const estimateTokens = (text: string): number => {
   if (text.length === 0) {
     return 0;

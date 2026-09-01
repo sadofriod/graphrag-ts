@@ -10,12 +10,12 @@ import { aggregateResults } from './report';
 import { buildAndWait } from './build';
 
 /**
- * benchmark 编排：
- * 1.（可选）通过 API 用大纲文件夹建 RAG 索引并等待完成
- * 2. 对每条 benchmark 查询调用 POST /api/rag/retrieve
- * 3. 评估召回率并聚合为报告
+ * Benchmark orchestration:
+ * 1. (Optional) Build a RAG index for the outline folder via the API and wait for completion
+ * 2. Call POST /api/rag/retrieve for each benchmark query
+ * 3. Evaluate recall and aggregate the results into a report
  *
- * `client` 可注入以便测试；CLI 入口见 `main`。
+ * `client` can be injected for tests; see `main` for the CLI entry point.
  */
 
 export interface RunBenchmarkOptions {
@@ -26,7 +26,7 @@ export interface RunBenchmarkOptions {
   build?: boolean;
   topK?: number;
   includeAnswer?: boolean;
-  /** 记录每次检索流程（社区/证据数量、上下文、证据片段预览），用于排查召回异常。 */
+  /** Records each retrieval flow (community/evidence counts, context, evidence previews) to debug recall anomalies. */
   verbose?: boolean;
   pollIntervalMs?: number;
   buildTimeoutMs?: number;
@@ -95,7 +95,7 @@ const logRetrievalFlow = (
 ): void => {
   console.log(
     `[retrieve] ${id} · communities=${retrieved.communities.length} evidence=${retrieved.evidence.length} ` +
-      `context=${context.length} chars · 实体召回=${evaluation.entityRecall} 信息召回=${evaluation.phraseRecall}`,
+      `context=${context.length} chars · entityRecall=${evaluation.entityRecall} phraseRecall=${evaluation.phraseRecall}`,
   );
   for (const [index, snippet] of retrieved.evidence.entries()) {
     console.log(`  evidence[${index}]: ${snippet.text.replace(/\s+/g, ' ').slice(0, 120)}`);
@@ -135,7 +135,7 @@ export const parseCliOptions = (
   outlinePath:
     valueOf(argv, '--outline') ??
     env.RAG_OUTLINE_PATH ??
-    '/Users/dushihua/dev/story-wirter/output/回溯者/大纲',
+    '/Users/dushihua/dev/story-wirter/output/retrospector/outline',
   build: argv.includes('--build'),
   includeAnswer: argv.includes('--include-answer'),
   verbose: argv.includes('--verbose'),

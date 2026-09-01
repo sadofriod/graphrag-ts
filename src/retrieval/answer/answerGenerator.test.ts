@@ -5,8 +5,8 @@ import type { EvidenceSnippet } from '../types/graph';
 import { generateAnswer } from './answerGenerator';
 
 const evidence: EvidenceSnippet[] = [
-  { claimId: 'cl1', text: '证据甲', sourceDocumentId: 'd1' },
-  { claimId: 'cl2', text: '证据乙' },
+  { claimId: 'cl1', text: 'Evidence A', sourceDocumentId: 'd1' },
+  { claimId: 'cl2', text: 'Evidence B' },
 ];
 
 describe('generateAnswer', () => {
@@ -17,17 +17,17 @@ describe('generateAnswer', () => {
       embedding: {},
       slice: {
         invoke: async (prompt: string) => {
-          expect(prompt).toContain('社区一摘要');
-          expect(prompt).toContain('证据甲');
-          return '苹果与香蕉存在合作关系。';
+          expect(prompt).toContain('Community One Summary');
+          expect(prompt).toContain('Evidence A');
+          return 'Apple and Banana have a partnership.';
         },
       },
     } as never;
 
     try {
-      const answer = await generateAnswer('q', ['社区一摘要'], evidence);
+      const answer = await generateAnswer('q', ['Community One Summary'], evidence);
 
-      expect(answer).toBe('苹果与香蕉存在合作关系。');
+      expect(answer).toBe('Apple and Banana have a partnership.');
     } finally {
       modelLoaderSingleton.models = originalModels;
     }

@@ -11,8 +11,8 @@ export const buildChildInsertSql = (children: ChildInsertRow[], namespace: strin
     return Prisma.sql``;
   }
 
-  // id/updated_at 在数据库层无 DEFAULT（Prisma 的 @default(cuid())/@updatedAt 仅 Client 层生成），
-  // 原生 SQL 插入必须显式提供，否则违反 NOT NULL 约束（23502）。
+  // id/updated_at have no database-level DEFAULT (Prisma's @default(cuid())/@updatedAt are generated only in the client layer),
+  // so native SQL inserts must provide them explicitly or they will violate the NOT NULL constraint (23502).
   return Prisma.sql`
     INSERT INTO "rag_children" ("id", "namespace", "content", "parent_id", "embedding", "fts_tokens", "updated_at")
     VALUES ${Prisma.join(

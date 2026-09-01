@@ -74,8 +74,8 @@ describe('detectCommunity', () => {
       },
       slice: {
         invoke: async () => JSON.stringify({
-          communityName: '政策协同与执行机制',
-          summaryContent: '该社区围绕政策制定与协同执行展开，成员间形成清晰的协作闭环。',
+          communityName: 'Policy Coordination and Execution',
+          summaryContent: 'This community centers on policy design and coordinated execution, with a clear collaboration loop among members.',
         }),
       },
     } as any;
@@ -113,7 +113,7 @@ describe('detectCommunity', () => {
 
     prismaClient.rAGClaim.findMany = (() =>
       Promise.resolve([
-        { id: 'claim-1', subjectEntity: { name: 'A' }, objectEntity: null, description: 'A 是主角' },
+        { id: 'claim-1', subjectEntity: { name: 'A' }, objectEntity: null, description: 'A is the protagonist' },
       ]) as never) as typeof prismaClient.rAGClaim.findMany;
     prismaClient.rAGEntity.findMany = (() =>
       Promise.resolve([]) as never) as typeof prismaClient.rAGEntity.findMany;
@@ -175,8 +175,8 @@ describe('detectCommunity', () => {
         invoke: async (prompt: string) => {
           prompts.push(prompt);
           return JSON.stringify({
-            communityName: '政策协同与执行机制',
-            summaryContent: '该社区围绕政策制定与协同执行展开，成员间形成清晰的协作闭环。',
+            communityName: 'Policy Coordination and Execution',
+            summaryContent: 'This community centers on policy design and coordinated execution, with a clear collaboration loop among members.',
           });
         },
       } as unknown as typeof modelLoaderSingleton.models extends null ? never : NonNullable<typeof modelLoaderSingleton.models>['slice'],
@@ -213,9 +213,9 @@ describe('detectCommunity', () => {
       Promise.resolve([]) as never) as typeof prismaClient.rAGClaim.findMany;
     prismaClient.rAGEntity.findMany = (() =>
       Promise.resolve([
-        { name: 'A', description: '主角' },
-        { name: 'B', description: '配角' },
-        { name: 'C', description: '配角' },
+        { name: 'A', description: 'protagonist' },
+        { name: 'B', description: 'supporting role' },
+        { name: 'C', description: 'supporting role' },
       ]) as never) as typeof prismaClient.rAGEntity.findMany;
     prismaClient.rAGClaim.update = ((args: unknown) =>
       Promise.resolve({ id: (args as { where: { id: string } }).where.id }) as never) as typeof prismaClient.rAGClaim.update;
@@ -235,15 +235,15 @@ describe('detectCommunity', () => {
       expect(prompts).toHaveLength(2);
       expect(prompts[0]).toContain('communityId');
       expect(prompts[0]).toContain('communityName');
-      expect(prompts[0]).toContain('【成员】A、B、C');
-      expect(prompts[0]).toContain('【节点摘要】');
-      expect(prompts[0]).toContain('- A: 主角');
-      expect(prompts[0]).toContain('【关键关系】');
+      expect(prompts[0]).toContain('[Members] A, B, C');
+      expect(prompts[0]).toContain('[Node summaries]');
+      expect(prompts[0]).toContain('- A: protagonist');
+      expect(prompts[0]).toContain('[Key relationships]');
       expect(prompts[0]).toContain('--');
       expect(summaryCreateCalls[0]).toMatchObject({
         data: {
-          communityName: '政策协同与执行机制',
-          summaryContent: '该社区围绕政策制定与协同执行展开，成员间形成清晰的协作闭环。',
+          communityName: 'Policy Coordination and Execution',
+          summaryContent: 'This community centers on policy design and coordinated execution, with a clear collaboration loop among members.',
         },
       });
       expect(edgeUpdateCalls.length).toBeGreaterThan(0);
