@@ -1,19 +1,21 @@
 # graphrag-ts English Guide
 
+> This repository is maintained as a standalone project. It is developed directly in this codebase and is not generated from, or synchronized with, an upstream monorepo.
+
 ## 1. Project overview
 
-`graphrag-ts` is a TypeScript-first GraphRAG reference implementation for markdown corpora. It converts a collection of markdown files into a retrievable knowledge graph, using LLM-driven slicing, deterministic fallback, graph construction, community detection, and hybrid retrieval.
+`graphrag-ts` is a TypeScript-first GraphRAG reference implementation for Markdown corpora. It turns a collection of Markdown documents into a searchable knowledge graph and supports LLM-based chunking, deterministic fallback logic, graph construction, community detection, and hybrid retrieval.
 
 Core capabilities:
 
 - Markdown-aware chunking
-- LLM slicing and summarization
+- LLM-based slicing and summarization
 - Entity, relationship, and claim graph construction
 - Leiden community analysis
-- Hybrid vector + keyword + graph recall
+- Hybrid vector, keyword, and graph retrieval
 - Evidence-grounded answer generation
 
-## 2. Stack
+## 2. Technology stack
 
 - TypeScript
 - Bun
@@ -22,16 +24,16 @@ Core capabilities:
 - PostgreSQL + pgvector
 - LangChain / OpenAI-compatible APIs
 
-## 3. Install
+## 3. Installation
 
-Use pnpm in this repo:
+Use pnpm in this repository:
 
 ```bash
 pnpm install
 pnpm run db:generate
 ```
 
-For local database bootstrapping:
+For local database setup:
 
 ```bash
 cp .env.example .env
@@ -40,7 +42,7 @@ pnpm run db:push
 
 ## 4. Node module injection pattern
 
-When this package is used as a Node module, the recommended pattern is to inject runtime configuration through a single entry API instead of reading repository-local files or relying on implicit environment loading.
+When this package is used as a Node module, the recommended approach is to inject runtime configuration through a single entry API instead of relying on repository-local files or implicit environment loading.
 
 Example:
 
@@ -74,7 +76,7 @@ await injectModelConfigs([
 ]);
 ```
 
-This keeps the runtime configuration external to the published package and makes the library portable across application environments.
+This keeps the runtime configuration external to the published package and makes the library portable across different application environments.
 
 The Bun direct-run path remains supported for local development:
 
@@ -88,7 +90,7 @@ bun run examples/demo.ts
 
 ## 5. Required runtime parameters
 
-After installation, the consumer application must provide the runtime configuration before the GraphRAG pipeline can initialize.
+After installation, the consumer application must provide the required runtime configuration before the GraphRAG pipeline can initialize.
 
 Required items:
 
@@ -143,7 +145,7 @@ Example runtime model config array:
 ]
 ```
 
-## 6. Running tests and demo
+## 6. Running tests and the demo
 
 ```bash
 bun test
@@ -152,7 +154,7 @@ bun run examples/demo.ts
 
 ## 7. Contribution
 
-Contributions are welcomed. Please read:
+Contributions are welcome. Please read:
 
 - [README.md](../README.md)
 - [CONTRIBUTING.md](../CONTRIBUTING.md)
