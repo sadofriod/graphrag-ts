@@ -16,6 +16,7 @@ evidence-grounded answer generation.
 
 ## Requirements
 
+- [pnpm](https://pnpm.io/) 10+
 - [Bun](https://bun.sh) 1.1+
 - A PostgreSQL database with the [pgvector](https://github.com/pgvector/pgvector) extension
 - Two LLM endpoints: a chat model (DeepSeek-compatible, JSON mode) and an
@@ -24,24 +25,26 @@ evidence-grounded answer generation.
 ## Quick start
 
 ```bash
-# 1. Install dependencies and generate the Prisma client
-bun install
-bun run db:generate
+# 1. Install dependencies with pnpm; this also runs the Prisma postinstall
+pnpm install
 
-# 2. Configure models (copy and fill in)
+# 2. Generate the Prisma client
+pnpm run db:generate
+
+# 3. Configure models (copy and fill in)
 cp .env.example .env
 #   RAG_SLICE_API_KEY=...      # chat model for slicing / summaries / answers
 #   RAG_JUDGE_API_KEY=...      # chat model for judging (can share the slice key)
 #   RAG_EMBED_API_KEY=...      # embedding model (e.g. LM Studio: sk-anything)
 #   DATABASE_URL=postgresql://user:pass@localhost:5432/graphrag
 
-# 3. Create the schema
-bun run db:push
+# 4. Create the schema
+pnpm run db:push
 
-# 4. Run the unit tests (no live DB or LLM needed)
+# 5. Run the unit tests (no live DB or LLM needed)
 bun test
 
-# 5. Run the end-to-end demo against the sample corpus
+# 6. Run the end-to-end demo against the sample corpus
 bun run examples/demo.ts
 ```
 
