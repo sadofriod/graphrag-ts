@@ -47,8 +47,8 @@ pnpm run db:push
 示例：
 
 ```ts
-import { injectModelConfigs } from 'graphrag-ts/model-loader';
-import { injectPrismaClient } from 'graphrag-ts/prisma-client';
+import { injectModelConfigs } from '@ashes_born/graph-rag-ts/model-loader';
+import { injectPrismaClient } from '@ashes_born/graph-rag-ts/prisma-client';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });

@@ -1,5 +1,5 @@
 {
-  "name": "graphrag-ts",
+  "name": "@ashes_born/graph-rag-ts",
   "version": "0.1.2",
   "type": "module",
   "packageManager": "pnpm@10.22.0",
