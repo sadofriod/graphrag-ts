@@ -6,6 +6,12 @@
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./*": "./src/*.ts",
+    "./build/*": "./src/build/*.ts",
+    "./input/*": "./src/input/*.ts",
+    "./namespace/*": "./src/namespace/*.ts",
+    "./retrieval/*": "./src/retrieval/*.ts",
+    "./helper/*": "./src/helper/*.ts",
     "./model-loader": "./src/build/modelLoader.ts",
     "./prisma-client": "./src/build/helper/prismaClient.ts"
   },
