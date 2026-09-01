@@ -7,11 +7,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*.ts",
-    "./build/*": "./src/build/*.ts",
-    "./input/*": "./src/input/*.ts",
-    "./namespace/*": "./src/namespace/*.ts",
-    "./retrieval/*": "./src/retrieval/*.ts",
-    "./helper/*": "./src/helper/*.ts",
+    "./build/*": ["./src/build/*.ts", "./src/build/*/index.ts"],
+    "./input/*": ["./src/input/*.ts", "./src/input/*/index.ts"],
+    "./namespace/*": ["./src/namespace/*.ts", "./src/namespace/*/index.ts"],
+    "./retrieval/*": ["./src/retrieval/*.ts", "./src/retrieval/*/index.ts"],
+    "./helper/*": ["./src/helper/*.ts", "./src/helper/*/index.ts"],
     "./model-loader": "./src/build/modelLoader.ts",
     "./prisma-client": "./src/build/helper/prismaClient.ts"
   },
