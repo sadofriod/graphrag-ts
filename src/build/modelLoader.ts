@@ -55,8 +55,9 @@ export const envModelConfigs = (): CustomModelConfig[] =>
     embeddingConfig(),
   ].filter((config): config is CustomModelConfig => config !== undefined);
 
-export const modelLoader = async (): Promise<ModelLoader> => {
-  const configs = envModelConfigs();
+export const createModelLoaderFromConfig = async (
+  configs: CustomModelConfig[],
+): Promise<ModelLoader> => {
   if (configs.length === 0) {
     throw new Error(
       'No model configuration found. Set RAG_SLICE_API_KEY / RAG_JUDGE_API_KEY / RAG_EMBED_API_KEY (see .env.example).',
@@ -96,6 +97,17 @@ export const modelLoader = async (): Promise<ModelLoader> => {
     return acc;
   }, {} as ModelLoader);
 };
+
+export const modelLoader = async (configs: CustomModelConfig[] = envModelConfigs()): Promise<ModelLoader> =>
+  createModelLoaderFromConfig(configs);
+
+export const injectModelConfigs = async (configs: CustomModelConfig[]): Promise<ModelLoader> => {
+  const loaded = await createModelLoaderFromConfig(configs);
+  modelLoaderSingleton.models = loaded;
+  return loaded;
+};
+
+export const getLoadedModels = (): ModelLoader | null => modelLoaderSingleton.models;
 
 class ModelLoaderSingleton {
   models: ModelLoader | null = null;
