@@ -119,3 +119,20 @@ model RAGClaim {
   @@unique([namespace, subjectEntityId, descriptionHash])
   @@map("rag_claims")
 }
+
+model GenerationJob {
+  id        String    @id @default(uuid())
+  namespace String    @map("namespace")
+  kind      String    @map("kind")
+  title     String?   @map("title") @db.VarChar(255)
+  state     String    @map("state")
+  phase     String?   @map("phase")
+  error     String?   @map("error") @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([namespace])
+  @@index([kind])
+  @@index([state])
+  @@map("generation_jobs")
+}

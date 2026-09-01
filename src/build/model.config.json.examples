@@ -1,0 +1,20 @@
+[
+  {
+    "baseURL": "your-base-url-here",
+    "model": "your-model-name-here",
+    "apiKey": "your-api-key-here",
+    "type": "slice"
+  },
+  {
+    "baseURL": "your-base-url-here",
+    "model": "deepseek-v4-flash",
+    "apiKey": "your-api-key-here",
+    "type": "judge"
+  },
+  {
+    "baseURL": "your-base-url-here",
+    "model": "your-model-name-here",
+    "apiKey": "your-api-key-here",
+    "type": "embedding"
+  }
+]
