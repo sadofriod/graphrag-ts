@@ -176,7 +176,76 @@ bun run benchmark --build --base-url http://localhost:3000
 3. 在模型不稳定时提供可控的回退逻辑
 4. 保持 PostgreSQL 作为核心存储，便于企业环境集成
 
-## 7. 与主流项目的区别
+## 7. 实际业务中的使用方式
+
+这个仓库并不是只运行一次命令的小 demo，它更偏向“后端服务中的 GraphRAG 引擎”。在服务层里，真实用法是这样的：
+
+```ts
+import { createAppDeps } from '@novel-enginner/services/api/deps';
+
+const deps = createAppDeps();
+
+const buildId = deps.enqueueBuild(files, 'novel-demo');
+const result = await deps.retrieval.retrieve({
+  query: 'What does the limited reset actually shut down?',
+  topK: 5,
+});
+
+console.log(result.answer);
+```
+
+这条调用链覆盖了实际服务的关键行为：
+
+- 调用 `createAppDeps()` 创建依赖容器
+- 把 `GraphRAGRetrievalService` 挂进应用中
+- 通过 `enqueueBuild(...)` 启动异步构建任务
+- 通过 `POST /api/rag/retrieve` 查询图谱并获取证据
+
+真正的 HTTP 接口也遵循同一套 GraphRAG 工作流：
+
+```http
+POST /api/rag/ingest
+{
+  "entities": [...],
+  "edges": [...],
+  "reconcileEvery": 20,
+  "rebuild": false
+}
+```
+
+```http
+POST /api/rag/retrieve
+{
+  "query": "总结这批文档中的关键风险",
+  "topK": 5
+}
+```
+
+从架构上看，这个项目适合应用在：
+
+- 文档知识库
+- 企业问答系统
+- 证据型检索产品
+- 多租户 / 多命名空间的知识图谱服务
+
+## 8. 这个项目的优点与缺点
+
+### 优点
+
+- GraphRAG 流程清晰：构建、检索、证据聚合逻辑都比较直接
+- PostgreSQL + pgvector 方案对企业环境友好
+- 具备可解释的回退逻辑，模型输出不稳定时仍可保持稳定性
+- TypeScript 代码结构清晰，便于二次开发
+- 适合与自己的后端服务、API 网关和数据库集成
+
+### 缺点
+
+- 不是完整的端到端 SaaS 产品，缺少 UI 与认证体系
+- 需要真实的数据库和模型配置，部署门槛高于纯本地 demo
+- 相比更成熟的商业产品或专用图数据库方案，功能面更小、更偏参考实现
+- 对大规模数据和高并发场景，需要进一步做资源调优和缓存策略
+
+## 9. 与主流项目的区别
 
 相较于一些更重的开源实现，本项目更偏向：
 
@@ -191,7 +260,16 @@ bun run benchmark --build --base-url http://localhost:3000
 - [abhigyanpatwari/GitNexus](https://github.com/abhigyanpatwari/GitNexus)
 - [talperetz/browsegraph](https://github.com/talperetz/browsegraph)
 
-## 8. 贡献方式
+| 项目 | 适合场景 | 主要取舍 |
+| --- | --- | --- |
+| `graphrag-ts` | 可扩展的参考型 GraphRAG 引擎 | 不提供完整产品体验 |
+| AutoFlow | 面向产品的知识库应用 | 更强的应用假设，参考成本更高 |
+| GitNexus | 代码智能、仓库上下文 | 更偏代码场景，不是纯 markdown 图谱 |
+| BrowseGraph | 浏览器本地知识图谱 | 更偏个人、本地化场景 |
+
+结论：如果你想理解 GraphRAG 的核心机制，并把它集成进自己的后端服务，`graphrag-ts` 是一个非常合理的选择；如果你需要开箱即用的产品能力，则需要再补充 UI、权限和运营层。
+
+## 10. 贡献方式
 
 欢迎提交：
 
@@ -205,6 +283,6 @@ bun run benchmark --build --base-url http://localhost:3000
 - [README.md](../README.md)
 - [CONTRIBUTING.md](../CONTRIBUTING.md)
 
-## 9. 许可证
+## 11. 许可证
 
 本项目采用 MIT License。

@@ -174,22 +174,84 @@ This benchmark simulates a sample corpus and evaluates the full GraphRAG pipelin
 | `docs/` | maintained | Design notes, comparison, and historical migration notes |
 | `_migration/` | legacy | Historical migration cache and compatibility scripts |
 
-## 8. Reference projects
+## 8. Practical usage in a real service
 
-This project draws inspiration from several TypeScript and GraphRAG implementations, including:
+This repository is not only an isolated demo; it is designed to plug into an application service runtime. In the attached service package, the pattern is:
 
-- [pingcap/autoflow](https://github.com/pingcap/autoflow)
-- [abhigyanpatwari/GitNexus](https://github.com/abhigyanpatwari/GitNexus)
-- [talperetz/browsegraph](https://github.com/talperetz/browsegraph)
+```ts
+import { createAppDeps } from '@novel-enginner/services/api/deps';
 
-Compared with those projects, this repo emphasizes:
+const deps = createAppDeps();
 
-- a learning-oriented reference implementation
-- PostgreSQL + pgvector as the storage core
-- clean module boundaries for easier extension
-- explicit deterministic fallback mechanisms
+const buildId = deps.enqueueBuild(files, 'novel-demo');
+const result = await deps.retrieval.retrieve({
+  query: 'What does the limited reset actually shut down?',
+  topK: 5,
+});
 
-## 9. Documentation index
+console.log(result.answer);
+```
+
+The real service layer does two important things:
+
+1. It registers a `GraphRAGRetrievalService` in the app dependency container.
+2. It exposes GraphRAG data ingestion and retrieval through HTTP endpoints such as:
+
+```http
+POST /api/rag/ingest
+{
+  "entities": [...],
+  "edges": [...],
+  "reconcileEvery": 20,
+  "rebuild": false
+}
+
+POST /api/rag/retrieve
+{
+  "query": "summarize key risks in this corpus",
+  "topK": 5
+}
+```
+
+This is the recommended usage pattern for actual backend integration:
+
+- index Markdown documents with `startBuild(...)` or the build registry
+- attach a namespace so multi-tenant corpora remain isolated
+- persist entities, edges, chunks, and communities in PostgreSQL + pgvector
+- retrieve with hybrid vector + keyword + graph evidence
+- expose the answer and the evidence list to an application HTTP layer
+
+The repository's own example demonstrates the same idea in `examples/demo.ts`: it builds a sample corpus, waits for the job to finish, then runs a retrieval query over the graph.
+
+## 9. Pros and cons versus mainstream GraphRAG repositories
+
+### Advantages
+
+- Clear reference architecture: the ingest, build, retrieval, and evidence pipeline are easy to inspect and extend.
+- PostgreSQL-first design: relational storage is familiar to enterprise teams and works well with pgvector.
+- Deterministic fallback logic: when model behavior drifts, the code still has a predictable fallback path.
+- TypeScript-first developer experience: the project is written to be readable, testable, and readily embedded into custom services.
+- Namespace-aware and service-friendly: it matches the real usage pattern of multi-tenant document systems.
+
+### Limitations
+
+- It is not a full end-user product: there is no hosted UI, authentication layer, or opinionated workflow manager built in.
+- Performance depends on a proper Postgres + pgvector deployment and careful model configuration.
+- Graph construction and retrieval still require meaningful model quality and tuning for production corpora.
+- Compared with larger commercial or repo-scale graph systems, this project intentionally keeps the surface area smaller and more educational.
+
+### Compared with mainstream repositories
+
+| Project | Strengths | Trade-offs |
+| --- | --- | --- |
+| `graphrag-ts` | clear reference implementation, TypeScript-oriented, PostgreSQL-native, evidence-grounded | smaller product surface, not a turn-key app |
+| AutoFlow | strong product positioning, opinionated app workflow | more application-specific and less transparent as a library |
+| GitNexus | excellent repo intelligence and code-context workflow | more specialized for code/search tooling, less general markdown GraphRAG focus |
+| BrowseGraph | local-first and privacy-oriented | optimized for personal browsing, less enterprise backend depth |
+
+The overall conclusion is that this repository is best suited for teams that want to understand GraphRAG deeply and integrate it into their own backend stack without adopting a heavyweight platform.
+
+## 10. Documentation index
 
 - [docs/architecture.md](docs/architecture.md): architecture overview
 - [docs/migration.md](docs/migration.md): historical migration notes

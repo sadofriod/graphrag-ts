@@ -152,13 +152,93 @@ bun test
 bun run examples/demo.ts
 ```
 
-## 7. Contribution
+## 7. Concrete service usage pattern
+
+This repository is meant to be used as a backend GraphRAG engine rather than as an isolated script. The real integration flow in the service layer is:
+
+```ts
+import { createAppDeps } from '@novel-enginner/services/api/deps';
+
+const deps = createAppDeps();
+
+const buildId = deps.enqueueBuild(files, 'novel-demo');
+const result = await deps.retrieval.retrieve({
+  query: 'What does the limited reset actually shut down?',
+  topK: 5,
+});
+
+console.log(result.answer);
+```
+
+The service package does the following:
+
+- creates a database-backed build registry
+- injects a `GraphRAGRetrievalService`
+- starts asynchronous build jobs with `startBuild(...)`
+- exposes ingestion and retrieval via HTTP routes
+
+The ingestion route is aligned with the GraphRAG workflow:
+
+```http
+POST /api/rag/ingest
+{
+  "entities": [...],
+  "edges": [...],
+  "reconcileEvery": 20,
+  "rebuild": false
+}
+```
+
+The retrieval route follows the same pattern:
+
+```http
+POST /api/rag/retrieve
+{
+  "query": "summarize the core risks in this corpus",
+  "topK": 5
+}
+```
+
+This means the library is meant to be used as a backend service where the application owns:
+
+- corpus upload and scheduling
+- namespace isolation
+- GraphRAG indexing jobs
+- final answer assembly based on evidence
+
+## 8. Why this project is useful
+
+### Strengths
+
+- strong separation of indexing and retrieval concerns
+- deterministic fallbacks when model output is unstable
+- PostgreSQL + pgvector compatibility for enterprise environments
+- understandable modules for custom extension
+
+### Trade-offs
+
+- not a ready-made SaaS or UI product
+- requires real model configuration and a working Postgres deployment
+- more educational and extensible than monolithic or product-focused GraphRAG apps
+
+## 9. Comparison with mainstream GraphRAG repos
+
+| Project | Best fit | Main trade-off |
+| --- | --- | --- |
+| `graphrag-ts` | reference engine and backend integration | not a complete product experience |
+| AutoFlow | product-driven knowledge base | heavier application assumptions |
+| GitNexus | code intelligence and repo knowledge retrieval | narrower domain scope |
+| BrowseGraph | local, browser-first knowledge graphs | less enterprise backend depth |
+
+In short, `graphrag-ts` is a good choice when you want a readable GraphRAG implementation that can be adapted into your own service stack, but it intentionally does not try to become a full hosted knowledge app.
+
+## 10. Contribution
 
 Contributions are welcome. Please read:
 
 - [README.md](../README.md)
 - [CONTRIBUTING.md](../CONTRIBUTING.md)
 
-## 8. License
+## 11. License
 
 MIT
