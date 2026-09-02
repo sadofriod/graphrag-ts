@@ -10,6 +10,7 @@ import {
   MAX_CHUNK_SIZE,
   MERGE_THRESHOLD,
 } from "./constants";
+import { getBuildDefaults } from '../config/defaults';
 import { prismaClient } from "./helper/prismaClient";
 import { buildChildInsertSql } from "./helper/buildChildInsertSql";
 import { agentRegistry } from "./agents.md/agentRegistry";
@@ -54,6 +55,10 @@ export interface TextSplitInput {
   content: string;
   title?: string;
   namespace: string;
+  /** Optional: override chunk sizing for deterministic fallbacks (characters). */
+  chunkSize?: number;
+  /** Optional: override chunk-overlap as a fraction (e.g. 0.1 for 10%). */
+  chunkOverlap?: number;
 }
 
 
@@ -81,9 +86,12 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
     agentRegistry.ragSliceAgent,
   );
   const response = await invokeModelText(sliceModel, prompt);
+  const buildDefaults = getBuildDefaults();
+  const defaultChunkSize = buildDefaults.maxChunkSize ?? MAX_CHUNK_SIZE;
+  const defaultOverlapRatio = buildDefaults.chunkOverlapRatio ?? 0.1;
   const backupSplitter = new RecursiveCharacterTextSplitter({
-    chunkSize: MAX_CHUNK_SIZE,
-    chunkOverlap: MAX_CHUNK_SIZE / 10, // 10% overlap
+    chunkSize: defaultChunkSize,
+    chunkOverlap: Math.floor(defaultChunkSize * defaultOverlapRatio),
   });
 
   try {
@@ -106,8 +114,8 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
     }
 
     return await Promise.all(llmChunks.map(async (chunk) => {
-      if (chunk.parentContent.length > MAX_CHUNK_SIZE) {
-        const backupChunks = await backupSplitter.splitText(chunk.parentContent);
+      if (chunk.parentContent.length > defaultChunkSize) {
+          const backupChunks = await backupSplitter.splitText(chunk.parentContent);
         return {
           ...chunk,
           childChunks: backupChunks,
@@ -182,9 +190,12 @@ const deterministicSplit = async (
   namespace: string,
   title?: string,
 ): Promise<SplitResult[]> => {
+  const buildDefaults = getBuildDefaults();
+  const chunkSize = buildDefaults.maxChunkSize ?? MAX_CHUNK_SIZE;
+  const overlapRatio = buildDefaults.chunkOverlapRatio ?? 0.1;
   const splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: MAX_CHUNK_SIZE,
-    chunkOverlap: MAX_CHUNK_SIZE / 10,
+    chunkSize,
+    chunkOverlap: Math.floor(chunkSize * overlapRatio),
   });
   const chunks = await splitter.splitText(content);
   return saveChunkResults(

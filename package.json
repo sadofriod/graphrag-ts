@@ -28,8 +28,8 @@
     "lint": "eslint .",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "benchmark": "bun run src/benchmark/run.ts",
-    "demo": "bun run examples/demo.ts"
+    "demo": "bun run examples/demo.ts",
+    "demo:benchmark": "bun run examples/benchmark-recall-demo.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

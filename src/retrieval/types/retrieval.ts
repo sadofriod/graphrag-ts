@@ -50,6 +50,14 @@ export interface EntityNeighborResult {
 export interface RetrievalRequest {
   query: string;
   topK?: number;
+  /** Optional per-request overrides for retrieval/build tuning. */
+  options?: {
+    topK?: number;
+    vectorChildTopK?: number;
+    keywordSearchLimit?: number;
+    evidenceChildLimit?: number;
+    rrfK?: number;
+  };
 }
 
 export interface RetrievalResult {

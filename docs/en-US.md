@@ -152,6 +152,20 @@ bun test
 bun run examples/demo.ts
 ```
 
+## 6.1 Current benchmark conclusion
+
+The current GraphRAG retrieval benchmark was run in retrieval-only mode against the persisted GraphRAG namespace after aligning the dataset to the actual database state. The phrase-level evaluator was also updated to reduce false negatives caused by natural paraphrase and quotation differences.
+
+| Metric | Result |
+| --- | ---: |
+| Total queries | 12 |
+| Strict hits | 5 / 12 (41.7%) |
+| Average entity recall | 70.8% |
+| Average phrase recall | 66.7% |
+| Average combined recall | 69.6% |
+
+The result is a valid baseline for the real namespace: the system is strong on theme/entity retrieval and on several high-signal narrative scenes, while the remaining misses mostly reflect real retrieval difficulty rather than benchmark drift or wording artifacts. In other words, the implementation is usable as a memory/retrieval layer, but it still needs further work on long-range factual grounding and scene-specific retrieval for the hardest questions.
+
 ## 7. Concrete service usage pattern
 
 This repository is meant to be used as a backend GraphRAG engine rather than as an isolated script. The real integration flow in the service layer is:

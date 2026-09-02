@@ -126,6 +126,7 @@ export async function matchEntitiesWithSemantic(
   entities: readonly EntityRecord[],
   aliases: readonly EntityAlias[],
   threshold = SEMANTIC_THRESHOLD,
+  rrfK = 60,
 ): Promise<MatchedEntity[]> {
   const channels = [
     matchExactEntity(query, entities),
@@ -134,5 +135,5 @@ export async function matchEntitiesWithSemantic(
     await semanticMatchEntity(query, entities, threshold),
   ];
 
-  return fuseMatchedEntitiesWithRRF(channels);
+  return fuseMatchedEntitiesWithRRF(channels, rrfK);
 }

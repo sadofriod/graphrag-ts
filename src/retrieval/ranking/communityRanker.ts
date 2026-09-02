@@ -121,6 +121,7 @@ export function rankCommunities(
   matchedEntities: readonly string[],
   semanticRankings?: readonly CommunityId[],
   topK?: number,
+  rrfK: number = 60,
 ): RankedCommunity[] {
   const overlapRankings = rankByOverlap(candidateCommunityIds, communities, matchedEntities);
   const structuralRankings = rankByStructure(candidateCommunityIds, communities, edges, matchedEntities);
@@ -131,7 +132,7 @@ export function rankCommunities(
     structuralRankings,
     communities,
     matchedEntities,
-    60,
+    rrfK,
     topK,
   );
 }

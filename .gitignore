@@ -8,6 +8,7 @@ node_modules/
 
 # generated
 dist/
+examples/generated/
 
 # runtime artifacts
 _rag-builds/
@@ -16,3 +17,5 @@ _rag-builds/
 # OS
 .DS_Store
 model.config.json
+
+.tmp/

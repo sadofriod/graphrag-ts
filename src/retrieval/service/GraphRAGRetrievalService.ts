@@ -43,12 +43,10 @@ interface LoadedEdge {
   communityId: string | null;
 }
 
-/** Vector recall child-chunk window. */
-const VECTOR_CHILD_TOPK = 8;
-/** Number of child chunks recalled by keywords (entity names + query terms). */
-const KEYWORD_SEARCH_LIMIT = 16;
-/** Maximum number of evidence child chunks after merging and deduplicating vector + keyword recall. */
-const EVIDENCE_CHILD_LIMIT = 20;
+import { getRetrievalDefaults } from '../../config/defaults';
+
+/** Default retrieval tuning values (can be overridden per-request or via injectGraphRAG). */
+const GLOBAL_RETRIEVAL_DEFAULTS = getRetrievalDefaults();
 
 const loadEntities = async (): Promise<EntityRecord[]> => {
   const rows = await prismaClient.rAGEntity.findMany({ select: { id: true, name: true } });
@@ -167,7 +165,15 @@ const fuseMatchedWithIntent = (
 export class GraphRAGRetrievalService {
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
-    const topK = request.topK ?? 5;
+    const topK = request.topK ?? request.options?.topK ?? GLOBAL_RETRIEVAL_DEFAULTS.topK ?? 5;
+
+    const vectorChildTopK =
+      request.options?.vectorChildTopK ?? GLOBAL_RETRIEVAL_DEFAULTS.vectorChildTopK ?? 8;
+    const keywordSearchLimit =
+      request.options?.keywordSearchLimit ?? GLOBAL_RETRIEVAL_DEFAULTS.keywordSearchLimit ?? 16;
+    const evidenceChildLimit =
+      request.options?.evidenceChildLimit ?? GLOBAL_RETRIEVAL_DEFAULTS.evidenceChildLimit ?? 20;
+    const rrfK = request.options?.rrfK ?? GLOBAL_RETRIEVAL_DEFAULTS.rrfK ?? 60;
 
     const [entities, loadedEdges, claims] = await Promise.all([
       loadEntities(),
@@ -176,7 +182,7 @@ export class GraphRAGRetrievalService {
     ]);
 
     const intent = await parseQuery(query);
-    const matchedByQuery = await matchEntitiesWithSemantic(query, entities, []);
+    const matchedByQuery = await matchEntitiesWithSemantic(query, entities, [], undefined, rrfK);
     const matched = fuseMatchedWithIntent(matchedByQuery, intent.entities, entities);
 
     const { communityIds } = await recallCommunitiesByTopology(
@@ -185,20 +191,21 @@ export class GraphRAGRetrievalService {
     );
 
     const queryEmbedding = await embedText(query);
-    const semanticRankings = (
-      await searchSimilarCommunitySummaries(queryEmbedding, topK)
-    ).map((hit) => hit.id);
+    const semanticRankings = (await searchSimilarCommunitySummaries(queryEmbedding, topK)).map(
+      (hit) => hit.id,
+    );
+
     const childChunks = mergeChildChunks(
-      await searchSimilarChildChunks(queryEmbedding, VECTOR_CHILD_TOPK),
+      await searchSimilarChildChunks(queryEmbedding, vectorChildTopK),
       await searchChildChunksByKeywords(
         buildKeywordTerms({
           intentEntities: intent.entities,
           intentKeywords: intent.keywords,
           matched,
         }),
-        KEYWORD_SEARCH_LIMIT,
+        keywordSearchLimit,
       ),
-      EVIDENCE_CHILD_LIMIT,
+      evidenceChildLimit,
     );
 
     const candidateIds = Array.from(new Set([...communityIds, ...semanticRankings]));
@@ -212,6 +219,7 @@ export class GraphRAGRetrievalService {
       matched.map((item) => item.name),
       semanticRankings,
       topK,
+      rrfK,
     );
     const selected = await selectFinalCommunities(query, ranked, true);
 

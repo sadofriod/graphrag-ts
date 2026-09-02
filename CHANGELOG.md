@@ -7,4 +7,4 @@
   - Leiden community detection via igraph WASM.
   - Hybrid retrieval (vector + keyword + graph reachability) with evidence-grounded answers.
   - Namespace-scoped multi-tenant data model.
-  - Synthetic English sample corpus and recall benchmark.
+  - Synthetic English sample corpus and an examples-based recall demo.
