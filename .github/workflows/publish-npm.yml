@@ -63,14 +63,13 @@ jobs:
 
       - name: Validate npm auth
         run: |
-          if [ -z "${NPM_TOKEN}" ]; then
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
             echo "::error::Missing NPM_TOKEN secret. Add it in GitHub repo settings > Secrets and variables > Actions."
             exit 1
           fi
-          printf "//registry.npmjs.org/:_authToken=%s\n" "${NPM_TOKEN}" > ~/.npmrc
           npm whoami --registry=https://registry.npmjs.org
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
         run: npm publish --access public --provenance --registry=https://registry.npmjs.org
