@@ -111,7 +111,8 @@ const includesTokenSequence = (haystack: string, needle: string): boolean => {
     return true;
   }
   if (needleTokens.length === 1) {
-    return haystackTokens.includes(needleTokens[0]);
+    const [needleToken] = needleTokens;
+    return needleToken !== undefined && haystackTokens.includes(needleToken);
   }
 
   let matchIndex = 0;
