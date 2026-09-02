@@ -1,17 +1,32 @@
 {
   "name": "@ashes_born/graph-rag-ts",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "packageManager": "pnpm@10.22.0",
   "main": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*.ts",
-    "./build/*": ["./src/build/*.ts", "./src/build/*/index.ts"],
-    "./input/*": ["./src/input/*.ts", "./src/input/*/index.ts"],
-    "./namespace/*": ["./src/namespace/*.ts", "./src/namespace/*/index.ts"],
-    "./retrieval/*": ["./src/retrieval/*.ts", "./src/retrieval/*/index.ts"],
-    "./helper/*": ["./src/helper/*.ts", "./src/helper/*/index.ts"],
+    "./build/*": [
+      "./src/build/*.ts",
+      "./src/build/*/index.ts"
+    ],
+    "./input/*": [
+      "./src/input/*.ts",
+      "./src/input/*/index.ts"
+    ],
+    "./namespace/*": [
+      "./src/namespace/*.ts",
+      "./src/namespace/*/index.ts"
+    ],
+    "./retrieval/*": [
+      "./src/retrieval/*.ts",
+      "./src/retrieval/*/index.ts"
+    ],
+    "./helper/*": [
+      "./src/helper/*.ts",
+      "./src/helper/*/index.ts"
+    ],
     "./model-loader": "./src/build/modelLoader.ts",
     "./prisma-client": "./src/build/helper/prismaClient.ts"
   },
