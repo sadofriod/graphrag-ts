@@ -1,102 +1,89 @@
 # graphrag-ts 中文说明
 
-> 本仓库作为独立项目维护，不再从上游代码库同步或生成，当前代码与文档均在本仓库中直接开发。
+> TypeScript GraphRAG for Markdown corpora. 构建知识图谱、检测社区，并用证据驱动的检索回答问题。
 
-## 1. 项目定位
+## 这个项目解决什么问题
 
-`graphrag-ts` 是一个以 TypeScript 为核心的 GraphRAG 参考实现，目标是把一批 Markdown 文档转成可检索的知识图谱，并结合向量召回、关键字召回和图谱扩展实现证据式问答。
+传统向量 RAG 擅长相似度搜索，但在跨文档结构、实体关系和全局语义理解方面往往不足。这个仓库用 TypeScript 实现了一套 GraphRAG 工作流，让你可以对 Markdown 语料建立知识图谱，并从图谱中进行证据式问答，而不需要依赖 Python 运行时或定制化产品框架。
 
-它的核心能力包括：
+这个实现面向实际后端场景：
 
-- Markdown 文档分块
-- LLM 生成切片与摘要
-- 实体、关系、声明图谱构建
-- Leiden 社区检测与社区总结
-- 向量召回 + 关键字召回 + 图谱召回
-- 基于证据的问答生成
+- 读取 Markdown 文件并进行分块
+- 抽取实体、边和声明
+- 通过 Prisma 持久化到 PostgreSQL
+- 检测社区并生成社区摘要
+- 结合向量、关键字和拓扑召回进行混合检索
+- 通过证据聚合生成答案，而不是直接输出原始模型文本
 
-## 2. 技术栈
+## 它提供的价值
 
-- TypeScript
-- Bun
-- pnpm
-- Prisma
-- PostgreSQL + pgvector
-- LangChain / OpenAI 兼容接口
+- 一个可读、可扩展的 TypeScript GraphRAG 参考实现
+- 对实体、声明、边和社区进行数据库化持久化
+- 支持命名空间级别的构建，适合多租户或多语料场景
+- 混合检索能力，融合语义搜索、关键词搜索和图谱信号
+- 模型分块失败时的确定性回退逻辑
+- 轻量、服务化的公共 API，便于嵌入业务应用
 
-## 3. 安装方式
+## 核心流程
 
-在本仓库中，推荐使用 pnpm 安装：
+```mermaid
+flowchart LR
+    MD[Markdown 文件] --> SPLIT[分块与切片]
+    SPLIT --> GRAPH[实体 + 边 + 声明图]
+    GRAPH --> COMM[社区检测]
+    COMM --> SUMMARY[社区摘要]
+    Q[用户查询] --> INTENT[意图解析]
+    INTENT --> HYBRID[混合召回: 向量 + 关键字 + 社区]
+    HYBRID --> EVIDENCE[证据聚合]
+    EVIDENCE --> ANSWER[基于证据的回答]
+```
+
+代码中的实际实现对应如下：
+
+- `src/build/` 负责切片、图构建和社区检测
+- `src/retrieval/` 负责查询解析、排序、证据选择和回答生成
+- `prisma/schema.prisma` 定义持久化的 GraphRAG 表
+- `src/index.ts` 暴露主要的公共 API 和运行时注入入口
+
+## 快速开始
 
 ```bash
+# 安装依赖
 pnpm install
+
+# 生成 Prisma 客户端
 pnpm run db:generate
-```
 
-如果你需要同步数据库结构：
-
-```bash
+# 复制环境变量模板
 cp .env.example .env
+
+# 应用数据库结构
 pnpm run db:push
+
+# 运行测试
+bun test
+
+# 运行示例
+bun run examples/demo.ts
 ```
 
-## 4. Node module 注入方式
+## 运行要求
 
-当这个包作为 Node module 安装到其他项目时，推荐通过统一入口来注入配置，而不是依赖仓库内的 `model.config.json` 文件或隐式加载逻辑。
+在本地运行前，确认已具备：
 
-示例：
+- [pnpm](https://pnpm.io/) 10+
+- [Bun](https://bun.sh) 1.1+
+- PostgreSQL，并启用 [pgvector](https://github.com/pgvector/pgvector)
+- 用于切片和评判的聊天模型
+- 兼容 OpenAI 风格 API 的 embedding 模型
 
-```ts
-import { injectModelConfigs } from '@ashes_born/graph-rag-ts/model-loader';
-import { injectPrismaClient } from '@ashes_born/graph-rag-ts/prisma-client';
-import { PrismaClient } from '@prisma/client';
+## 运行时配置
 
-const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
-injectPrismaClient(prisma);
-
-await injectModelConfigs([
-  {
-    type: 'slice',
-    baseURL: process.env.RAG_SLICE_BASE_URL!,
-    model: process.env.RAG_SLICE_MODEL!,
-    apiKey: process.env.RAG_SLICE_API_KEY!,
-  },
-  {
-    type: 'judge',
-    baseURL: process.env.RAG_JUDGE_BASE_URL!,
-    model: process.env.RAG_JUDGE_MODEL!,
-    apiKey: process.env.RAG_JUDGE_API_KEY!,
-  },
-  {
-    type: 'embedding',
-    baseURL: process.env.RAG_EMBED_BASE_URL!,
-    model: process.env.RAG_EMBED_MODEL!,
-    apiKey: process.env.RAG_EMBED_API_KEY!,
-  },
-]);
-```
-
-其中：
-
-- `injectPrismaClient` 用于注入 Prisma 客户端
-- `injectModelConfigs` 用于注入模型配置并初始化单例
-- 直连执行 Bun 入口仍然保持兼容，可直接使用 `.env` 与 `bun run`
-
-## 5. 必须提供的运行时参数
-
-这类库在发布后安装到其他项目中运行时，不应依赖本地的 `model.config.json` 文件。使用方必须通过环境变量或配置中心提供以下参数：
-
-### 4.1 数据库配置
+这个仓库要求调用方提供环境变量，模型加载器会在 `src/build/modelLoader.ts` 中读取这些变量。
 
 ```bash
 DATABASE_URL="postgresql://user:pass@localhost:5432/graphrag?schema=public"
-```
 
-这是 Prisma 的连接串，`prisma/schema.prisma` 中的 datasource 会读取它。
-
-### 4.2 模型配置
-
-```bash
 RAG_SLICE_API_KEY="your-slice-key"
 RAG_SLICE_MODEL="deepseek-chat"
 RAG_SLICE_BASE_URL="https://api.deepseek.com/"
@@ -108,156 +95,158 @@ RAG_JUDGE_BASE_URL="https://api.deepseek.com/"
 RAG_EMBED_API_KEY="your-embedding-key"
 RAG_EMBED_MODEL="local-embedding-model"
 RAG_EMBED_BASE_URL="http://127.0.0.1:1234/v1"
-
-RAG_COMMUNITY_CONTEXT_MAX_TOKENS=4000
 ```
 
-### 4.3 模型结构配置
-
-与 `src/build/model.config.json` 对应的运行时结构如下：
-
-```json
-[
-  {
-    "baseURL": "https://api.deepseek.com/",
-    "model": "deepseek-v4-flash",
-    "apiKey": "your-slice-key",
-    "type": "slice"
-  },
-  {
-    "baseURL": "https://api.deepseek.com/",
-    "model": "deepseek-v4-flash",
-    "apiKey": "your-judge-key",
-    "type": "judge"
-  },
-  {
-    "baseURL": "http://127.0.0.1:1234/v1",
-    "model": "your-embedding-model",
-    "apiKey": "your-embedding-key",
-    "type": "embedding"
-  }
-]
-```
-
-这意味着发布后的安装包需要依赖消费方提供：
-
-- 数据库连接
-- 模型 API Key
-- 模型地址
-- 模型名称
-- 模型类型（slice / judge / embedding）
-
-## 5. 运行方式
-
-### 5.1 单元测试
-
-```bash
-bun test
-```
-
-### 5.2 示例脚本
-
-```bash
-bun run examples/demo.ts
-```
-
-### 5.3 召回率示例
-
-```bash
-bun run demo:benchmark
-```
-
-该示例会下载 Project Gutenberg 公版长文本，转换为按章节组织的 Markdown，构建索引后输出 retrieval context 的 recall@k 报告，用于观察长 Markdown 切分与召回能力。
-
-## 5.4 当前基准结论
-
-当前的 GraphRAG 召回基准在“仅检索、不重建”的模式下运行，并且数据集已对齐到实际数据库中的 namespace。与此同时，phrase 层评估也作了修正，避免因自然改写和措辞差异导致误判为失败。
-
-| 指标 | 结果 |
-| --- | ---: |
-| 总查询数 | 12 |
-| 严格命中 | 5 / 12 (41.7%) |
-| 平均实体召回 | 70.8% |
-| 平均短语召回 | 66.7% |
-| 平均综合召回 | 69.6% |
-
-这说明当前实现已经形成了一个合理的真实基线：它在主体实体和主题召回方面表现明显较好，许多高信号场景也能稳定命中；但剩余的失败案例主要反映真实的长程事实检索难度，而不是基准漂移或词面误判。换言之，这个实现适合作为记忆层 / 检索层 / 叙事索引层使用，但若要支撑更难的长篇事实问答和跨章节一致性，仍需要进一步提升长程语义和证据选择能力。
-
-## 6. 设计理念
-
-本项目的主要设计目标是：
-
-1. 让 GraphRAG 流程尽量清晰可读
-2. 让返回的证据链可审计
-3. 在模型不稳定时提供可控的回退逻辑
-4. 保持 PostgreSQL 作为核心存储，便于企业环境集成
-
-## 7. 实际业务中的使用方式
-
-这个仓库并不是只运行一次命令的小 demo，它更偏向“后端服务中的 GraphRAG 引擎”。在服务层里，真实用法是这样的：
+典型运行时注入方式：
 
 ```ts
-import { createAppDeps } from '@novel-enginner/services/api/deps';
+import { PrismaClient } from '@prisma/client';
+import {
+  injectGraphRAG,
+  GraphRAGRetrievalService,
+  startBuild,
+  createBuildRegistry,
+} from '@ashes_born/graph-rag-ts';
 
-const deps = createAppDeps();
+await injectGraphRAG({
+  database: {
+    client: new PrismaClient({ datasourceUrl: process.env.DATABASE_URL }),
+  },
+  models: [
+    {
+      type: 'slice',
+      baseURL: process.env.RAG_SLICE_BASE_URL!,
+      model: process.env.RAG_SLICE_MODEL!,
+      apiKey: process.env.RAG_SLICE_API_KEY!,
+    },
+    {
+      type: 'judge',
+      baseURL: process.env.RAG_JUDGE_BASE_URL!,
+      model: process.env.RAG_JUDGE_MODEL!,
+      apiKey: process.env.RAG_JUDGE_API_KEY!,
+    },
+    {
+      type: 'embedding',
+      baseURL: process.env.RAG_EMBED_BASE_URL!,
+      model: process.env.RAG_EMBED_MODEL!,
+      apiKey: process.env.RAG_EMBED_API_KEY!,
+    },
+  ],
+});
 
-const buildId = deps.enqueueBuild(files, 'novel-demo');
-const result = await deps.retrieval.retrieve({
-  query: 'What does the limited reset actually shut down?',
+const registry = createBuildRegistry();
+const buildId = startBuild(
+  [{ title: 'sample.md', content: 'Alice works with Bob at Acme Corp.' }],
+  registry,
+  'demo-namespace',
+);
+
+const service = new GraphRAGRetrievalService();
+const result = await service.retrieve({
+  query: 'Who works with Alice?',
   topK: 5,
 });
 
 console.log(result.answer);
 ```
 
-这条调用链覆盖了实际服务的关键行为：
+## 公共 API
 
-- 调用 `createAppDeps()` 创建依赖容器
-- 把 `GraphRAGRetrievalService` 挂进应用中
-- 通过 `enqueueBuild(...)` 启动异步构建任务
-- 通过 `POST /api/rag/retrieve` 查询图谱并获取证据
+这个仓库暴露了一个和实现一致的精简 API：
 
-真正的 HTTP 接口也遵循同一套 GraphRAG 工作流：
+- `startBuild(...)`：启动异步构建任务并返回 build ID
+- `createBuildRegistry()`：跟踪构建生命周期状态
+- `GraphRAGRetrievalService`：执行混合检索和证据驱动回答
+- `injectGraphRAG(...)`：注入 Prisma、模型配置和可选默认参数
+- `injectModelConfigs(...)`：根据配置对象初始化模型适配器
+- `injectPrismaClient(...)`：安装共享的 Prisma 客户端
 
-```http
-POST /api/rag/ingest
-{
-  "entities": [...],
-  "edges": [...],
-  "reconcileEvery": 20,
-  "rebuild": false
-}
+仓库结构：
+
+- `src/build/`：分块、图构建、社区检测、注册器
+- `src/retrieval/`：查询解析、召回、排序、证据选择和回答生成
+- `src/namespace/`：命名空间隔离
+- `src/config/`：检索/构建默认值
+- `examples/`：演示和 benchmark 脚本
+- `docs/`：架构和对比说明
+
+## 调参与默认值
+
+项目支持通过 `injectGraphRAG(...)` 设置全局默认值，并通过 `retrieve(...)` 在单次请求中覆盖配置。真正的默认值位于 `src/config/defaults.ts`。
+
+```ts
+await injectGraphRAG({
+  retrievalDefaults: {
+    topK: 8,
+    vectorChildTopK: 12,
+    keywordSearchLimit: 24,
+    evidenceChildLimit: 40,
+    rrfK: 80,
+  },
+  buildDefaults: {
+    maxChunkSize: 800,
+    chunkOverlapRatio: 0.1,
+  },
+});
 ```
 
-```http
-POST /api/rag/retrieve
-{
-  "query": "总结这批文档中的关键风险",
-  "topK": 5
-}
+按请求覆盖示例：
+
+```ts
+const result = await service.retrieve({
+  query: 'Who is Irene Adler?',
+  topK: 6,
+  options: {
+    vectorChildTopK: 20,
+    keywordSearchLimit: 30,
+    evidenceChildLimit: 50,
+    rrfK: 80,
+  },
+});
 ```
 
-从架构上看，这个项目适合应用在：
+这些参数控制检索窗口和排序行为：
 
-- 文档知识库
-- 企业问答系统
-- 证据型检索产品
-- 多租户 / 多命名空间的知识图谱服务
+- `topK`：语义层面候选社区数量
+- `vectorChildTopK`：向量搜索返回的 child chunk 数量
+- `keywordSearchLimit`：关键词匹配的 child chunk 上限
+- `evidenceChildLimit`：证据合并上限
+- `rrfK`：倒序秩融合的敏感度
+- `maxChunkSize` 和 `chunkOverlapRatio`：确定性分块回退参数
 
-## 8. 这个项目的优点与缺点
+## 示例与 benchmark
 
-### 优点
+```bash
+# 运行构建 + 检索示例
+bun run examples/demo.ts
 
-- GraphRAG 流程清晰：构建、检索、证据聚合逻辑都比较直接
-- PostgreSQL + pgvector 方案对企业环境友好
-- 具备可解释的回退逻辑，模型输出不稳定时仍可保持稳定性
-- TypeScript 代码结构清晰，便于二次开发
-- 适合与自己的后端服务、API 网关和数据库集成
+# 运行召回 benchmark
+bun run demo:benchmark
+```
 
-### 缺点
+benchmark 脚本会对生成的 Markdown 语料执行真实检索评估，并输出持久化 GraphRAG namespace 的召回指标。它用于验证真实构建和检索链路，而不是只验证 mock 行为。
 
-- 不是完整的端到端 SaaS 产品，缺少 UI 与认证体系
-- 需要真实的数据库和模型配置，部署门槛高于纯本地 demo
+## 文档索引
+
+- [docs/architecture.md](docs/architecture.md)：架构和数据流
+- [docs/en-US.md](docs/en-US.md)：英文说明
+- [docs/zh-CN.md](docs/zh-CN.md)：中文说明
+- [docs/comparison.md](docs/comparison.md)：比较说明
+- [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
+
+## 贡献
+
+欢迎通过 issue 和 pull request 参与贡献。这个项目的代码组织比较模块化，最有价值的改动通常集中在：
+
+- 图构建质量
+- 检索质量和排序
+- 命名空间隔离
+- 模型加载稳定性
+- 文档与示例
+
+## 许可证
+
+MIT
 - 相比更成熟的商业产品或专用图数据库方案，功能面更小、更偏参考实现
 - 对大规模数据和高并发场景，需要进一步做资源调优和缓存策略
 

@@ -1,106 +1,85 @@
 # graphrag-ts English Guide
 
-> This repository is maintained as a standalone project. It is developed directly in this codebase and is not generated from, or synchronized with, an upstream monorepo.
+> TypeScript GraphRAG for Markdown corpora. Build a knowledge graph, detect communities, and answer with evidence-backed retrieval.
 
-## 1. Project overview
+## Why this project exists
 
-`graphrag-ts` is a TypeScript-first GraphRAG reference implementation for Markdown corpora. It turns a collection of Markdown documents into a searchable knowledge graph and supports LLM-based chunking, deterministic fallback logic, graph construction, community detection, and hybrid retrieval.
+Traditional vector RAG is effective at similarity search, but it is limited when you need cross-document structure, entity relationships, and holistic context. This repository implements a GraphRAG-style pipeline in TypeScript so you can index Markdown content and answer questions from a graph-backed knowledge base without a Python runtime or a custom application framework.
 
-Core capabilities:
+The implementation is designed for practical backend use:
 
-- Markdown-aware chunking
-- LLM-based slicing and summarization
-- Entity, relationship, and claim graph construction
-- Leiden community analysis
-- Hybrid vector, keyword, and graph retrieval
-- Evidence-grounded answer generation
+- ingest Markdown files and split them into chunks
+- extract entities, edges, and claims
+- store graph data in PostgreSQL through Prisma
+- detect communities and generate community summaries
+- combine vector, keyword, and topology-based recall for retrieval
+- generate answers from evidence rather than raw model output alone
 
-## 2. Technology stack
+## What it gives you
 
-- TypeScript
-- Bun
-- pnpm
-- Prisma
-- PostgreSQL + pgvector
-- LangChain / OpenAI-compatible APIs
+- a readable GraphRAG reference implementation in TypeScript
+- database-backed persistence for entities, claims, edges, and communities
+- namespace-aware builds for multi-tenant or multi-corpus usage
+- hybrid retrieval that combines semantic, keyword, and graph signals
+- deterministic fallback behavior when model-based chunking fails
+- a compact public API that is easy to embed in an application service
 
-## 3. Installation
+## Core pipeline
 
-Use pnpm in this repository:
+```mermaid
+flowchart LR
+    MD[Markdown files] --> SPLIT[Chunking and slicing]
+    SPLIT --> GRAPH[Entity + edge + claim graph]
+    GRAPH --> COMM[Community detection]
+    COMM --> SUMMARY[Community summaries]
+    Q[User query] --> INTENT[Intent parsing]
+    INTENT --> HYBRID[Hybrid recall: vector + keyword + community]
+    HYBRID --> EVIDENCE[Evidence aggregation]
+    EVIDENCE --> ANSWER[Grounded answer]
+```
+
+The actual implementation matches this flow in the codebase:
+
+- `src/build/` handles slicing, graph construction, and community detection
+- `src/retrieval/` handles query parsing, ranking, evidence selection, and answer generation
+- `prisma/schema.prisma` defines the persisted GraphRAG tables
+- `src/index.ts` exposes the main public API and runtime injection entry points
+
+## Quick start
 
 ```bash
+# install dependencies
 pnpm install
+
+# generate Prisma client
 pnpm run db:generate
-```
 
-For local database setup:
-
-```bash
+# copy environment variables
 cp .env.example .env
+
+# apply the schema
 pnpm run db:push
-```
 
-## 4. Node module injection pattern
-
-When this package is used as a Node module, the recommended approach is to inject runtime configuration through a single entry API instead of relying on repository-local files or implicit environment loading.
-
-Example:
-
-```ts
-import { injectModelConfigs } from '@ashes_born/graph-rag-ts/model-loader';
-import { injectPrismaClient } from '@ashes_born/graph-rag-ts/prisma-client';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
-injectPrismaClient(prisma);
-
-await injectModelConfigs([
-  {
-    type: 'slice',
-    baseURL: process.env.RAG_SLICE_BASE_URL!,
-    model: process.env.RAG_SLICE_MODEL!,
-    apiKey: process.env.RAG_SLICE_API_KEY!,
-  },
-  {
-    type: 'judge',
-    baseURL: process.env.RAG_JUDGE_BASE_URL!,
-    model: process.env.RAG_JUDGE_MODEL!,
-    apiKey: process.env.RAG_JUDGE_API_KEY!,
-  },
-  {
-    type: 'embedding',
-    baseURL: process.env.RAG_EMBED_BASE_URL!,
-    model: process.env.RAG_EMBED_MODEL!,
-    apiKey: process.env.RAG_EMBED_API_KEY!,
-  },
-]);
-```
-
-This keeps the runtime configuration external to the published package and makes the library portable across different application environments.
-
-The Bun direct-run path remains supported for local development:
-
-```bash
-cp .env.example .env
-pnpm install
-pnpm run db:push
+# run tests
 bun test
+
+# run the demo
 bun run examples/demo.ts
 ```
 
-## 5. Required runtime parameters
+## Requirements
 
-After installation, the consumer application must provide the required runtime configuration before the GraphRAG pipeline can initialize.
+Before running the project locally, make sure you have:
 
-Required items:
+- [pnpm](https://pnpm.io/) 10+
+- [Bun](https://bun.sh) 1.1+
+- PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) enabled
+- a chat model for slicing and judging
+- an embedding model compatible with OpenAI-style APIs
 
-- `DATABASE_URL`
-- `RAG_SLICE_*`
-- `RAG_JUDGE_*`
-- `RAG_EMBED_*`
-- model config entries equivalent to `src/build/model.config.json`
+## Runtime configuration
 
-Example environment:
+This repository expects environment variables to be supplied by the caller. The model loader reads them from `src/build/modelLoader.ts`.
 
 ```bash
 DATABASE_URL="postgresql://user:pass@localhost:5432/graphrag?schema=public"
@@ -116,143 +95,155 @@ RAG_JUDGE_BASE_URL="https://api.deepseek.com/"
 RAG_EMBED_API_KEY="your-embedding-key"
 RAG_EMBED_MODEL="local-embedding-model"
 RAG_EMBED_BASE_URL="http://127.0.0.1:1234/v1"
-
-RAG_COMMUNITY_CONTEXT_MAX_TOKENS=4000
 ```
 
-Example runtime model config array:
-
-```json
-[
-  {
-    "baseURL": "https://api.deepseek.com/",
-    "model": "deepseek-v4-flash",
-    "apiKey": "your-slice-key",
-    "type": "slice"
-  },
-  {
-    "baseURL": "https://api.deepseek.com/",
-    "model": "deepseek-v4-flash",
-    "apiKey": "your-judge-key",
-    "type": "judge"
-  },
-  {
-    "baseURL": "http://127.0.0.1:1234/v1",
-    "model": "your-embedding-model",
-    "apiKey": "your-embedding-key",
-    "type": "embedding"
-  }
-]
-```
-
-## 6. Running tests and the demo
-
-```bash
-bun test
-bun run examples/demo.ts
-```
-
-## 6.1 Current benchmark conclusion
-
-The current GraphRAG retrieval benchmark was run in retrieval-only mode against the persisted GraphRAG namespace after aligning the dataset to the actual database state. The phrase-level evaluator was also updated to reduce false negatives caused by natural paraphrase and quotation differences.
-
-| Metric | Result |
-| --- | ---: |
-| Total queries | 12 |
-| Strict hits | 5 / 12 (41.7%) |
-| Average entity recall | 70.8% |
-| Average phrase recall | 66.7% |
-| Average combined recall | 69.6% |
-
-The result is a valid baseline for the real namespace: the system is strong on theme/entity retrieval and on several high-signal narrative scenes, while the remaining misses mostly reflect real retrieval difficulty rather than benchmark drift or wording artifacts. In other words, the implementation is usable as a memory/retrieval layer, but it still needs further work on long-range factual grounding and scene-specific retrieval for the hardest questions.
-
-## 7. Concrete service usage pattern
-
-This repository is meant to be used as a backend GraphRAG engine rather than as an isolated script. The real integration flow in the service layer is:
+Typical runtime injection:
 
 ```ts
-import { createAppDeps } from '@novel-enginner/services/api/deps';
+import { PrismaClient } from '@prisma/client';
+import {
+  injectGraphRAG,
+  GraphRAGRetrievalService,
+  startBuild,
+  createBuildRegistry,
+} from '@ashes_born/graph-rag-ts';
 
-const deps = createAppDeps();
+await injectGraphRAG({
+  database: {
+    client: new PrismaClient({ datasourceUrl: process.env.DATABASE_URL }),
+  },
+  models: [
+    {
+      type: 'slice',
+      baseURL: process.env.RAG_SLICE_BASE_URL!,
+      model: process.env.RAG_SLICE_MODEL!,
+      apiKey: process.env.RAG_SLICE_API_KEY!,
+    },
+    {
+      type: 'judge',
+      baseURL: process.env.RAG_JUDGE_BASE_URL!,
+      model: process.env.RAG_JUDGE_MODEL!,
+      apiKey: process.env.RAG_JUDGE_API_KEY!,
+    },
+    {
+      type: 'embedding',
+      baseURL: process.env.RAG_EMBED_BASE_URL!,
+      model: process.env.RAG_EMBED_MODEL!,
+      apiKey: process.env.RAG_EMBED_API_KEY!,
+    },
+  ],
+});
 
-const buildId = deps.enqueueBuild(files, 'novel-demo');
-const result = await deps.retrieval.retrieve({
-  query: 'What does the limited reset actually shut down?',
+const registry = createBuildRegistry();
+const buildId = startBuild(
+  [{ title: 'sample.md', content: 'Alice works with Bob at Acme Corp.' }],
+  registry,
+  'demo-namespace',
+);
+
+const service = new GraphRAGRetrievalService();
+const result = await service.retrieve({
+  query: 'Who works with Alice?',
   topK: 5,
 });
 
 console.log(result.answer);
 ```
 
-The service package does the following:
+## Public API
 
-- creates a database-backed build registry
-- injects a `GraphRAGRetrievalService`
-- starts asynchronous build jobs with `startBuild(...)`
-- exposes ingestion and retrieval via HTTP routes
+This repo exposes a compact API surface consistent with the implementation:
 
-The ingestion route is aligned with the GraphRAG workflow:
+- `startBuild(...)`: starts an async build job and returns a build ID
+- `createBuildRegistry()`: tracks build lifecycle state
+- `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
+- `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults
+- `injectModelConfigs(...)`: initializes model adapters from config objects
+- `injectPrismaClient(...)`: installs the shared Prisma client
 
-```http
-POST /api/rag/ingest
-{
-  "entities": [...],
-  "edges": [...],
-  "reconcileEvery": 20,
-  "rebuild": false
-}
+Repository layout:
+
+- `src/build/`: chunking, graph construction, community detection, registry
+- `src/retrieval/`: query parsing, recall, ranking, evidence selection, answer generation
+- `src/namespace/`: namespace scoping and isolation
+- `src/config/`: default retrieval/build tuning values
+- `examples/`: demo and benchmark scripts
+- `docs/`: architecture and comparison notes
+
+## Tuning and defaults
+
+The project supports global runtime defaults through `injectGraphRAG(...)` and request-specific overrides through the `retrieve(...)` options object. The real defaults live in `src/config/defaults.ts`.
+
+```ts
+await injectGraphRAG({
+  retrievalDefaults: {
+    topK: 8,
+    vectorChildTopK: 12,
+    keywordSearchLimit: 24,
+    evidenceChildLimit: 40,
+    rrfK: 80,
+  },
+  buildDefaults: {
+    maxChunkSize: 800,
+    chunkOverlapRatio: 0.1,
+  },
+});
 ```
 
-The retrieval route follows the same pattern:
+Example per-request tuning:
 
-```http
-POST /api/rag/retrieve
-{
-  "query": "summarize the core risks in this corpus",
-  "topK": 5
-}
+```ts
+const result = await service.retrieve({
+  query: 'Who is Irene Adler?',
+  topK: 6,
+  options: {
+    vectorChildTopK: 20,
+    keywordSearchLimit: 30,
+    evidenceChildLimit: 50,
+    rrfK: 80,
+  },
+});
 ```
 
-This means the library is meant to be used as a backend service where the application owns:
+These knobs control the retrieval window and ranking behavior:
 
-- corpus upload and scheduling
+- `topK`: community-level candidate count
+- `vectorChildTopK`: child chunks returned by vector search
+- `keywordSearchLimit`: keyword-matched child chunks
+- `evidenceChildLimit`: evidence merge cap
+- `rrfK`: reciprocal rank fusion sensitivity
+- `maxChunkSize` and `chunkOverlapRatio`: deterministic chunking fallback
+
+## Demo and benchmark
+
+```bash
+# demo build + retrieval
+bun run examples/demo.ts
+
+# benchmark recall metrics
+bun run demo:benchmark
+```
+
+The benchmark script evaluates retrieval quality against generated Markdown corpora and reports real metrics for the persisted GraphRAG namespace. It is intended to validate the actual build and retrieval pipeline instead of relying on mocked behavior.
+
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md): architecture and data flow
+- [docs/en-US.md](docs/en-US.md): English user guide
+- [docs/zh-CN.md](docs/zh-CN.md): Chinese user guide
+- [docs/comparison.md](docs/comparison.md): comparison notes
+- [CONTRIBUTING.md](CONTRIBUTING.md): contribution guide
+
+## Contributing
+
+Contributions are welcome through issues and pull requests. The project is organized around small, testable modules, so the most useful changes usually fit into one of these areas:
+
+- graph construction quality
+- retrieval quality and ranking
 - namespace isolation
-- GraphRAG indexing jobs
-- final answer assembly based on evidence
+- model-loading robustness
+- documentation and examples
 
-## 8. Why this project is useful
-
-### Strengths
-
-- strong separation of indexing and retrieval concerns
-- deterministic fallbacks when model output is unstable
-- PostgreSQL + pgvector compatibility for enterprise environments
-- understandable modules for custom extension
-
-### Trade-offs
-
-- not a ready-made SaaS or UI product
-- requires real model configuration and a working Postgres deployment
-- more educational and extensible than monolithic or product-focused GraphRAG apps
-
-## 9. Comparison with mainstream GraphRAG repos
-
-| Project | Best fit | Main trade-off |
-| --- | --- | --- |
-| `graphrag-ts` | reference engine and backend integration | not a complete product experience |
-| AutoFlow | product-driven knowledge base | heavier application assumptions |
-| GitNexus | code intelligence and repo knowledge retrieval | narrower domain scope |
-| BrowseGraph | local, browser-first knowledge graphs | less enterprise backend depth |
-
-In short, `graphrag-ts` is a good choice when you want a readable GraphRAG implementation that can be adapted into your own service stack, but it intentionally does not try to become a full hosted knowledge app.
-
-## 10. Contribution
-
-Contributions are welcome. Please read:
-
-- [README.md](../README.md)
-- [CONTRIBUTING.md](../CONTRIBUTING.md)
-
-## 11. License
+## License
 
 MIT
