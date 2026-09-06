@@ -1,6 +1,6 @@
 {
   "name": "@ashes_born/graph-rag-ts",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "type": "module",
   "packageManager": "pnpm@10.22.0",
   "main": "./src/index.ts",
@@ -42,6 +42,7 @@
     "test": "NODE_ENV=test bun test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "version:bump": "bun run scripts/bump-version.ts",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "demo": "bun run examples/demo.ts",

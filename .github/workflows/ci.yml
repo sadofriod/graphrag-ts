@@ -9,10 +9,55 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck
       - run: bun test
+
+  bump-and-changelog:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Bump version and generate changelog from git log
+        id: bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          bun run scripts/bump-version.ts
+
+          if [ -n "$(git status --porcelain package.json CHANGELOG.md)" ]; then
+            NEW_VERSION=$(node -p "require('./package.json').version")
+            echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            git add package.json CHANGELOG.md
+            git commit -m "chore(release): ${NEW_VERSION} [skip ci]"
+            git tag "v${NEW_VERSION}"
+            git push origin HEAD:main --follow-tags
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
