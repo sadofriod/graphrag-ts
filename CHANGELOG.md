@@ -1,15 +1,15 @@
 # Changelog
 
-## 0.3.0 — 2026-09-06
+## 0.1.6 — 2026-09-06
 
-- **feat(adapter)**: add custom model adapter registry and provider support
-- **docs(changelog)**: update changelog for model adapter features
-- **ci**: automate changelog generation and version bump in CI workflow
-
-## 0.2.0 — 2026-09-06
-
-- **feat(adapter)**: add custom model adapter registry and provider support
-- **docs(changelog)**: update changelog for model adapter features
+- **feat(adapter)**: Add custom model adapter registry and provider support.
+  - Pluggable LangChain model adapter layer supporting custom Chat and Embedding providers (e.g. Anthropic, Ollama, Google GenAI).
+  - Configurable providers via environment variables (`RAG_SLICE_PROVIDER`, `RAG_JUDGE_PROVIDER`, `RAG_EMBED_PROVIDER`).
+  - Exported adapter registration and resolution APIs: `registerChatAdapter`, `registerEmbeddingAdapter`, `resolveChatAdapter`, `resolveEmbeddingAdapter`, and `resetAdapters`.
+- **refactor(retrieval)**: Centralize and normalize retrieval options parsing with fallback logic in `GraphRAGRetrievalService`.
+- **perf(build)**: Optimize batch community summary persistence and LLM JSON parsing robustness.
+- **docs**: Add custom model adapter usage examples and configuration documentation in English and Chinese.
+- **ci**: Automate CHANGELOG extraction from git log and version bumping based on npm published version.
 
 ## 0.1.5 — 2026-09-02
 

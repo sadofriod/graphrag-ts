@@ -2,7 +2,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-interface CommitInfo {
+export interface CommitInfo {
   hash: string;
   type: string;
   scope?: string;
@@ -11,7 +11,7 @@ interface CommitInfo {
   raw: string;
 }
 
-const parseCommit = (line: string): CommitInfo | null => {
+export const parseCommit = (line: string): CommitInfo | null => {
   const parts = line.split(' ');
   const hash = parts[0];
   const message = parts.slice(1).join(' ').trim();
@@ -45,7 +45,22 @@ const parseCommit = (line: string): CommitInfo | null => {
   };
 };
 
-const getLatestTag = (): string | null => {
+export const fetchNpmLatestVersion = async (pkgName: string): Promise<string | null> => {
+  try {
+    const encodedName = pkgName.replace('/', '%2f');
+    const res = await fetch(`https://registry.npmjs.org/${encodedName}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { 'dist-tags'?: { latest?: string } };
+    return data['dist-tags']?.latest || null;
+  } catch {
+    return null;
+  }
+};
+
+export const getLatestTag = (): string | null => {
   try {
     const tag = execSync('git describe --tags --abbrev=0', {
       encoding: 'utf8',
@@ -57,7 +72,7 @@ const getLatestTag = (): string | null => {
   }
 };
 
-const getCommitsSinceTag = (tag: string | null): CommitInfo[] => {
+export const getCommitsSinceTag = (tag: string | null): CommitInfo[] => {
   const range = tag ? `${tag}..HEAD` : 'HEAD';
   const output = execSync(`git log ${range} --oneline`, {
     encoding: 'utf8',
@@ -71,7 +86,7 @@ const getCommitsSinceTag = (tag: string | null): CommitInfo[] => {
     .filter((c): c is CommitInfo => c !== null);
 };
 
-const bumpVersion = (
+export const bumpVersion = (
   current: string,
   bumpType: 'major' | 'minor' | 'patch',
 ): string => {
@@ -81,7 +96,8 @@ const bumpVersion = (
   return `${major}.${minor}.${patch + 1}`;
 };
 
-const determineBumpType = (
+export const determineBumpType = (
+  currentVersion: string,
   commits: CommitInfo[],
   overrideType?: string,
 ): 'major' | 'minor' | 'patch' => {
@@ -93,12 +109,17 @@ const determineBumpType = (
     return overrideType;
   }
 
-  if (commits.some((c) => c.isBreaking)) return 'major';
-  if (commits.some((c) => c.type === 'feat')) return 'minor';
+  const [major] = currentVersion.split('.').map(Number);
+  if (commits.some((c) => c.isBreaking)) {
+    return major === 0 ? 'minor' : 'major';
+  }
+  if (commits.some((c) => c.type === 'feat')) {
+    return major === 0 ? 'patch' : 'minor';
+  }
   return 'patch';
 };
 
-const formatChangelogSection = (
+export const formatChangelogSection = (
   version: string,
   date: string,
   commits: CommitInfo[],
@@ -144,32 +165,48 @@ const formatChangelogSection = (
   return lines.join('\n');
 };
 
-export const runBump = (options: {
+export const runBump = async (options: {
   dryRun?: boolean;
   bump?: string;
   projectRoot?: string;
+  npmVersionOverride?: string | null;
 } = {}) => {
   const root = options.projectRoot || resolve(import.meta.dirname, '..');
   const pkgPath = resolve(root, 'package.json');
   const changelogPath = resolve(root, 'CHANGELOG.md');
 
   const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-  const currentVersion: string = pkg.version;
+  const localVersion: string = pkg.version;
+
+  // Retrieve version from npm registry
+  const npmVersion =
+    options.npmVersionOverride !== undefined
+      ? options.npmVersionOverride
+      : await fetchNpmLatestVersion(pkg.name);
+
+  if (npmVersion) {
+    console.log(`Latest published npm version: ${npmVersion}`);
+  } else {
+    console.log(`Could not fetch npm version, falling back to local version: ${localVersion}`);
+  }
+
+  // Use npm version as base if available
+  const baseVersion = npmVersion || localVersion;
 
   const latestTag = getLatestTag();
   console.log(`Latest git tag: ${latestTag || '(none)'}`);
-  console.log(`Current package.json version: ${currentVersion}`);
+  console.log(`Base version: ${baseVersion} (local package.json was ${localVersion})`);
 
   const commits = getCommitsSinceTag(latestTag);
   console.log(`Found ${commits.length} relevant commits since ${latestTag || 'repo start'}.`);
 
   if (commits.length === 0) {
     console.log('No new commits found to release. Exiting.');
-    return { updated: false, version: currentVersion };
+    return { updated: false, version: baseVersion };
   }
 
-  const bumpType = determineBumpType(commits, options.bump);
-  const nextVersion = bumpVersion(currentVersion, bumpType);
+  const bumpType = determineBumpType(baseVersion, commits, options.bump);
+  const nextVersion = bumpVersion(baseVersion, bumpType);
   const today = new Date().toISOString().split('T')[0];
 
   console.log(`Calculated bump: ${bumpType} -> Next version: ${nextVersion}`);
@@ -211,5 +248,5 @@ if (import.meta.main || process.argv[1]?.endsWith('bump-version.ts')) {
   const bumpIndex = args.indexOf('--bump');
   const bump = bumpIndex !== -1 ? args[bumpIndex + 1] : undefined;
 
-  runBump({ dryRun, bump });
+  await runBump({ dryRun, bump });
 }

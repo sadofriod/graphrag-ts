@@ -1,22 +1,31 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { runBump } from './bump-version';
+import { runBump, fetchNpmLatestVersion } from './bump-version';
 
 describe('bump-version script', () => {
-  test('dry-run execution succeeds without modifying files', () => {
-    const result = runBump({ dryRun: true });
-    expect(result.updated).toBeTrue();
-    expect(result.version).toBeDefined();
+  test('fetchNpmLatestVersion retrieves latest tag from registry or returns string', async () => {
+    const version = await fetchNpmLatestVersion('@ashes_born/graph-rag-ts');
+    if (version !== null) {
+      expect(typeof version).toBe('string');
+      expect(version.split('.').length).toBe(3);
+    }
   });
 
-  test('respects explicit bump type in dry run', () => {
-    const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8'));
-    const [major, minor, patch] = pkg.version.split('.').map(Number);
-    const expectedPatchVersion = `${major}.${minor}.${patch + 1}`;
-
-    const result = runBump({ dryRun: true, bump: 'patch' });
+  test('dry-run execution succeeds and bumps patch for 0.x series', async () => {
+    const result = await runBump({
+      dryRun: true,
+      npmVersionOverride: '0.1.5',
+    });
     expect(result.updated).toBeTrue();
-    expect(result.version).toBe(expectedPatchVersion);
+    expect(result.version).toBe('0.1.6');
+  });
+
+  test('respects explicit bump type in dry run with npm base', async () => {
+    const result = await runBump({
+      dryRun: true,
+      bump: 'minor',
+      npmVersionOverride: '0.1.5',
+    });
+    expect(result.updated).toBeTrue();
+    expect(result.version).toBe('0.2.0');
   });
 });
