@@ -2,6 +2,13 @@
 
 ## 0.1.6 — 2026-09-06
 
+- **feat(adapter)**: add custom model adapter registry and provider support
+- **fix(release)**: align 0.1.6 version from npm base and update bump script
+- **docs(changelog)**: update changelog for model adapter features
+- **ci**: automate changelog generation and version bump in CI workflow
+
+## 0.1.6 — 2026-09-06
+
 - **feat(adapter)**: Add custom model adapter registry and provider support.
   - Pluggable LangChain model adapter layer supporting custom Chat and Embedding providers (e.g. Anthropic, Ollama, Google GenAI).
   - Configurable providers via environment variables (`RAG_SLICE_PROVIDER`, `RAG_JUDGE_PROVIDER`, `RAG_EMBED_PROVIDER`).
