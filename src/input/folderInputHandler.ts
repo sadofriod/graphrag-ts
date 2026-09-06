@@ -5,7 +5,6 @@ import { isTextFile } from './textFile';
 export interface FolderImportInput {
   path: string;
   enqueue: (files: readonly BuildInputFile[]) => string;
-  /** Directory paths (relative to `path`) to skip during traversal. */
   exclude?: readonly string[];
 }
 

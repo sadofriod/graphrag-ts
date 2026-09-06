@@ -1,19 +1,16 @@
-import { ChatDeepSeek } from '@langchain/deepseek';
-import { OpenAIEmbeddings } from '@langchain/openai';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
+import type { Embeddings } from '@langchain/core/embeddings';
 import { CustomModelConfigType, type CustomModelConfig } from './custom.model.conf.type';
 import { logger } from '../logger';
-import { createLLMCallLogger } from './llmCallbacks';
-import { LLM_TIMEOUT_MS } from './constants';
+import { resolveChatAdapter, resolveEmbeddingAdapter } from './adapter';
 
-/** slice/judge are chat models, embedding is a vector model (narrowed by config type). */
-interface ModelLoader {
-  slice: ChatDeepSeek;
-  judge: ChatDeepSeek;
-  embedding: OpenAIEmbeddings;
+export interface ModelLoader {
+  slice: BaseChatModel;
+  judge: BaseChatModel;
+  embedding: Embeddings;
 }
 
-/** Invoke a chat model and extract plain text (handles string and AIMessage returns). */
-export const invokeModelText = async (model: ChatDeepSeek, prompt: string): Promise<string> => {
+export const invokeModelText = async (model: BaseChatModel, prompt: string): Promise<string> => {
   const response = await model.invoke(prompt);
   if (typeof response === 'string') return response;
   const content = (response as { content?: unknown }).content;
@@ -28,26 +25,29 @@ const chatConfig = (
   const prefix = type === CustomModelConfigType.slice ? 'RAG_SLICE' : 'RAG_JUDGE';
   const apiKey = envOr(`${prefix}_API_KEY`);
   if (!apiKey) return undefined;
+  const provider = envOr(`${prefix}_PROVIDER`);
   return {
     type,
     baseURL: envOr(`${prefix}_BASE_URL`, 'https://api.deepseek.com/'),
     model: envOr(`${prefix}_MODEL`, 'deepseek-chat'),
     apiKey,
+    ...(provider ? { provider } : {}),
   };
 };
 
 const embeddingConfig = (): CustomModelConfig | undefined => {
   const apiKey = envOr('RAG_EMBED_API_KEY');
   if (!apiKey) return undefined;
+  const provider = envOr('RAG_EMBED_PROVIDER');
   return {
     type: CustomModelConfigType.embedding,
     baseURL: envOr('RAG_EMBED_BASE_URL', 'http://127.0.0.1:1234/v1'),
     model: envOr('RAG_EMBED_MODEL', 'local-embedding-model'),
     apiKey,
+    ...(provider ? { provider } : {}),
   };
 };
 
-/** Build the model configuration from environment variables (see .env.example). */
 export const envModelConfigs = (): CustomModelConfig[] =>
   [
     chatConfig(CustomModelConfigType.slice),
@@ -65,34 +65,14 @@ export const createModelLoaderFromConfig = async (
   }
   return configs.reduce((acc, conf) => {
     if (conf.type === CustomModelConfigType.embedding) {
-      acc[conf.type] = new OpenAIEmbeddings({
-        openAIApiKey: conf.apiKey,
-        modelName: conf.model,
-        // The OpenAI SDK sends encoding_format=base64 by default and decodes it itself.
-        // LM Studio ignores that parameter and returns raw float arrays, which get
-        // misdecoded (all zeros). Requesting float explicitly lets the SDK pass them through.
-        encodingFormat: 'float',
-        configuration: {
-          baseURL: conf.baseURL,
-        },
-      });
+      const adapter = resolveEmbeddingAdapter(conf.provider);
+      acc[conf.type] = adapter({ config: conf });
       return acc;
     }
-    acc[conf.type] = new ChatDeepSeek({
-      apiKey: conf.apiKey,
-      model: conf.model,
-      callbacks: [createLLMCallLogger()],
-      // Timeout protection: LLM slicing can take minutes. Fail fast and fall back to
-      // deterministic splitting instead of waiting indefinitely.
-      timeout: LLM_TIMEOUT_MS,
-      // DeepSeek JSON mode: force valid JSON so slicing/summary outputs are JSON rather
-      // than free text (which would otherwise fall back to deterministic splitting).
-      // Note: DeepSeek's default thinking mode does not support tool_choice (function
-      // calling), so withStructuredOutput is unavailable; response_format=json_object is
-      // the compatible structured-output option.
-      ...(conf.type === CustomModelConfigType.slice
-        ? { modelKwargs: { response_format: { type: 'json_object' } as const } }
-        : {}),
+    const adapter = resolveChatAdapter(conf.provider);
+    acc[conf.type] = adapter({
+      config: conf,
+      isSlice: conf.type === CustomModelConfigType.slice,
     });
     return acc;
   }, {} as ModelLoader);

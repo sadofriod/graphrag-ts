@@ -28,8 +28,6 @@ describe('recallCommunitiesByTopology', () => {
       expect(sql.text).toContain('RECURSIVE');
       expect(sql.text).toContain('hop');
       expect(sql.text).toContain('"namespace"');
-      // Regression: allow only a single recursive branch (one UNION), or PostgreSQL throws 42P19
-      // "recursive reference to query reachable must not appear within its non-recursive term"。
       expect(sql.text?.match(/UNION/g)?.length).toBe(1);
       expect(sql.text).toContain('CASE WHEN');
     } finally {

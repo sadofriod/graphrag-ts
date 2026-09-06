@@ -10,7 +10,6 @@ interface LLMResultLike {
   generations?: { message?: LLMMessageLike }[][];
 }
 
-/** Correlation context attached to every LLM log line (namespace only in OSS). */
 const readCorrelation = (): Record<string, string | number | undefined> => ({
   namespace: getCurrentNamespace(),
 });
@@ -20,7 +19,6 @@ const runs = new Map<string, { startedAt: number; promptChars: number }>();
 const modelNameOf = (llm: unknown): string | undefined =>
   (llm as { modelName?: string }).modelName ?? (llm as { model?: string }).model;
 
-/** One structured log line per LLM call: info metadata (model/length/latency/tokens), error on failure. */
 export const createLLMCallLogger = (): BaseCallbackHandler =>
   ({
     name: 'llm-call-logger',

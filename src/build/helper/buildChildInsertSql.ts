@@ -11,8 +11,6 @@ export const buildChildInsertSql = (children: ChildInsertRow[], namespace: strin
     return Prisma.sql``;
   }
 
-  // id/updated_at have no database-level DEFAULT (Prisma's @default(cuid())/@updatedAt are generated only in the client layer),
-  // so native SQL inserts must provide them explicitly or they will violate the NOT NULL constraint (23502).
   return Prisma.sql`
     INSERT INTO "rag_children" ("id", "namespace", "content", "parent_id", "embedding", "fts_tokens", "updated_at")
     VALUES ${Prisma.join(

@@ -8,7 +8,7 @@ export interface RetrievalDefaults {
 
 export interface BuildDefaults {
   maxChunkSize?: number;
-  chunkOverlapRatio?: number; // fraction, e.g. 0.1 for 10%
+  chunkOverlapRatio?: number;
 }
 
 const defaults: { retrieval: RetrievalDefaults; build: BuildDefaults } = {

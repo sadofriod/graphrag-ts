@@ -14,7 +14,6 @@ const loadWasmGraph = async (): Promise<typeof WasmGraph> => {
   }
 };
 
-// Loads the igraph WebAssembly implementation exactly once and returns the WasmGraph class.
 export const loadIgraph = (): Promise<typeof WasmGraph> => {
   loadPromise ??= loadWasmGraph();
   return loadPromise;

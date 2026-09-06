@@ -34,13 +34,11 @@ describe('buildCommunityContext', () => {
   it('sorts edges by endpoint degree sum and claims by referenced-entity degree', () => {
     const output = buildCommunityContext(sampleInput, { maxTokens: 1000 });
 
-    // Degrees: A=2, B=2, C=1, D=2, E=1 -> edge order A-B(4), A-D(4), B-C(3), D-E(3)
     expect(output).toContain('1. A --leads--> B');
     expect(output).toContain('2. A --works_with--> D');
     expect(output).toContain('3. B --follows--> C');
     expect(output).toContain('4. D --leaves--> E');
 
-    // Claims sorted by the highest degree of subject/object: A(3), B-C(2), E(1)
     expect(output).toContain('1. A: A is central');
     expect(output).toContain('2. B (relates to C): B works with C');
     expect(output).toContain('3. E: E is minor');

@@ -1,16 +1,3 @@
-/**
- * Build a long Markdown corpus and report recall@k for GraphRAG retrieval.
- *
- * Usage:
- *   bun run demo:benchmark
- *
- * Optional environment overrides:
- *   RAG_DEMO_NAMESPACE
- *   RAG_DEMO_OUTLINE_PATH
- *   RAG_DEMO_TOPK
- *   RAG_DEMO_SKIP_BUILD=true   // re-use the existing GraphRAG build and only run retrieval
- *   RAG_DEMO_INCLUDE_ANSWER=true
- */
 import { buildRAG } from '../src/build/buildRag';
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { envModelConfigs, injectModelConfigs } from '../src/build/modelLoader';
@@ -27,6 +14,7 @@ import { RECALL_QUERIES } from './benchmark-recall/dataset';
 import { buildRetrievedContext, evaluateRecall } from './benchmark-recall/evaluation';
 import { aggregateResults, formatMarkdownReport } from './benchmark-recall/report';
 import type { PerQueryResult, RecallQuery, Retrieve } from './benchmark-recall/types';
+import type { RetrievalResult } from '../src/retrieval/types/retrieval';
 
 export interface RecallDemoOptions {
   readonly namespace?: string;
@@ -135,6 +123,31 @@ export const runRecallBenchmarkDemo = async (options: RecallDemoOptions = {}) =>
   return { buildId, namespace, corpusDir, report: aggregateResults(results), results };
 };
 
+const printSingleQueryDiagnostic = (
+  query: RecallQuery,
+  result: RetrievalResult,
+  debugTopK: number,
+): void => {
+  console.log(`\n=== Diagnostic: ${query.id} ===`);
+  console.log(`Source: ${query.source}`);
+  console.log(`Focus: ${query.focus}`);
+  console.log(`Query: ${query.query}`);
+  console.log(`Retrieved communities (${result.communities.length}):`);
+  for (const community of result.communities.slice(0, 5)) {
+    console.log(
+      `  - ${community.name ?? '(unnamed)'} | score=${community.score.toFixed(4)} | members=${(community.members ?? []).slice(0, 8).join(', ')}`,
+    );
+  }
+  console.log(`Evidence snippets (top ${Math.min(result.evidence.length, debugTopK)}):`);
+  for (const [index, evidence] of result.evidence.slice(0, debugTopK).entries()) {
+    const text = evidence.text.replace(/\s+/g, ' ').trim();
+    console.log(`  [${index + 1}] ${text.slice(0, 500)}${text.length > 500 ? '...' : ''}`);
+  }
+  if (result.evidence.length === 0) {
+    console.log('  (no evidence returned)');
+  }
+};
+
 const printDiagnosticSnippets = async (options: RecallDemoOptions): Promise<void> => {
   const namespace = options.namespace ?? DEFAULT_NAMESPACE;
   const dataset = (options.dataset ?? RECALL_QUERIES).filter(
@@ -154,25 +167,7 @@ const printDiagnosticSnippets = async (options: RecallDemoOptions): Promise<void
     const result = await withNamespace(namespace, () =>
       retrieve({ query: query.query, topK: debugTopK }),
     );
-
-    console.log(`\n=== Diagnostic: ${query.id} ===`);
-    console.log(`Source: ${query.source}`);
-    console.log(`Focus: ${query.focus}`);
-    console.log(`Query: ${query.query}`);
-    console.log(`Retrieved communities (${result.communities.length}):`);
-    for (const community of result.communities.slice(0, 5)) {
-      console.log(
-        `  - ${community.name ?? '(unnamed)'} | score=${community.score.toFixed(4)} | members=${(community.members ?? []).slice(0, 8).join(', ')}`,
-      );
-    }
-    console.log(`Evidence snippets (top ${Math.min(result.evidence.length, debugTopK)}):`);
-    for (const [index, evidence] of result.evidence.slice(0, debugTopK).entries()) {
-      const text = evidence.text.replace(/\s+/g, ' ').trim();
-      console.log(`  [${index + 1}] ${text.slice(0, 500)}${text.length > 500 ? '...' : ''}`);
-    }
-    if (result.evidence.length === 0) {
-      console.log('  (no evidence returned)');
-    }
+    printSingleQueryDiagnostic(query, result, debugTopK);
   }
 };
 

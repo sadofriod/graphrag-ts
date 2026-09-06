@@ -9,4 +9,6 @@ export interface CustomModelConfig {
   model: string;
   apiKey: string;
   type: CustomModelConfigType;
+  provider?: string;
+  options?: Record<string, unknown>;
 }

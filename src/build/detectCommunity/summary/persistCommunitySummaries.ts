@@ -1,4 +1,4 @@
-import type { OpenAIEmbeddings } from '@langchain/openai';
+import type { Embeddings } from '@langchain/core/embeddings';
 import { Prisma } from '@prisma/client';
 
 import { getCurrentNamespace } from '../../../namespace/namespaceContext';
@@ -8,18 +8,9 @@ import { backfillCommunityAssignments } from './backfillCommunityAssignments';
 import { buildCommunityContext, getCommunityContextMaxTokens } from './buildCommunityContext';
 import { buildCommunityContextInput } from './buildCommunityContextInput';
 import { generateCommunitySummary } from './generateCommunitySummary';
-import type { CommunityDetectionResult } from '../types';
+import type { Community, CommunityDetectionResult } from '../types';
 
-export const persistCommunitySummaries = async (
-  result: CommunityDetectionResult,
-  namespace: string,
-) => {
-  const embeddingModel = modelLoaderSingleton.models?.embedding as OpenAIEmbeddings | undefined;
-
-  if (!embeddingModel) {
-    throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
-  }
-
+const loadGraphData = async () => {
   const entityProfileClient = (prismaClient as unknown as {
     entityProfile?: {
       findMany: (args: {
@@ -50,9 +41,6 @@ export const persistCommunitySummaries = async (
     profileRows.map((profile) => [profile.entityId, profile.profile]),
   );
 
-  // M6 (one-way read-only): [Node summaries] prefer EntityProfile (canonical
-  // setting profiles); if unavailable, fall back to the description extracted
-  // during build.
   const entityDescriptions = new Map(
     entityRows.map((entity) => [
       entity.name,
@@ -60,37 +48,65 @@ export const persistCommunitySummaries = async (
     ]),
   );
 
-  const memberToCommunity = new Map<string, number>();
-  result.communities.forEach((community) => {
-    community.members.forEach((member) => {
-      memberToCommunity.set(member, community.id);
-    });
+  return { edgeRows, claimRows, entityDescriptions };
+};
+
+const saveCommunitySummary = async (
+  community: Community,
+  inputContent: string,
+  namespace: string,
+  embeddingModel: Embeddings,
+): Promise<{ id: string; name: string }> => {
+  const { communityName, summaryContent } = await generateCommunitySummary(community, inputContent);
+  const summary = await prismaClient.rAGCommunitySummary.create({
+    data: {
+      namespace,
+      communityName,
+      summaryContent,
+    },
   });
 
+  const summaryEmbedding = await embeddingModel.embedQuery(summaryContent);
+  await prismaClient.$executeRaw(Prisma.sql`
+    UPDATE "rag_community_summaries"
+    SET "summary_embedding" = CAST(${JSON.stringify(summaryEmbedding)} AS vector)
+    WHERE "id" = ${summary.id}
+      AND "namespace" = ${getCurrentNamespace()}
+  `);
+
+  return { id: summary.id, name: communityName };
+};
+
+const buildMemberToCommunityMap = (communities: Community[]): Map<string, number> => {
+  const map = new Map<string, number>();
+  for (const community of communities) {
+    for (const member of community.members) {
+      map.set(member, community.id);
+    }
+  }
+  return map;
+};
+
+export const persistCommunitySummaries = async (
+  result: CommunityDetectionResult,
+  namespace: string,
+) => {
+  const embeddingModel = modelLoaderSingleton.models?.embedding as Embeddings | undefined;
+  if (!embeddingModel) {
+    throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
+  }
+
+  const { edgeRows, claimRows, entityDescriptions } = await loadGraphData();
+  const memberToCommunity = buildMemberToCommunityMap(result.communities);
   const communitySummaries = new Map<number, { id: string; name: string }>();
+
   for (const community of result.communities) {
     const input = buildCommunityContextInput(community, edgeRows, claimRows, entityDescriptions);
     const inputContent = buildCommunityContext(input, {
       maxTokens: getCommunityContextMaxTokens(),
     });
-    const { communityName, summaryContent } = await generateCommunitySummary(community, inputContent);
-    const summary = await prismaClient.rAGCommunitySummary.create({
-      data: {
-        namespace,
-        communityName,
-        summaryContent,
-      },
-    });
-
-    const summaryEmbedding = await embeddingModel.embedQuery(summaryContent);
-    await prismaClient.$executeRaw(Prisma.sql`
-      UPDATE "rag_community_summaries"
-      SET "summary_embedding" = CAST(${JSON.stringify(summaryEmbedding)} AS vector)
-      WHERE "id" = ${summary.id}
-        AND "namespace" = ${getCurrentNamespace()}
-    `);
-
-    communitySummaries.set(community.id, { id: summary.id, name: communityName });
+    const saved = await saveCommunitySummary(community, inputContent, namespace, embeddingModel);
+    communitySummaries.set(community.id, saved);
   }
 
   await backfillCommunityAssignments(edgeRows, claimRows, memberToCommunity, communitySummaries);

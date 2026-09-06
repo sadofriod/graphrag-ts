@@ -8,7 +8,6 @@ describe('descriptionHash', () => {
     const hash = descriptionHash('  Hello World  ');
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(hash).toBe(descriptionHash('hello world'));
-    // Do not collapse whitespace: differently phrased claims should not be merged
     expect(hash).not.toBe(descriptionHash('hello  world'));
   });
 });

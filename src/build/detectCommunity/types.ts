@@ -18,7 +18,6 @@ export interface CommunityDetectionResult {
   score?: number;
 }
 
-/** Raw payload returned by the igraph wasm `leiden()` call. */
 export interface LeidenResult {
   membership: number[];
   quality?: number;

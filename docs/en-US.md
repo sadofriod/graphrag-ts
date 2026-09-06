@@ -158,6 +158,33 @@ This repo exposes a compact API surface consistent with the implementation:
 - `createBuildRegistry()`: tracks build lifecycle state
 - `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
 - `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults
+- `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`: register custom LangChain models (e.g. Anthropic, Ollama, Google GenAI)
+
+### Custom LangChain Model Adapters
+
+You can register any LangChain-compatible model via the adapter layer:
+
+```ts
+import { registerChatAdapter, registerEmbeddingAdapter } from '@ashes_born/graph-rag-ts';
+import { ChatAnthropic } from '@langchain/anthropic';
+import { OllamaEmbeddings } from '@langchain/ollama';
+
+// Register custom chat adapter
+registerChatAdapter('anthropic', ({ config, isSlice }) => {
+  return new ChatAnthropic({
+    anthropicApiKey: config.apiKey,
+    modelName: config.model,
+  });
+});
+
+// Register custom embedding adapter
+registerEmbeddingAdapter('ollama', ({ config }) => {
+  return new OllamaEmbeddings({
+    baseUrl: config.baseURL,
+    model: config.model,
+  });
+});
+```
 - `injectModelConfigs(...)`: initializes model adapters from config objects
 - `injectPrismaClient(...)`: installs the shared Prisma client
 

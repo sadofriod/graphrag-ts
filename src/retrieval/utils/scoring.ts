@@ -2,7 +2,6 @@ import type { WeightedGraphEdge } from '../../build/detectCommunity';
 import { normalizeEdgeEntities, type GraphEdge } from '../../build/helper/buildEdges';
 import type { EntityId } from '../types/graph';
 
-/** @deprecated */
 export function aggregateEdgeWeights(edges: readonly GraphEdge[]): WeightedGraphEdge[] {
   const weightMap = new Map<string, WeightedGraphEdge>();
 
@@ -35,7 +34,6 @@ export function computeEdgeWeight(
   }, 0);
 }
 
-/** @deprecated */
 export function normalizeScore(score: number): number {
   if (score <= 0) {
     return 0;

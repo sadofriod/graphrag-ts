@@ -45,7 +45,6 @@ interface LoadedEdge {
 
 import { getRetrievalDefaults } from '../../config/defaults';
 
-/** Default retrieval tuning values (can be overridden per-request or via injectGraphRAG). */
 const GLOBAL_RETRIEVAL_DEFAULTS = getRetrievalDefaults();
 
 const loadEntities = async (): Promise<EntityRecord[]> => {
@@ -162,18 +161,40 @@ const fuseMatchedWithIntent = (
   return Array.from(byName.values());
 };
 
+interface NormalizedRetrievalOptions {
+  topK: number;
+  vectorChildTopK: number;
+  keywordSearchLimit: number;
+  evidenceChildLimit: number;
+  rrfK: number;
+}
+
+const fallbackValue = (val: number | undefined, fallback: number | undefined, defaultValue: number): number => {
+  if (val !== undefined) {
+    return val;
+  }
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  return defaultValue;
+};
+
+const resolveRetrievalOptions = (request: RetrievalRequest): NormalizedRetrievalOptions => {
+  const opts = request.options;
+  const defs = GLOBAL_RETRIEVAL_DEFAULTS;
+  return {
+    topK: fallbackValue(request.topK, opts?.topK, fallbackValue(defs.topK, undefined, 5)),
+    vectorChildTopK: fallbackValue(opts?.vectorChildTopK, defs.vectorChildTopK, 8),
+    keywordSearchLimit: fallbackValue(opts?.keywordSearchLimit, defs.keywordSearchLimit, 16),
+    evidenceChildLimit: fallbackValue(opts?.evidenceChildLimit, defs.evidenceChildLimit, 20),
+    rrfK: fallbackValue(opts?.rrfK, defs.rrfK, 60),
+  };
+};
+
 export class GraphRAGRetrievalService {
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
-    const topK = request.topK ?? request.options?.topK ?? GLOBAL_RETRIEVAL_DEFAULTS.topK ?? 5;
-
-    const vectorChildTopK =
-      request.options?.vectorChildTopK ?? GLOBAL_RETRIEVAL_DEFAULTS.vectorChildTopK ?? 8;
-    const keywordSearchLimit =
-      request.options?.keywordSearchLimit ?? GLOBAL_RETRIEVAL_DEFAULTS.keywordSearchLimit ?? 16;
-    const evidenceChildLimit =
-      request.options?.evidenceChildLimit ?? GLOBAL_RETRIEVAL_DEFAULTS.evidenceChildLimit ?? 20;
-    const rrfK = request.options?.rrfK ?? GLOBAL_RETRIEVAL_DEFAULTS.rrfK ?? 60;
+    const opts = resolveRetrievalOptions(request);
 
     const [entities, loadedEdges, claims] = await Promise.all([
       loadEntities(),
@@ -182,7 +203,7 @@ export class GraphRAGRetrievalService {
     ]);
 
     const intent = await parseQuery(query);
-    const matchedByQuery = await matchEntitiesWithSemantic(query, entities, [], undefined, rrfK);
+    const matchedByQuery = await matchEntitiesWithSemantic(query, entities, [], undefined, opts.rrfK);
     const matched = fuseMatchedWithIntent(matchedByQuery, intent.entities, entities);
 
     const { communityIds } = await recallCommunitiesByTopology(
@@ -191,21 +212,21 @@ export class GraphRAGRetrievalService {
     );
 
     const queryEmbedding = await embedText(query);
-    const semanticRankings = (await searchSimilarCommunitySummaries(queryEmbedding, topK)).map(
+    const semanticRankings = (await searchSimilarCommunitySummaries(queryEmbedding, opts.topK)).map(
       (hit) => hit.id,
     );
 
     const childChunks = mergeChildChunks(
-      await searchSimilarChildChunks(queryEmbedding, vectorChildTopK),
+      await searchSimilarChildChunks(queryEmbedding, opts.vectorChildTopK),
       await searchChildChunksByKeywords(
         buildKeywordTerms({
           intentEntities: intent.entities,
           intentKeywords: intent.keywords,
           matched,
         }),
-        keywordSearchLimit,
+        opts.keywordSearchLimit,
       ),
-      evidenceChildLimit,
+      opts.evidenceChildLimit,
     );
 
     const candidateIds = Array.from(new Set([...communityIds, ...semanticRankings]));
@@ -218,8 +239,8 @@ export class GraphRAGRetrievalService {
       edges,
       matched.map((item) => item.name),
       semanticRankings,
-      topK,
-      rrfK,
+      opts.topK,
+      opts.rrfK,
     );
     const selected = await selectFinalCommunities(query, ranked, true);
 

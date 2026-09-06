@@ -6,20 +6,45 @@ import {
   injectModelConfigs,
   envModelConfigs,
   getLoadedModels,
+  type ModelLoader,
 } from './build/modelLoader';
+import {
+  registerChatAdapter,
+  registerEmbeddingAdapter,
+  resolveChatAdapter,
+  resolveEmbeddingAdapter,
+  resetAdapters,
+  type ChatModelAdapter,
+  type EmbeddingModelAdapter,
+  type ChatAdapterContext,
+  type EmbeddingAdapterContext,
+} from './build/adapter';
 import { prismaClient, injectPrismaClient, getPrismaClient } from './build/helper/prismaClient';
 import type { CustomModelConfig } from './build/custom.model.conf.type';
 import { configureDefaults } from './config/defaults';
 
 export { GraphRAGRetrievalService, startBuild, createBuildRegistry };
 export { modelLoader, injectModelConfigs, envModelConfigs, getLoadedModels };
+export {
+  registerChatAdapter,
+  registerEmbeddingAdapter,
+  resolveChatAdapter,
+  resolveEmbeddingAdapter,
+  resetAdapters,
+};
 export { prismaClient, injectPrismaClient, getPrismaClient };
-export type { CustomModelConfig };
+export type {
+  CustomModelConfig,
+  ModelLoader,
+  ChatModelAdapter,
+  EmbeddingModelAdapter,
+  ChatAdapterContext,
+  EmbeddingAdapterContext,
+};
 
 export const injectGraphRAG = async (options: {
   database?: { client?: import('@prisma/client').PrismaClient; url?: string };
   models?: CustomModelConfig[];
-  /** Optional global defaults for retrieval and build tuning */
   retrievalDefaults?: Partial<import('./config/defaults').RetrievalDefaults>;
   buildDefaults?: Partial<import('./config/defaults').BuildDefaults>;
 } = {}): Promise<void> => {
@@ -35,7 +60,6 @@ export const injectGraphRAG = async (options: {
     await injectModelConfigs(options.models);
   }
 
-  // Apply any provided runtime defaults for retrieval or build tuning.
   if (options.retrievalDefaults || options.buildDefaults) {
     const cfg: { retrieval?: Partial<import('./config/defaults').RetrievalDefaults>; build?: Partial<import('./config/defaults').BuildDefaults> } = {};
     if (options.retrievalDefaults) cfg.retrieval = options.retrievalDefaults;

@@ -80,7 +80,6 @@ describe('searchChildChunksByKeywords', () => {
       const patterns = (sql.values ?? []).filter(
         (value) => typeof value === 'string' && value.includes('midnight protocol'),
       );
-      // After deduplication, trimming, and empty-string filtering, only one keyword remains; it appears once in the scoring expression and once in WHERE.
       expect(patterns).toEqual(['%midnight protocol%', '%midnight protocol%']);
     } finally {
       prismaClient.$queryRaw = originalQueryRaw;

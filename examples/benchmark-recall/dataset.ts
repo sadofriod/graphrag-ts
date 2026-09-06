@@ -1,7 +1,5 @@
 import type { RecallQuery } from './types';
 
-// Keep the benchmark aligned to the sources that actually exist in the current
-// GraphRAG namespace so the evaluation reflects the real database state.
 export const RECALL_QUERIES: readonly RecallQuery[] = [
   {
     id: 'alice-rabbit-hole',

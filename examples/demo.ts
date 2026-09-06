@@ -1,11 +1,3 @@
-/**
- * End-to-end demo: build the sample corpus into the graph, then run a retrieval.
- *
- * Requires a live PostgreSQL database with the schema applied (`bun run db:push`)
- * and model env vars configured (see `.env.example`).
- *
- * Usage: bun run examples/demo.ts
- */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 

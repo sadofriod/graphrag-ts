@@ -158,6 +158,33 @@ console.log(result.answer);
 - `createBuildRegistry()`：跟踪构建生命周期状态
 - `GraphRAGRetrievalService`：执行混合检索和证据驱动回答
 - `injectGraphRAG(...)`：注入 Prisma、模型配置和可选默认参数
+- `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`：注册自定义 LangChain 模型适配器（如 Anthropic、Ollama、Google GenAI 等）
+
+### 自定义 LangChain 适配器
+
+通过适配器层可以无缝接入任意 LangChain 支持的模型：
+
+```ts
+import { registerChatAdapter, registerEmbeddingAdapter } from '@ashes_born/graph-rag-ts';
+import { ChatAnthropic } from '@langchain/anthropic';
+import { OllamaEmbeddings } from '@langchain/ollama';
+
+// 注册自定义对话模型适配器
+registerChatAdapter('anthropic', ({ config, isSlice }) => {
+  return new ChatAnthropic({
+    anthropicApiKey: config.apiKey,
+    modelName: config.model,
+  });
+});
+
+// 注册自定义向量模型适配器
+registerEmbeddingAdapter('ollama', ({ config }) => {
+  return new OllamaEmbeddings({
+    baseUrl: config.baseURL,
+    model: config.model,
+  });
+});
+```
 - `injectModelConfigs(...)`：根据配置对象初始化模型适配器
 - `injectPrismaClient(...)`：安装共享的 Prisma 客户端
 

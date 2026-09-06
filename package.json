@@ -27,6 +27,7 @@
       "./src/helper/*.ts",
       "./src/helper/*/index.ts"
     ],
+    "./adapter": "./src/build/adapter/index.ts",
     "./model-loader": "./src/build/modelLoader.ts",
     "./prisma-client": "./src/build/helper/prismaClient.ts"
   },

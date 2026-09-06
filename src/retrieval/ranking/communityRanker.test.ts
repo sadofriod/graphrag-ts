@@ -39,9 +39,9 @@ describe('computeStructuralScore', () => {
 describe('rankCommunitiesWithRRF', () => {
   it('fuses the three heterogeneous rankings with RRF', () => {
     const result = rankCommunitiesWithRRF(
-      ['c2', 'c1'], // semantic
-      ['c1', 'c2'], // entity overlap
-      ['c2', 'c1'], // structural
+      ['c2', 'c1'],
+      ['c1', 'c2'],
+      ['c2', 'c1'],
       communities,
       ['A'],
     );

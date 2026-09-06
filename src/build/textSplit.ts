@@ -1,8 +1,8 @@
 import { CustomModelConfigType } from "./custom.model.conf.type";
 import { invokeModelText, modelLoaderSingleton } from "./modelLoader";
 import { logger } from "../logger";
-import type { ChatDeepSeek } from "@langchain/deepseek";
-import type { OpenAIEmbeddings } from "@langchain/openai";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { Embeddings } from "@langchain/core/embeddings";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import {
   DETERMINISTIC_THRESHOLD,
@@ -51,23 +51,14 @@ export interface SplitResult {
   entities: ChunkEntity[];
 }
 
-export interface TextSplitInput {
-  content: string;
-  title?: string;
-  namespace: string;
-  /** Optional: override chunk sizing for deterministic fallbacks (characters). */
-  chunkSize?: number;
-  /** Optional: override chunk-overlap as a fraction (e.g. 0.1 for 10%). */
-  chunkOverlap?: number;
-}
-
-
 export type TextSplitMode = 'auto' | 'llm' | 'deterministic';
 
 export interface TextSplitInput {
   content: string;
   title?: string;
   namespace: string;
+  chunkSize?: number;
+  chunkOverlap?: number;
   mode?: TextSplitMode;
 }
 
@@ -79,7 +70,7 @@ const isMarkdown = (content: string, title?: string): boolean => {
 };
 
 
-const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextTitle?: string): Promise<ChunkResult[]> => {
+const getSmartChunk = async (content: string, sliceModel: BaseChatModel, contextTitle?: string): Promise<ChunkResult[]> => {
   // In structural splitting mode, inject the current section title to help the LLM focus on entity/relation extraction.
   const prompt = await assmblyAgent(
     contextTitle ? `[Current section: ${contextTitle}】\n${content}` : content,
@@ -140,7 +131,7 @@ const getSmartChunk = async (content: string, sliceModel: ChatDeepSeek, contextT
 
 const saveChunkResults = async (
   results: ChunkResult[],
-  embeddingModel: OpenAIEmbeddings,
+  embeddingModel: Embeddings,
   namespace: string,
   title?: string,
 ): Promise<SplitResult[]> => {
@@ -186,7 +177,7 @@ const saveChunkResults = async (
 /** Deterministic splitting: RecursiveCharacterTextSplitter, with no entities, edges, or claims. */
 const deterministicSplit = async (
   content: string,
-  embeddingModel: OpenAIEmbeddings,
+  embeddingModel: Embeddings,
   namespace: string,
   title?: string,
 ): Promise<SplitResult[]> => {
@@ -209,8 +200,8 @@ const deterministicSplit = async (
 /** LLM semantic splitting: structured JSON-mode output; failures or empty results fall back to deterministic splitting inside getSmartChunk. */
 const llmSplit = async (
   content: string,
-  sliceModel: ChatDeepSeek,
-  embeddingModel: OpenAIEmbeddings,
+  sliceModel: BaseChatModel,
+  embeddingModel: Embeddings,
   namespace: string,
   title?: string,
 ): Promise<SplitResult[]> => {
@@ -221,8 +212,8 @@ const llmSplit = async (
 /** For very long markdown: split by top-level headings -> merge small sections -> run LLM semantic splitting serially for each section (with section-level fallback). */
 const markdownStructureSplit = async (
   content: string,
-  sliceModel: ChatDeepSeek,
-  embeddingModel: OpenAIEmbeddings,
+  sliceModel: BaseChatModel,
+  embeddingModel: Embeddings,
   namespace: string,
   title?: string,
 ): Promise<SplitResult[]> => {
@@ -253,23 +244,23 @@ export const textSplit = async (input: TextSplitInput): Promise<SplitResult[]> =
 
     // Explicit modes take priority: deterministic forces deterministic splitting, and llm forces the LLM path (ignoring the short-text threshold).
     if (mode === 'deterministic') {
-      return deterministicSplit(content, embeddingModel as OpenAIEmbeddings, namespace, title);
+      return deterministicSplit(content, embeddingModel, namespace, title);
     }
 
     if (mode === 'llm') {
-      return llmSplit(content, sliceModel, embeddingModel as OpenAIEmbeddings, namespace, title);
+      return llmSplit(content, sliceModel, embeddingModel, namespace, title);
     }
 
     // auto: short text is not worth an LLM call, so split deterministically.
     if (content.length < DETERMINISTIC_THRESHOLD) {
-      return deterministicSplit(content, embeddingModel as OpenAIEmbeddings, namespace, title);
+      return deterministicSplit(content, embeddingModel, namespace, title);
     }
 
     // auto: very long markdown is split by heading structure first and then processed section by section with the LLM; all other content goes directly to LLM semantic splitting.
     if (content.length > MARKDOWN_STRUCTURE_THRESHOLD && isMarkdown(content, title)) {
-      return markdownStructureSplit(content, sliceModel, embeddingModel as OpenAIEmbeddings, namespace, title);
+      return markdownStructureSplit(content, sliceModel, embeddingModel, namespace, title);
     }
-    return llmSplit(content, sliceModel, embeddingModel as OpenAIEmbeddings, namespace, title);
+    return llmSplit(content, sliceModel, embeddingModel, namespace, title);
   } catch (error) {
     logger.error(error);
     throw error;

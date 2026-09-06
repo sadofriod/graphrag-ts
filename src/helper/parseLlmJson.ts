@@ -27,19 +27,28 @@ const extractJsonSlice = (text: string): string | null => {
 
 const preview = (raw: string): string => (raw.length > 200 ? `${raw.slice(0, 200)}…` : raw);
 
+const tryParseJson = <T>(text: string): T | null => {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+};
+
 export const parseLlmJson = <T>(raw: string): T => {
   const stripped = stripFences(raw);
-  try {
-    return JSON.parse(stripped) as T;
-  } catch {
-    const slice = extractJsonSlice(stripped);
-    if (slice !== null) {
-      try {
-        return JSON.parse(slice) as T;
-      } catch {
-        // fall through to the error below
-      }
-    }
-    throw new Error(`LLM output is not valid JSON: ${preview(raw)}`);
+  const direct = tryParseJson<T>(stripped);
+  if (direct !== null) {
+    return direct;
   }
+
+  const slice = extractJsonSlice(stripped);
+  if (slice !== null) {
+    const sliced = tryParseJson<T>(slice);
+    if (sliced !== null) {
+      return sliced;
+    }
+  }
+
+  throw new Error(`LLM output is not valid JSON: ${preview(raw)}`);
 };

@@ -79,7 +79,6 @@ describe('createDbBuildRegistry', () => {
 
       await flush();
       expect(createdCalls).toHaveLength(1);
-      // create 尚未提交时，update 不得提前执行
       expect(updatedCalls).toHaveLength(0);
 
       release();

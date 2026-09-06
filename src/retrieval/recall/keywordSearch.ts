@@ -25,7 +25,6 @@ export interface MergeableChunk {
 
 const KEYWORD_CAP = 16;
 
-/** Candidate term sources for keyword recall (from query intent + entity matching results). */
 export interface KeywordSource {
   intentEntities: readonly string[];
   intentKeywords: readonly string[];
