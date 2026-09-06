@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-09-06
+
+- **feat(adapter)**: add custom model adapter registry and provider support
+- **docs(changelog)**: update changelog for model adapter features
+- **ci**: automate changelog generation and version bump in CI workflow
+
 ## 0.2.0 — 2026-09-06
 
 - **feat(adapter)**: add custom model adapter registry and provider support
