@@ -28,7 +28,15 @@ export const startBuild = (
   namespace: string,
   options: StartBuildOptions = {},
 ): string => {
-  const { runner = (f, ns) => buildRAG(f, ns, undefined, { incremental: options.incremental }) } = options;
+  const {
+    runner = (f, ns) =>
+      buildRAG(
+        f,
+        ns,
+        undefined,
+        options.incremental !== undefined ? { incremental: options.incremental } : {},
+      ),
+  } = options;
   const title = files.length === 1 ? (files[0]?.title ?? 'untitled') : `${files.length} files`;
   const id = registry.create({ title, namespace });
 

@@ -12,6 +12,8 @@ The project is designed for practical backend use:
 - extract entities, edges, and claims
 - store graph data in PostgreSQL via Prisma
 - detect communities and build community summaries
+- support incremental ingestion with SHA-256 diffing and cascade document pruning
+- differential community summary updates (0 LLM cost for unchanged communities)
 - fuse vector, keyword, and topology-based recall for retrieval
 - generate answers from evidence instead of raw model output alone
 
@@ -19,6 +21,7 @@ The project is designed for practical backend use:
 
 - a readable GraphRAG reference implementation in TypeScript
 - database-backed persistence for entities, claims, edges, and communities
+- full and incremental builds (`buildIncrementalRAG` / `startIncrementalBuild` / `deleteRAGDocument`)
 - namespace-aware builds for multi-tenant or multi-corpus usage
 - hybrid retrieval that combines semantic, keyword, and graph signals
 - deterministic fallback behavior when model-based chunking fails
@@ -152,9 +155,14 @@ console.log(result.answer);
 
 ## Public API
 
-This repo exposes a compact API surface that matches the implementation:
+This repo exposes a compact API surface that matches the implementation (available via root package or subpaths like `@ashes_born/graph-rag-ts/incremental`):
 
-- `startBuild(...)`: starts an async build job and returns a build ID
+### Ingestion & Incremental APIs
+
+- `startBuild(...)` / `startIncrementalBuild(...)`: starts an async full/incremental build job and returns a build ID
+- `buildRAG(...)` / `buildIncrementalRAG(...)`: runs full/incremental pipeline and returns `BuildSummary`
+- `deleteRAGDocument(...)`: cascades deletion of a document, its chunks, graph edges, and claims
+- `diffDocuments(...)` / `computeCommunityFingerprint(...)`: incremental comparison and topological fingerprint utilities
 - `createBuildRegistry()`: tracks build lifecycle state
 - `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
 - `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults

@@ -225,10 +225,10 @@ describe('persistCommunitySummaries', () => {
         { id: 'stale-sum-99', communityName: 'Obsolete Community' },
       ]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
 
-    prismaClient.rAGCommunitySummary.deleteMany = ((args: { where: object }) => {
+    prismaClient.rAGCommunitySummary.deleteMany = (((args: { where: object }) => {
       deleteWhere = args.where;
       return Promise.resolve({ count: 1 });
-    }) as typeof prismaClient.rAGCommunitySummary.deleteMany;
+    }) as unknown) as typeof prismaClient.rAGCommunitySummary.deleteMany;
 
     prismaClient.rAGCommunitySummary.create = (() => {
       summaryCreateCount += 1;

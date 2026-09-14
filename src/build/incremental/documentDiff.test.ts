@@ -53,12 +53,12 @@ describe('documentDiff', () => {
     const originalFindMany = prismaClient.rAGParent.findMany;
     let findWhere: unknown;
 
-    prismaClient.rAGParent.findMany = ((args: { where: object }) => {
+    prismaClient.rAGParent.findMany = (((args: { where: object }) => {
       findWhere = args.where;
       return Promise.resolve([
         { id: 'p-1', title: 'existing.md', content: 'alpha' },
       ]);
-    }) as typeof prismaClient.rAGParent.findMany;
+    }) as unknown) as typeof prismaClient.rAGParent.findMany;
 
     try {
       const diff = await diffDocuments(

@@ -155,10 +155,52 @@ console.log(result.answer);
 
 ## Public API
 
-This repo exposes a compact API surface consistent with the implementation:
+This repo exposes a compact API surface consistent with the implementation, available via the root package or submodule subpaths (e.g., `@ashes_born/graph-rag-ts/incremental`):
 
-- `startBuild(...)`: starts an async build job and returns a build ID
+### Full & Incremental Ingestion
+
+- `startBuild(files, registry, namespace, options)`: starts an async build job and returns a build ID (supports `options.incremental`)
+- `startIncrementalBuild(files, registry, namespace, options)`: starts an async incremental build job (shorthand)
+- `buildRAG(files, namespace, deps, options)`: executes ingestion and returns `BuildSummary`
+- `buildIncrementalRAG(files, namespace, deps)`: executes incremental build, diffing content hashes, pruning updated chunks, and updating community summaries differentially
+- `deleteRAGDocument({ title?, parentId?, namespace })`: cascades deletion for a document, its chunks, graph edges, and claims
 - `createBuildRegistry()`: tracks build lifecycle state
+
+### Incremental Utilities (`@ashes_born/graph-rag-ts/incremental`)
+
+- `diffDocuments(files, namespace)`: classifies files against existing database parents into `toInsert`, `toUpdate`, and `toSkip`
+- `deleteDocumentByTitle(title, namespace)` / `deleteDocumentByParentId(parentId, namespace)`: prunes document records and dependent data
+- `pruneStaleDocuments(parentIds, namespace)`: batch cascades deletion for multiple parent records
+- `computeCommunityFingerprint(input)`: calculates deterministic topological & claim SHA-256 fingerprint
+
+### Incremental Ingestion Example
+
+```ts
+import {
+  startIncrementalBuild,
+  deleteRAGDocument,
+  createBuildRegistry,
+} from '@ashes_born/graph-rag-ts';
+
+const registry = createBuildRegistry();
+
+// Incremental build: skips unchanged files, updates modified files, and reuses untouched community summaries
+const buildId = startIncrementalBuild(
+  [
+    { title: 'doc1.md', content: '# Updated Doc 1\nAlice and Bob are colleagues.' },
+    { title: 'doc2.md', content: '# New Doc 2\nCharlie joined the team.' },
+  ],
+  registry,
+  'demo-namespace',
+);
+
+// Delete a document and its associated graph claims
+await deleteRAGDocument({
+  title: 'doc1.md',
+  namespace: 'demo-namespace',
+});
+```
+
 - `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
 - `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults
 - `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`: register custom LangChain models (e.g. Anthropic, Ollama, Google GenAI)

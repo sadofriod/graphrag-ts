@@ -16,15 +16,15 @@ describe('documentPruner', () => {
     let parentWhere: unknown;
     let claimWhere: unknown;
 
-    prismaClient.rAGClaim.deleteMany = ((args: { where: object }) => {
+    prismaClient.rAGClaim.deleteMany = (((args: { where: object }) => {
       claimWhere = args.where;
       return Promise.resolve({ count: 3 });
-    }) as typeof prismaClient.rAGClaim.deleteMany;
+    }) as unknown) as typeof prismaClient.rAGClaim.deleteMany;
 
-    prismaClient.rAGParent.deleteMany = ((args: { where: object }) => {
+    prismaClient.rAGParent.deleteMany = (((args: { where: object }) => {
       parentWhere = args.where;
       return Promise.resolve({ count: 1 });
-    }) as typeof prismaClient.rAGParent.deleteMany;
+    }) as unknown) as typeof prismaClient.rAGParent.deleteMany;
 
     try {
       const result = await deleteDocumentByParentId('p-123', 'ns-test');
@@ -45,15 +45,15 @@ describe('documentPruner', () => {
     prismaClient.rAGParent.findMany = (() =>
       Promise.resolve([{ id: 'p-1' }, { id: 'p-2' }])) as typeof prismaClient.rAGParent.findMany;
 
-    prismaClient.rAGClaim.deleteMany = ((args: { where: object }) => {
+    prismaClient.rAGClaim.deleteMany = (((args: { where: object }) => {
       claimWhere = args.where;
       return Promise.resolve({ count: 5 });
-    }) as typeof prismaClient.rAGClaim.deleteMany;
+    }) as unknown) as typeof prismaClient.rAGClaim.deleteMany;
 
-    prismaClient.rAGParent.deleteMany = ((args: { where: object }) => {
+    prismaClient.rAGParent.deleteMany = (((args: { where: object }) => {
       parentWhere = args.where;
       return Promise.resolve({ count: 2 });
-    }) as typeof prismaClient.rAGParent.deleteMany;
+    }) as unknown) as typeof prismaClient.rAGParent.deleteMany;
 
     try {
       const result = await deleteDocumentByTitle('doc.md', 'ns-test');
