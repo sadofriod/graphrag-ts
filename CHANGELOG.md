@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7 — 2026-09-14
+
+- **feat(build)**: Add incremental GraphRAG write and differential graph maintenance.
+  - **Document Change Detection**: Implemented `diffDocuments` with SHA-256 content hashing to classify input files into `insert`, `update`, and `skip`, enabling early short-circuiting when files are unchanged.
+  - **Cascade Document Pruning**: Added `deleteDocumentByTitle`, `deleteDocumentByParentId`, and `pruneStaleDocuments` to remove stale parent chunks, child embeddings, and associated claims upon document updates or explicit deletions.
+  - **Differential Community Summary Updates**: Implemented topological fingerprinting (`computeCommunityFingerprint`) and differential persistence (`persistCommunitySummaries`) to reuse unchanged community summaries and embeddings at zero LLM cost while automatically pruning obsolete summaries.
+  - **Public Incremental APIs**: Added `buildIncrementalRAG`, `startIncrementalBuild`, `deleteRAGDocument`, and enriched `BuildSummary` metrics with `insertedFiles`, `updatedFiles`, and `skippedFiles`.
+- **docs**: Updated architecture diagrams and English/Chinese guides with incremental build instructions.
+
 ## 0.1.6 — 2026-09-06
 
 - **feat(adapter)**: add custom model adapter registry and provider support

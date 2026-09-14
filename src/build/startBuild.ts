@@ -1,9 +1,25 @@
-import { buildRAG, type BuildInputFile, type BuildSummary } from './buildRag';
+import {
+  buildRAG,
+  type BuildInputFile,
+  type BuildRagOptions,
+  type BuildSummary,
+} from './buildRag';
 import type { BuildRegistry } from './buildRegistry';
+import {
+  deleteDocumentByParentId,
+  deleteDocumentByTitle,
+  type PruneDocumentResult,
+} from './incremental/documentPruner';
 import { withNamespace } from '../namespace/namespaceContext';
 
-export interface StartBuildOptions {
+export interface StartBuildOptions extends BuildRagOptions {
   runner?: (files: readonly BuildInputFile[], namespace: string) => Promise<BuildSummary>;
+}
+
+export interface DeleteDocumentInput {
+  readonly title?: string;
+  readonly parentId?: string;
+  readonly namespace: string;
 }
 
 export const startBuild = (
@@ -12,7 +28,7 @@ export const startBuild = (
   namespace: string,
   options: StartBuildOptions = {},
 ): string => {
-  const { runner = buildRAG } = options;
+  const { runner = (f, ns) => buildRAG(f, ns, undefined, { incremental: options.incremental }) } = options;
   const title = files.length === 1 ? (files[0]?.title ?? 'untitled') : `${files.length} files`;
   const id = registry.create({ title, namespace });
 
@@ -31,4 +47,23 @@ export const startBuild = (
   })();
 
   return id;
+};
+
+export const startIncrementalBuild = (
+  files: readonly BuildInputFile[],
+  registry: BuildRegistry,
+  namespace: string,
+  options: Omit<StartBuildOptions, 'incremental'> = {},
+): string => startBuild(files, registry, namespace, { ...options, incremental: true });
+
+export const deleteRAGDocument = async (
+  input: DeleteDocumentInput,
+): Promise<PruneDocumentResult> => {
+  if (input.parentId) {
+    return deleteDocumentByParentId(input.parentId, input.namespace);
+  }
+  if (input.title) {
+    return deleteDocumentByTitle(input.title, input.namespace);
+  }
+  return { deletedParents: 0, deletedClaims: 0 };
 };

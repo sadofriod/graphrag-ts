@@ -26,8 +26,11 @@ flowchart LR
   turns slice output into `rag_graph_edges`, `rag_entities`, and `rag_claims`
   rows, with SHA-256 claim deduplication.
 - **Community detection** (`detectCommunity/`): Leiden clustering via
-  `@graphrs/igraph-wasm`, then per-community summaries are generated and grounded
-  in the community's member nodes and claims.
+  `@graphrs/igraph-wasm`, with fingerprint-based differential summary updates
+  (`persistCommunitySummaries.ts`) to reuse unchanged communities and prune stale summaries.
+- **Incremental build & document pruning** (`incremental/`): document diffing
+  (`documentDiff.ts`) based on content SHA-256 hashes to skip unchanged files,
+  and cascade pruners (`documentPruner.ts`) to clean up modified or removed documents.
 - **Build registry** (`buildRegistry.ts`): in-memory `BuildRegistry` tracking
   build lifecycle (pending -> running -> succeeded/failed).
 

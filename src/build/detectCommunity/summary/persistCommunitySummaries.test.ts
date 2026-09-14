@@ -172,4 +172,97 @@ describe('persistCommunitySummaries', () => {
       prismaClient.$executeRaw = originalExecuteRaw;
     }
   });
+
+  it('reuses unchanged existing community summary and prunes stale summaries', async () => {
+    let summaryCreateCount = 0;
+    let deleteWhere: unknown;
+
+    modelLoaderSingleton.models = {
+      embedding: { embedQuery: async () => [0.1, 0.2] },
+      slice: {
+        invoke: async () => {
+          summaryCreateCount += 1;
+          return JSON.stringify({ communityName: 'new-comm', summaryContent: 'new-summary' });
+        },
+      },
+    } as any;
+
+    prismaClient.rAGGraphEdge.findMany = (() =>
+      Promise.resolve([
+        {
+          id: 'edge-ab',
+          communitySummaryId: 'existing-sum-1',
+          sourceEntity: { name: 'A' },
+          targetEntity: { name: 'B' },
+          relationshipDesc: 'friends',
+          weight: 2,
+        },
+      ]) as never) as typeof prismaClient.rAGGraphEdge.findMany;
+
+    prismaClient.rAGClaim.findMany = (() =>
+      Promise.resolve([
+        {
+          id: 'claim-ab',
+          communitySummaryId: 'existing-sum-1',
+          subjectEntity: { name: 'A' },
+          objectEntity: { name: 'B' },
+          description: 'A and B are buddies',
+        },
+      ]) as never) as typeof prismaClient.rAGClaim.findMany;
+
+    prismaClient.rAGEntity.findMany = (() =>
+      Promise.resolve([
+        { id: 'e1', name: 'A', description: 'desc A' },
+        { id: 'e2', name: 'B', description: 'desc B' },
+      ]) as never) as typeof prismaClient.rAGEntity.findMany;
+
+    const originalSummaryFindMany = prismaClient.rAGCommunitySummary.findMany;
+    const originalSummaryDeleteMany = prismaClient.rAGCommunitySummary.deleteMany;
+
+    prismaClient.rAGCommunitySummary.findMany = (() =>
+      Promise.resolve([
+        { id: 'existing-sum-1', communityName: 'Community AB' },
+        { id: 'stale-sum-99', communityName: 'Obsolete Community' },
+      ]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
+
+    prismaClient.rAGCommunitySummary.deleteMany = ((args: { where: object }) => {
+      deleteWhere = args.where;
+      return Promise.resolve({ count: 1 });
+    }) as typeof prismaClient.rAGCommunitySummary.deleteMany;
+
+    prismaClient.rAGCommunitySummary.create = (() => {
+      summaryCreateCount += 1;
+      return Promise.resolve({ id: 'new-id', communityName: 'new' });
+    }) as never;
+    prismaClient.rAGGraphEdge.update = (() => Promise.resolve({ id: 'e' })) as never;
+    prismaClient.rAGClaim.update = (() => Promise.resolve({ id: 'c' })) as never;
+
+    try {
+      const persistStats = await persistCommunitySummaries(
+        {
+          algorithm: 'leiden',
+          membership: [0, 0],
+          communities: [{ id: 0, members: ['A', 'B'] }],
+        },
+        'ns-a',
+      );
+
+      // Reused existing-sum-1, so 0 calls to LLM / summary create!
+      expect(summaryCreateCount).toBe(0);
+      expect(persistStats).toEqual({ total: 1, reused: 1, updated: 0 });
+      // Stale summary stale-sum-99 should be deleted
+      expect(deleteWhere).toEqual({ id: { in: ['stale-sum-99'] } });
+    } finally {
+      modelLoaderSingleton.models = originalModels;
+      prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
+      prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
+      prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
+      prismaClient.rAGClaim.findMany = originalClaimFindMany;
+      prismaClient.rAGEntity.findMany = originalEntityFindMany;
+      prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
+      prismaClient.rAGClaim.update = originalClaimUpdate;
+      prismaClient.$executeRaw = originalExecuteRaw;
+    }
+  });
 });
