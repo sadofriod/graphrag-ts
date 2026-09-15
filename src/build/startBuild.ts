@@ -66,12 +66,13 @@ export const startIncrementalBuild = (
 
 export const deleteRAGDocument = async (
   input: DeleteDocumentInput,
-): Promise<PruneDocumentResult> => {
-  if (input.parentId) {
-    return deleteDocumentByParentId(input.parentId, input.namespace);
-  }
-  if (input.title) {
-    return deleteDocumentByTitle(input.title, input.namespace);
-  }
-  return { deletedParents: 0, deletedClaims: 0 };
-};
+): Promise<PruneDocumentResult> =>
+  withNamespace(input.namespace, async () => {
+    if (input.parentId) {
+      return deleteDocumentByParentId(input.parentId, input.namespace);
+    }
+    if (input.title) {
+      return deleteDocumentByTitle(input.title, input.namespace);
+    }
+    return { deletedParents: 0, deletedClaims: 0 };
+  });

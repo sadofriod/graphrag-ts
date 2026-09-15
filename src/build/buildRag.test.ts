@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { buildRAG, type BuildRagDeps } from './buildRag';
+import { getCurrentNamespace } from '../namespace/namespaceContext';
+import { buildIncrementalRAG, buildRAG, type BuildRagDeps } from './buildRag';
 
 describe('buildRAG', () => {
   it('splits each file and feeds every edge, claim and entity into the pipeline', async () => {
@@ -137,9 +138,35 @@ describe('buildRAG', () => {
     expect(touched).toBe(false);
   });
 
+  it('preserves full-build behavior by default', async () => {
+    let diffCalled = false;
+
+    const deps: BuildRagDeps = {
+      split: async () => [{ parentId: 'p-1', childIds: [], edges: [], claims: [], entities: [] }],
+      buildEdges: async () => [],
+      buildClaims: async () => 0,
+      buildEntities: async () => 0,
+      detectCommunity: async () => ({
+        algorithm: 'leiden',
+        communities: [],
+        membership: [],
+      }),
+      diffDocuments: async () => {
+        diffCalled = true;
+        return { toInsert: [], toUpdate: [], toSkip: [], all: [] };
+      },
+    };
+
+    const summary = await buildRAG([{ title: 'a.md', content: 'aaa' }], 'ns-a', deps);
+
+    expect(diffCalled).toBe(false);
+    expect(summary.insertedFiles).toBe(1);
+  });
+
   it('performs incremental diffing, prunes updated documents and skips unchanged files', async () => {
     const splitCalls: string[] = [];
     const prunedIds: string[] = [];
+    const callOrder: string[] = [];
 
     const deps: BuildRagDeps = {
       split: async ({ title }) => {
@@ -157,18 +184,27 @@ describe('buildRAG', () => {
       buildEdges: async () => [],
       buildClaims: async () => 0,
       buildEntities: async () => 0,
-      detectCommunity: async () => ({
-        algorithm: 'leiden',
-        communities: [{ id: 0, members: ['A', 'B'] }],
-        membership: [0, 0],
-      }),
+      detectCommunity: async () => {
+        callOrder.push('detect');
+        return {
+          algorithm: 'leiden',
+          communities: [{ id: 0, members: ['A', 'B'] }],
+          membership: [0, 0],
+        };
+      },
       diffDocuments: async (files) => ({
         toInsert: [{ file: files[0]!, action: 'insert' }],
-        toUpdate: [{ file: files[1]!, action: 'update', existingParentId: 'old-p2' }],
+        toUpdate: [{
+          file: files[1]!,
+          action: 'update',
+          existingParentId: 'old-p2',
+          existingParentIds: ['old-p2', 'old-p2b'],
+        }],
         toSkip: [{ file: files[2]!, action: 'skip', existingParentId: 'old-p3' }],
         all: [],
       }),
       pruneDocuments: async (parentIds) => {
+        callOrder.push('prune');
         prunedIds.push(...parentIds);
         return { deletedParents: parentIds.length, deletedClaims: 0 };
       },
@@ -185,7 +221,8 @@ describe('buildRAG', () => {
       { incremental: true },
     );
 
-    expect(prunedIds).toEqual(['old-p2']);
+    expect(callOrder).toEqual(['detect', 'prune']);
+    expect(prunedIds).toEqual(['old-p2', 'old-p2b']);
     expect(splitCalls).toEqual(['new.md', 'modified.md']);
     expect(summary).toEqual({
       files: 3,
@@ -241,5 +278,62 @@ describe('buildRAG', () => {
       updatedFiles: 0,
       skippedFiles: 1,
     });
+  });
+
+  it('does not prune updated documents before the replacement build succeeds', async () => {
+    let pruneCalled = false;
+
+    const deps: BuildRagDeps = {
+      split: async () => [{ parentId: 'p-1', childIds: [], edges: [], claims: [], entities: [] }],
+      buildEdges: async () => [],
+      buildClaims: async () => 0,
+      buildEntities: async () => 0,
+      detectCommunity: async () => {
+        throw new Error('community detection failed');
+      },
+      diffDocuments: async (files) => ({
+        toInsert: [],
+        toUpdate: [{
+          file: files[0]!,
+          action: 'update',
+          existingParentId: 'old-p1',
+          existingParentIds: ['old-p1'],
+        }],
+        toSkip: [],
+        all: [],
+      }),
+      pruneDocuments: async () => {
+        pruneCalled = true;
+        return { deletedParents: 1, deletedClaims: 0 };
+      },
+    };
+
+    await expect(buildRAG([{ title: 'a.md', content: 'updated' }], 'ns-a', deps, { incremental: true }))
+      .rejects.toThrow('community detection failed');
+    expect(pruneCalled).toBe(false);
+  });
+
+  it('establishes the namespace context for direct incremental builds', async () => {
+    let diffNamespace: string | undefined;
+
+    const deps: BuildRagDeps = {
+      split: async () => [{ parentId: 'p-1', childIds: [], edges: [], claims: [], entities: [] }],
+      buildEdges: async () => [],
+      buildClaims: async () => 0,
+      buildEntities: async () => 0,
+      detectCommunity: async () => ({
+        algorithm: 'leiden',
+        communities: [],
+        membership: [],
+      }),
+      diffDocuments: async () => {
+        diffNamespace = getCurrentNamespace();
+        return { toInsert: [], toUpdate: [], toSkip: [], all: [] };
+      },
+    };
+
+    await buildIncrementalRAG([{ title: 'a.md', content: 'aaa' }], 'ns-a', deps);
+
+    expect(diffNamespace).toBe('ns-a');
   });
 });

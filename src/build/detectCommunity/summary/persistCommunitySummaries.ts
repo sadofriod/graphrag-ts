@@ -1,7 +1,7 @@
 import type { Embeddings } from '@langchain/core/embeddings';
 import { Prisma } from '@prisma/client';
 
-import { getCurrentNamespace } from '../../../namespace/namespaceContext';
+import { withNamespace } from '../../../namespace/namespaceContext';
 import { prismaClient } from '../../helper/prismaClient';
 import { modelLoaderSingleton } from '../../modelLoader';
 import { backfillCommunityAssignments } from './backfillCommunityAssignments';
@@ -33,10 +33,11 @@ interface LoadedGraphData {
   readonly existingSummaries: readonly ExistingSummaryRecord[];
 }
 
-const loadGraphData = async (): Promise<LoadedGraphData> => {
+const loadGraphData = async (namespace: string): Promise<LoadedGraphData> => {
   const entityProfileClient = (prismaClient as unknown as {
     entityProfile?: {
       findMany: (args: {
+        where: { namespace: string };
         select: { entityId: true; profile: true };
       }) => Promise<Array<{ entityId: string; profile: string | null }>>;
     };
@@ -44,6 +45,7 @@ const loadGraphData = async (): Promise<LoadedGraphData> => {
 
   const [edgeRows, claimRows, entityRows, profileRows, summaryRows] = await Promise.all([
     prismaClient.rAGGraphEdge.findMany({
+      where: { namespace },
       orderBy: [{ sourceEntityId: 'asc' }, { targetEntityId: 'asc' }],
       include: {
         sourceEntity: { select: { name: true } },
@@ -51,15 +53,19 @@ const loadGraphData = async (): Promise<LoadedGraphData> => {
       },
     }),
     prismaClient.rAGClaim.findMany({
+      where: { namespace },
       include: {
         subjectEntity: { select: { name: true } },
         objectEntity: { select: { name: true } },
       },
     }),
-    prismaClient.rAGEntity.findMany({ select: { id: true, name: true, description: true } }),
-    entityProfileClient?.findMany({ select: { entityId: true, profile: true } }) ?? Promise.resolve([]),
+    prismaClient.rAGEntity.findMany({ where: { namespace }, select: { id: true, name: true, description: true } }),
+    entityProfileClient?.findMany({ where: { namespace }, select: { entityId: true, profile: true } }) ?? Promise.resolve([]),
     prismaClient.rAGCommunitySummary.findMany
-      ? prismaClient.rAGCommunitySummary.findMany({ select: { id: true, communityName: true } })
+      ? prismaClient.rAGCommunitySummary.findMany({
+        where: { namespace },
+        select: { id: true, communityName: true },
+      })
       : Promise.resolve([]),
   ]);
 
@@ -102,7 +108,7 @@ const saveCommunitySummary = async (
     UPDATE "rag_community_summaries"
     SET "summary_embedding" = CAST(${JSON.stringify(summaryEmbedding)} AS vector)
     WHERE "id" = ${summary.id}
-      AND "namespace" = ${getCurrentNamespace()}
+      AND "namespace" = ${namespace}
   `);
 
   return { id: summary.id, name: communityName };
@@ -185,58 +191,59 @@ const findMatchingSummary = (
 export const persistCommunitySummaries = async (
   result: CommunityDetectionResult,
   namespace: string,
-): Promise<PersistSummaryResult> => {
-  const embeddingModel = modelLoaderSingleton.models?.embedding as Embeddings | undefined;
-  if (!embeddingModel) {
-    throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
-  }
-
-  const { edgeRows, claimRows, entityDescriptions, existingSummaries } = await loadGraphData();
-  const assignedCounts = computeSummaryAssignedCounts(edgeRows, claimRows);
-  const memberToCommunity = buildMemberToCommunityMap(result.communities);
-  const communitySummaries = new Map<number, { id: string; name: string }>();
-  const usedSummaryIds = new Set<string>();
-
-  let reused = 0;
-  let updated = 0;
-
-  for (const community of result.communities) {
-    const matched = findMatchingSummary(
-      community,
-      edgeRows,
-      claimRows,
-      existingSummaries,
-      assignedCounts,
-    );
-
-    if (matched) {
-      reused += 1;
-      communitySummaries.set(community.id, { id: matched.id, name: matched.communityName });
-      usedSummaryIds.add(matched.id);
-      continue;
+): Promise<PersistSummaryResult> =>
+  withNamespace(namespace, async () => {
+    const embeddingModel = modelLoaderSingleton.models?.embedding as Embeddings | undefined;
+    if (!embeddingModel) {
+      throw new Error('Embedding model is not loaded. Please check the configuration for the embedding model.');
     }
 
-    updated += 1;
-    const input = buildCommunityContextInput(community, edgeRows, claimRows, entityDescriptions);
-    const inputContent = buildCommunityContext(input, {
-      maxTokens: getCommunityContextMaxTokens(),
-    });
-    const saved = await saveCommunitySummary(community, inputContent, namespace, embeddingModel);
-    communitySummaries.set(community.id, saved);
-    usedSummaryIds.add(saved.id);
-  }
+    const { edgeRows, claimRows, entityDescriptions, existingSummaries } = await loadGraphData(namespace);
+    const assignedCounts = computeSummaryAssignedCounts(edgeRows, claimRows);
+    const memberToCommunity = buildMemberToCommunityMap(result.communities);
+    const communitySummaries = new Map<number, { id: string; name: string }>();
+    const usedSummaryIds = new Set<string>();
 
-  const staleSummaryIds = existingSummaries
-    .filter((s) => !usedSummaryIds.has(s.id))
-    .map((s) => s.id);
+    let reused = 0;
+    let updated = 0;
 
-  if (staleSummaryIds.length > 0 && prismaClient.rAGCommunitySummary.deleteMany) {
-    await prismaClient.rAGCommunitySummary.deleteMany({
-      where: { id: { in: staleSummaryIds } },
-    });
-  }
+    for (const community of result.communities) {
+      const matched = findMatchingSummary(
+        community,
+        edgeRows,
+        claimRows,
+        existingSummaries,
+        assignedCounts,
+      );
 
-  await backfillCommunityAssignments(edgeRows, claimRows, memberToCommunity, communitySummaries);
+      if (matched) {
+        reused += 1;
+        communitySummaries.set(community.id, { id: matched.id, name: matched.communityName });
+        usedSummaryIds.add(matched.id);
+        continue;
+      }
 
-  return { total: result.communities.length, reused, updated };
-};
+      updated += 1;
+      const input = buildCommunityContextInput(community, edgeRows, claimRows, entityDescriptions);
+      const inputContent = buildCommunityContext(input, {
+        maxTokens: getCommunityContextMaxTokens(),
+      });
+      const saved = await saveCommunitySummary(community, inputContent, namespace, embeddingModel);
+      communitySummaries.set(community.id, saved);
+      usedSummaryIds.add(saved.id);
+    }
+
+    const staleSummaryIds = existingSummaries
+      .filter((s) => !usedSummaryIds.has(s.id))
+      .map((s) => s.id);
+
+    if (staleSummaryIds.length > 0 && prismaClient.rAGCommunitySummary.deleteMany) {
+      await prismaClient.rAGCommunitySummary.deleteMany({
+        where: { id: { in: staleSummaryIds }, namespace },
+      });
+    }
+
+    await backfillCommunityAssignments(edgeRows, claimRows, memberToCommunity, communitySummaries);
+
+    return { total: result.communities.length, reused, updated };
+  });

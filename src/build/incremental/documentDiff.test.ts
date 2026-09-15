@@ -44,6 +44,19 @@ describe('documentDiff', () => {
     expect(diff.toInsert.map((i) => i.file.title)).toEqual(['new-file.md', '']);
   });
 
+  it('groups every stored parent for a document title when deciding updates', () => {
+    const diff = diffDocumentsWithExisting(
+      [{ title: 'doc.md', content: '# Intro\nalpha\n# Next\nbeta' }],
+      [
+        { id: 'p1', title: 'doc.md#Intro', content: '# Intro\nalpha' },
+        { id: 'p2', title: 'doc.md#Next', content: '# Next\nbeta' },
+      ],
+    );
+
+    expect(diff.toSkip).toHaveLength(1);
+    expect(diff.toSkip[0]?.existingParentIds).toEqual(['p1', 'p2']);
+  });
+
   it('handles empty input files gracefully', async () => {
     const diff = await diffDocuments([], 'ns-test');
     expect(diff).toEqual({ toInsert: [], toUpdate: [], toSkip: [], all: [] });
@@ -52,9 +65,11 @@ describe('documentDiff', () => {
   it('queries prismaClient when diffDocuments is invoked with files', async () => {
     const originalFindMany = prismaClient.rAGParent.findMany;
     let findWhere: unknown;
+    let orderBy: unknown;
 
-    prismaClient.rAGParent.findMany = (((args: { where: object }) => {
+    prismaClient.rAGParent.findMany = (((args: { where: object; orderBy?: object[] }) => {
       findWhere = args.where;
+      orderBy = args.orderBy;
       return Promise.resolve([
         { id: 'p-1', title: 'existing.md', content: 'alpha' },
       ]);
@@ -70,6 +85,7 @@ describe('documentDiff', () => {
       );
 
       expect(findWhere).toEqual({ namespace: 'ns-custom' });
+      expect(orderBy).toEqual([{ title: 'asc' }, { createdAt: 'asc' }]);
       expect(diff.toSkip).toHaveLength(1);
       expect(diff.toInsert).toHaveLength(1);
     } finally {
