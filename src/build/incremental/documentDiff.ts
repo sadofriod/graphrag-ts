@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { CryptoHasher } from 'bun';
 
 import type { BuildInputFile } from '../buildRag';
 import { prismaClient } from '../helper/prismaClient';
@@ -7,31 +7,31 @@ import { withNamespace } from '../../namespace/namespaceContext';
 export type DocumentDiffAction = 'insert' | 'update' | 'skip';
 
 export interface DocumentDiffItem {
-  readonly file: BuildInputFile;
-  readonly action: DocumentDiffAction;
-  readonly existingParentId?: string;
-  readonly existingParentIds?: readonly string[];
+  file: BuildInputFile;
+  action: DocumentDiffAction;
+  existingParentId?: string;
+  existingParentIds?: string[];
 }
 
 export interface DocumentDiffSummary {
-  readonly toInsert: readonly DocumentDiffItem[];
-  readonly toUpdate: readonly DocumentDiffItem[];
-  readonly toSkip: readonly DocumentDiffItem[];
-  readonly all: readonly DocumentDiffItem[];
+  toInsert: DocumentDiffItem[];
+  toUpdate: DocumentDiffItem[];
+  toSkip: DocumentDiffItem[];
+  all: DocumentDiffItem[];
 }
 
 export const computeContentHash = (content: string): string =>
-  createHash('sha256').update(content.trim(), 'utf8').digest('hex');
+  new CryptoHasher('sha256').update(content.trim(), 'utf8').digest('hex');
 
 interface ExistingParentRecord {
-  readonly id: string;
-  readonly title: string | null;
-  readonly content: string;
+  id: string;
+  title: string | null;
+  content: string;
 }
 
 interface ExistingDocumentRecord {
-  readonly parentIds: readonly string[];
-  readonly content: string;
+  parentIds: string[];
+  content: string;
 }
 
 const resolveDocumentTitle = (
