@@ -12,6 +12,8 @@
 - 抽取实体、边和声明
 - 通过 Prisma 持久化到 PostgreSQL
 - 检测社区并生成社区摘要
+- 支持增量构建（基于 SHA-256 哈希比对自动跳过未变文档，级联清理已修改文档的旧切片）
+- 社区拓扑指纹差量更新（未发生变动的社区零 LLM 开销复用已有摘要，自动清理废弃旧社区）
 - 结合向量、关键字和拓扑召回进行混合检索
 - 通过证据聚合生成答案，而不是直接输出原始模型文本
 
@@ -19,6 +21,7 @@
 
 - 一个可读、可扩展的 TypeScript GraphRAG 参考实现
 - 对实体、声明、边和社区进行数据库化持久化
+- 支持全量与增量写入（`buildIncrementalRAG` / `startIncrementalBuild` / `deleteRAGDocument`）
 - 支持命名空间级别的构建，适合多租户或多语料场景
 - 混合检索能力，融合语义搜索、关键词搜索和图谱信号
 - 模型分块失败时的确定性回退逻辑
@@ -152,10 +155,52 @@ console.log(result.answer);
 
 ## 公共 API
 
-这个仓库暴露了一个和实现一致的精简 API：
+这个仓库暴露了一个和实现一致的精简 API，既可通过主入口导入，也可通过模块子路径导入（如 `@ashes_born/graph-rag-ts/incremental`）：
 
-- `startBuild(...)`：启动异步构建任务并返回 build ID
+### 全量与增量构建
+
+- `startBuild(files, registry, namespace, options)`：启动异步全量/增量构建任务并返回 build ID
+- `startIncrementalBuild(files, registry, namespace, options)`：启动异步增量构建任务（快捷方法）
+- `buildRAG(files, namespace, deps, options)`：执行全量/增量构建并返回 `BuildSummary`
+- `buildIncrementalRAG(files, namespace, deps)`：执行增量构建，自动比对文件 Hash 跳过未变文件，级联清理更新文件旧数据并差量更新社区摘要
+- `deleteRAGDocument({ title?, parentId?, namespace })`：按标题或父文档 ID 级联删除指定文档及其关联分块、图关系与声明
 - `createBuildRegistry()`：跟踪构建生命周期状态
+
+### 增量工具函数 (`@ashes_born/graph-rag-ts/incremental`)
+
+- `diffDocuments(files, namespace)`：比对已有文档，划分为 `toInsert`、`toUpdate` 和 `toSkip`
+- `deleteDocumentByTitle(title, namespace)` / `deleteDocumentByParentId(parentId, namespace)`：文档级联删除
+- `pruneStaleDocuments(parentIds, namespace)`：批量清理旧文档及关联声明
+- `computeCommunityFingerprint(input)`：计算社区拓扑与声明确定性 SHA-256 指纹
+
+### 增量写入示例
+
+```ts
+import {
+  startIncrementalBuild,
+  deleteRAGDocument,
+  createBuildRegistry,
+} from '@ashes_born/graph-rag-ts';
+
+const registry = createBuildRegistry();
+
+// 增量构建：自动跳过内容未变的文件，更新修改过的文件并复用未变动社区的摘要
+const buildId = startIncrementalBuild(
+  [
+    { title: 'doc1.md', content: '# Updated Doc 1\nAlice and Bob are colleagues.' },
+    { title: 'doc2.md', content: '# New Doc 2\nCharlie joined the team.' },
+  ],
+  registry,
+  'demo-namespace',
+);
+
+// 删除指定文档及其图谱声明
+await deleteRAGDocument({
+  title: 'doc1.md',
+  namespace: 'demo-namespace',
+});
+```
+
 - `GraphRAGRetrievalService`：执行混合检索和证据驱动回答
 - `injectGraphRAG(...)`：注入 Prisma、模型配置和可选默认参数
 - `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`：注册自定义 LangChain 模型适配器（如 Anthropic、Ollama、Google GenAI 等）

@@ -36,6 +36,8 @@ export interface CommunityEdgeRow {
   sourceEntity: { name: string };
   targetEntity: { name: string };
   relationshipDesc: string;
+  communitySummaryId?: string | null;
+  weight?: number | null;
 }
 
 export interface CommunityClaimRow {
@@ -43,4 +45,5 @@ export interface CommunityClaimRow {
   subjectEntity: { name: string };
   objectEntity: { name: string } | null;
   description: string;
+  communitySummaryId?: string | null;
 }
