@@ -142,6 +142,102 @@ describe('persistCommunitySummaries', () => {
     }
   });
 
+  it('ignores detached edges and claims that are not attached to a parent document', async () => {
+    const prompts: string[] = [];
+
+    modelLoaderSingleton.models = {
+      embedding: { embedQuery: async () => [0.1, 0.2] },
+      slice: {
+        invoke: async (prompt: string) => {
+          prompts.push(prompt);
+          return JSON.stringify({ communityName: 'n', summaryContent: 's' });
+        },
+      },
+    } as any;
+
+    prismaClient.rAGGraphEdge.findMany = (() => Promise.resolve([
+      {
+        id: 'edge-valid',
+        sourceEntity: { name: 'A' },
+        targetEntity: { name: 'B' },
+        relationshipDesc: 'friends',
+        weight: 2,
+      },
+      {
+        id: 'edge-detached',
+        sourceEntity: { name: 'X' },
+        targetEntity: { name: 'Y' },
+        relationshipDesc: 'orphan',
+        weight: 1,
+        parentId: null,
+      },
+    ]) as never) as typeof prismaClient.rAGGraphEdge.findMany;
+
+    prismaClient.rAGClaim.findMany = (() => Promise.resolve([
+      {
+        id: 'claim-valid',
+        subjectEntity: { name: 'A' },
+        objectEntity: { name: 'B' },
+        description: 'A and B are buddies',
+      },
+      {
+        id: 'claim-detached',
+        subjectEntity: { name: 'Z' },
+        objectEntity: null,
+        description: 'floating claim',
+        sourceParentId: null,
+      },
+    ]) as never) as typeof prismaClient.rAGClaim.findMany;
+
+    prismaClient.rAGEntity.findMany = (() =>
+      Promise.resolve([
+        { id: 'e1', name: 'A', description: 'desc A' },
+        { id: 'e2', name: 'B', description: 'desc B' },
+      ]) as never) as typeof prismaClient.rAGEntity.findMany;
+    entityProfileClient.entityProfile = {
+      findMany: (() => Promise.resolve([]) as never) as () => Promise<never>,
+    };
+
+    prismaClient.rAGCommunitySummary.create = (() =>
+      Promise.resolve({ id: 'summary-1' }) as never) as typeof prismaClient.rAGCommunitySummary.create;
+    prismaClient.rAGCommunitySummary.findMany = (() =>
+      Promise.resolve([]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
+    prismaClient.rAGCommunitySummary.deleteMany = (() =>
+      Promise.resolve({ count: 0 }) as never) as typeof prismaClient.rAGCommunitySummary.deleteMany;
+    prismaClient.rAGGraphEdge.update = (() => Promise.resolve({ id: 'e' }) as never) as typeof prismaClient.rAGGraphEdge.update;
+    prismaClient.rAGClaim.update = (() => Promise.resolve({ id: 'c' }) as never) as typeof prismaClient.rAGClaim.update;
+    prismaClient.$executeRaw = (() => Promise.resolve(1) as never) as never;
+
+    try {
+      await persistCommunitySummaries(
+        { algorithm: 'leiden', membership: [0, 0], communities: [{ id: 0, members: ['A', 'B'] }] },
+        'ns-a',
+      );
+
+      const prompt = prompts[0]!;
+      expect(prompt).toContain('A');
+      expect(prompt).toContain('B');
+      expect(prompt).not.toContain('orphan');
+      expect(prompt).not.toContain('floating claim');
+    } finally {
+      modelLoaderSingleton.models = originalModels;
+      prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
+      prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
+      prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
+      prismaClient.rAGClaim.findMany = originalClaimFindMany;
+      prismaClient.rAGEntity.findMany = originalEntityFindMany;
+      if (originalProfileFindMany) {
+        entityProfileClient.entityProfile = { findMany: originalProfileFindMany };
+      } else {
+        delete entityProfileClient.entityProfile;
+      }
+      prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
+      prismaClient.rAGClaim.update = originalClaimUpdate;
+      prismaClient.$executeRaw = originalExecuteRaw;
+    }
+  });
+
   it('prefers EntityProfile over the extracted description for node summaries', async () => {
     const prompts: string[] = [];
 

@@ -14,7 +14,7 @@ export const detectCommunity = async ({
   persistCommunitySummaries?: boolean;
   namespace: string;
 }): Promise<CommunityDetectionResult> => {
-  const graphEdges = edges ?? (await loadCommunityGraph()).edges;
+  const graphEdges = edges ?? (await loadCommunityGraph(namespace)).edges;
 
   if (graphEdges.length === 0) {
     return { algorithm: 'leiden', communities: [], membership: [] };

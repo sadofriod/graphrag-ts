@@ -1,7 +1,11 @@
 import { prismaClient } from '../../helper/prismaClient';
 
-export const loadCommunityGraph = async () => {
+export const loadCommunityGraph = async (namespace: string) => {
   const edges = await prismaClient.rAGGraphEdge.findMany({
+    where: {
+      namespace,
+      parentId: { not: null },
+    },
     orderBy: [{ sourceEntityId: 'asc' }, { targetEntityId: 'asc' }],
     include: {
       sourceEntity: { select: { name: true } },

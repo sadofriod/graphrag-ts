@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 
 import { getCurrentNamespace } from '../namespace/namespaceContext';
-import { buildIncrementalRAG, buildRAG, type BuildRagDeps } from './buildRag';
+import {
+  buildIncrementalRAG,
+  buildRAG,
+  resolveIncrementalFiles,
+  type BuildRagDeps,
+} from './buildRag';
 
 describe('buildRAG', () => {
   it('splits each file and feeds every edge, claim and entity into the pipeline', async () => {
@@ -29,7 +34,7 @@ describe('buildRAG', () => {
       },
       buildEdges: async (chunks, parentId, namespace) => {
         buildEdgesCalls.push({ chunks, parentId, namespace });
-        return [];
+        return chunks.map((chunk, index) => ({ id: `${parentId}-${index}` }));
       },
       buildClaims: async (claims, opts) => {
         buildClaimsCalls.push({ claims, opts });
@@ -99,6 +104,69 @@ describe('buildRAG', () => {
       insertedFiles: 2,
       updatedFiles: 0,
       skippedFiles: 0,
+    });
+  });
+
+  it('uses the actual number of persisted edges returned by buildEdges', async () => {
+    const deps: BuildRagDeps = {
+      split: async () => [{
+        parentId: 'p-1',
+        childIds: [],
+        edges: [
+          { source: 'A', target: 'B', relation: 'x' },
+          { source: 'B', target: 'C', relation: 'y' },
+          { source: 'C', target: 'D', relation: 'z' },
+        ],
+        claims: [],
+        entities: [],
+      }],
+      buildEdges: async () => [{ id: 'edge-1' }, { id: 'edge-2' }],
+      buildClaims: async () => 0,
+      buildEntities: async () => 0,
+      detectCommunity: async () => ({
+        algorithm: 'leiden',
+        communities: [],
+        membership: [],
+      }),
+    };
+
+    const summary = await buildRAG([{ title: 'a.md', content: 'aaa' }], 'ns-a', deps);
+
+    expect(summary.edges).toBe(2);
+  });
+
+  it('resolves an incremental plan with pure helper functions', async () => {
+    const resolution = await resolveIncrementalFiles(
+      [
+        { title: 'new.md', content: 'new' },
+        { title: 'updated.md', content: 'updated' },
+        { title: 'same.md', content: 'same' },
+      ],
+      'ns-a',
+      {
+        diffDocuments: async (files) => ({
+          toInsert: [{ file: files[0]!, action: 'insert' }],
+          toUpdate: [{
+            file: files[1]!,
+            action: 'update',
+            existingParentId: 'old-1',
+            existingParentIds: ['old-1', 'old-2'],
+          }],
+          toSkip: [{ file: files[2]!, action: 'skip', existingParentId: 'old-3' }],
+          all: [],
+        }),
+      } as BuildRagDeps,
+    );
+
+    expect(resolution).toEqual({
+      filesToProcess: [
+        { title: 'new.md', content: 'new' },
+        { title: 'updated.md', content: 'updated' },
+      ],
+      insertedCount: 1,
+      updatedCount: 1,
+      skippedCount: 1,
+      parentIdsToPrune: ['old-1', 'old-2'],
     });
   });
 
@@ -181,7 +249,7 @@ describe('buildRAG', () => {
           },
         ];
       },
-      buildEdges: async () => [],
+      buildEdges: async (chunks) => chunks.map((chunk, index) => ({ id: `edge-${index}` })),
       buildClaims: async () => 0,
       buildEntities: async () => 0,
       detectCommunity: async () => {
@@ -234,6 +302,72 @@ describe('buildRAG', () => {
       updatedFiles: 1,
       skippedFiles: 1,
     });
+  });
+
+  it('excludes stale parents from community detection before rebuilding the graph', async () => {
+    const callOrder: string[] = [];
+
+    const deps: BuildRagDeps = {
+      split: async ({ title }) => {
+        callOrder.push(`split:${title}`);
+        return [{ parentId: `p-${title}`, childIds: [], edges: [], claims: [], entities: [] }];
+      },
+      buildEdges: async () => {
+        callOrder.push('buildEdges');
+        return [];
+      },
+      buildClaims: async () => {
+        callOrder.push('buildClaims');
+        return 0;
+      },
+      buildEntities: async () => {
+        callOrder.push('buildEntities');
+        return 0;
+      },
+      detectCommunity: async () => {
+        callOrder.push('detect');
+        return {
+          algorithm: 'leiden',
+          communities: [],
+          membership: [],
+        };
+      },
+      diffDocuments: async (files) => ({
+        toInsert: [],
+        toUpdate: [{
+          file: files[0]!,
+          action: 'update',
+          existingParentId: 'old-p1',
+          existingParentIds: ['old-p1', 'old-p2'],
+        }],
+        toSkip: [],
+        all: [],
+      }),
+      excludeFromCommunityDetection: async (parentIds, namespace) => {
+        callOrder.push(`exclude:${parentIds.join(',')}:${namespace}`);
+      },
+      pruneDocuments: async () => {
+        callOrder.push('prune');
+        return { deletedParents: 2, deletedClaims: 0 };
+      },
+    };
+
+    await buildRAG(
+      [{ title: 'a.md', content: 'updated' }],
+      'ns-a',
+      deps,
+      { incremental: true },
+    );
+
+    expect(callOrder).toEqual([
+      'exclude:old-p1,old-p2:ns-a',
+      'split:a.md',
+      'buildEdges',
+      'buildEntities',
+      'buildClaims',
+      'detect',
+      'prune',
+    ]);
   });
 
   it('returns early when all files are skipped in incremental mode', async () => {
