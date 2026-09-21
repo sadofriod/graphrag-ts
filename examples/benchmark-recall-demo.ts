@@ -1,4 +1,3 @@
-import { buildRAG } from '../src/build/buildRag';
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { envModelConfigs, injectModelConfigs } from '../src/build/modelLoader';
 import { startBuild } from '../src/build/startBuild';
@@ -68,9 +67,7 @@ const buildLongMarkdownIndex = async (
   }
 
   const registry = createBuildRegistry();
-  const buildId = startBuild(files, registry, namespace, {
-    runner: async (inputFiles, targetNamespace) => buildRAG(inputFiles, targetNamespace),
-  });
+  const buildId = startBuild(files, registry, namespace);
   await waitForBuild(buildId, registry, timeoutMs);
   return buildId;
 };

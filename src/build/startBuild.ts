@@ -5,6 +5,7 @@ import {
   type BuildRagOptions,
   type BuildSummary,
 } from './buildRag';
+import type { BuildRegistry } from './buildRegistry';
 import { buildClaims } from './helper/buildClaims';
 import { buildEdges } from './helper/buildEdges';
 import { buildEntities } from './helper/buildEntities';

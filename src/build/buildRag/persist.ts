@@ -1,14 +1,14 @@
 import type { BuildRagDeps } from './types';
-import type { SplitResult } from '../textSplit';
+import type { ChunkEdge, SplitResult } from '../textSplit';
 
-const withWeight = <T extends { [key: string]: unknown }>(edge: T) => ({ ...edge, weight: 1 });
+const withWeight = (edge: ChunkEdge): ChunkEdge => ({ ...edge, weight: edge.weight ?? 1 });
 
 const countResult = async (
   result: SplitResult,
   namespace: string,
   deps: BuildRagDeps,
 ): Promise<{ readonly parents: number; readonly edges: number; readonly claims: number }> => {
-  const weightedEdges = result.edges.map(withWeight);
+  const weightedEdges: ChunkEdge[] = result.edges.map(withWeight);
   const [persistedEdges, , claimCount] = await Promise.all([
     deps.buildEdges(weightedEdges, result.parentId, namespace),
     deps.buildEntities(result.entities, namespace),
