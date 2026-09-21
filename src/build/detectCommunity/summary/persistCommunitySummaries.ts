@@ -1,7 +1,6 @@
 import type { Embeddings } from '@langchain/core/embeddings';
 import { Prisma } from '@prisma/client';
 
-import { logger } from '../../../logger';
 import { withNamespace } from '../../../namespace/namespaceContext';
 import { prismaClient } from '../../helper/prismaClient';
 import { modelLoaderSingleton } from '../../modelLoader';
@@ -44,7 +43,7 @@ const loadGraphData = async (namespace: string): Promise<LoadedGraphData> => {
     };
   }).entityProfile;
 
-  const [edgeRows, claimRows, entityRows, profileRows, summaryRows, detachedEdgeCount, detachedClaimCount] = await Promise.all([
+  const [edgeRows, claimRows, entityRows, profileRows, summaryRows] = await Promise.all([
     prismaClient.rAGGraphEdge.findMany({
       where: { namespace, parentId: { not: null } },
       orderBy: [{ sourceEntityId: 'asc' }, { targetEntityId: 'asc' }],
@@ -68,16 +67,7 @@ const loadGraphData = async (namespace: string): Promise<LoadedGraphData> => {
         select: { id: true, communityName: true },
       })
       : Promise.resolve([]),
-    prismaClient.rAGGraphEdge.count({ where: { namespace, parentId: null } }),
-    prismaClient.rAGClaim.count({ where: { namespace, sourceParentId: null } }),
   ]);
-
-  if (detachedEdgeCount > 0 || detachedClaimCount > 0) {
-    logger.warn(
-      { namespace, detachedEdgeCount, detachedClaimCount },
-      'Detached graph rows were found and excluded from community summary generation.',
-    );
-  }
 
   const profileByEntityId = new Map(
     profileRows.map((profile) => [profile.entityId, profile.profile]),
