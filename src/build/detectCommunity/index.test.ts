@@ -60,6 +60,8 @@ describe('detectCommunity', () => {
   it('persists each detected community as a summary and links the matching edges', async () => {
     const originalModels = modelLoaderSingleton.models;
     const originalSummaryCreate = prismaClient.rAGCommunitySummary.create;
+    const originalSummaryFindMany = prismaClient.rAGCommunitySummary.findMany;
+    const originalSummaryDeleteMany = prismaClient.rAGCommunitySummary.deleteMany;
     const originalFindMany = prismaClient.rAGGraphEdge.findMany;
     const originalEdgeUpdate = prismaClient.rAGGraphEdge.update;
     const originalExecuteRaw = prismaClient.$executeRaw;
@@ -88,6 +90,10 @@ describe('detectCommunity', () => {
         ...data,
       }) as never;
     }) as typeof prismaClient.rAGCommunitySummary.create;
+    prismaClient.rAGCommunitySummary.findMany = (() =>
+      Promise.resolve([]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
+    prismaClient.rAGCommunitySummary.deleteMany = (() =>
+      Promise.resolve({ count: 0 }) as never) as typeof prismaClient.rAGCommunitySummary.deleteMany;
 
     prismaClient.rAGGraphEdge.findMany = (() =>
       Promise.resolve([
@@ -147,6 +153,8 @@ describe('detectCommunity', () => {
     } finally {
       modelLoaderSingleton.models = originalModels;
       prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
+      prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
       prismaClient.rAGGraphEdge.findMany = originalFindMany;
       prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
       prismaClient.$executeRaw = originalExecuteRaw;
@@ -159,6 +167,8 @@ describe('detectCommunity', () => {
   it('uses the community summary prompt and slice model result for communityName and summaryContent', async () => {
     const originalModels = modelLoaderSingleton.models;
     const originalSummaryCreate = prismaClient.rAGCommunitySummary.create;
+    const originalSummaryFindMany = prismaClient.rAGCommunitySummary.findMany;
+    const originalSummaryDeleteMany = prismaClient.rAGCommunitySummary.deleteMany;
     const originalFindMany = prismaClient.rAGGraphEdge.findMany;
     const originalEdgeUpdate = prismaClient.rAGGraphEdge.update;
     const originalExecuteRaw = prismaClient.$executeRaw;
@@ -190,6 +200,10 @@ describe('detectCommunity', () => {
         ...data,
       }) as never;
     }) as typeof prismaClient.rAGCommunitySummary.create;
+    prismaClient.rAGCommunitySummary.findMany = (() =>
+      Promise.resolve([]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
+    prismaClient.rAGCommunitySummary.deleteMany = (() =>
+      Promise.resolve({ count: 0 }) as never) as typeof prismaClient.rAGCommunitySummary.deleteMany;
 
     prismaClient.rAGGraphEdge.findMany = (() =>
       Promise.resolve([
@@ -250,6 +264,8 @@ describe('detectCommunity', () => {
     } finally {
       modelLoaderSingleton.models = originalModels;
       prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
+      prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
       prismaClient.rAGGraphEdge.findMany = originalFindMany;
       prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
       prismaClient.$executeRaw = originalExecuteRaw;
@@ -279,7 +295,7 @@ describe('loadCommunityGraph', () => {
       ]) as never) as typeof prismaClient.rAGGraphEdge.findMany;
 
     try {
-      const result = await loadCommunityGraph();
+      const result = await loadCommunityGraph('ns-a');
       expect(result.edges).toEqual([
         { source: 'Alpha', target: 'Beta', weight: 4 },
         { source: 'Beta', target: 'Gamma', weight: 2 },

@@ -7,7 +7,7 @@ export interface GraphEdge {
 
 export interface ChunkEdge extends GraphEdge {
   relation: string;
-  weight: number;
+  weight?: number;
 }
 
 const normalizeRelation = (relation: string) =>
@@ -53,7 +53,7 @@ const aggregateEdges = (chunks: ChunkEdge[], parentId: string | null): Aggregate
     };
     current.relationshipDesc = normalizeRelation(relation);
     current.parentId = parentId;
-    current.weight += normalizeWeight(weight);
+    current.weight += normalizeWeight(weight ?? 1);
     byPair.set(key, current);
   }
   return [...byPair.values()];

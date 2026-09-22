@@ -21,6 +21,7 @@ export interface ChunkEdge {
   source: string;
   target: string;
   relation: string;
+  weight?: number;
 }
 
 export interface ChunkClaim {

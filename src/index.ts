@@ -1,5 +1,31 @@
 import { GraphRAGRetrievalService } from './retrieval/service/GraphRAGRetrievalService';
-import { startBuild } from './build/startBuild';
+import {
+  startBuild,
+  startIncrementalBuild,
+  deleteRAGDocument,
+  type StartBuildOptions,
+  type DeleteDocumentInput,
+} from './build/startBuild';
+import {
+  buildRAG,
+  buildIncrementalRAG,
+  type BuildInputFile,
+  type BuildSummary,
+  type BuildRagOptions,
+} from './build/buildRag';
+import {
+  diffDocuments,
+  type DocumentDiffAction,
+  type DocumentDiffItem,
+  type DocumentDiffSummary,
+} from './build/incremental/documentDiff';
+import {
+  deleteDocumentByTitle,
+  deleteDocumentByParentId,
+  pruneStaleDocuments,
+  type PruneDocumentResult,
+} from './build/incremental/documentPruner';
+import { computeCommunityFingerprint } from './build/detectCommunity/summary/communityFingerprint';
 import { createBuildRegistry } from './build/buildRegistry';
 import {
   modelLoader,
@@ -23,7 +49,20 @@ import { prismaClient, injectPrismaClient, getPrismaClient } from './build/helpe
 import type { CustomModelConfig } from './build/custom.model.conf.type';
 import { configureDefaults } from './config/defaults';
 
-export { GraphRAGRetrievalService, startBuild, createBuildRegistry };
+export {
+  GraphRAGRetrievalService,
+  startBuild,
+  startIncrementalBuild,
+  deleteRAGDocument,
+  buildRAG,
+  buildIncrementalRAG,
+  diffDocuments,
+  deleteDocumentByTitle,
+  deleteDocumentByParentId,
+  pruneStaleDocuments,
+  computeCommunityFingerprint,
+  createBuildRegistry,
+};
 export { modelLoader, injectModelConfigs, envModelConfigs, getLoadedModels };
 export {
   registerChatAdapter,
@@ -34,6 +73,15 @@ export {
 };
 export { prismaClient, injectPrismaClient, getPrismaClient };
 export type {
+  BuildInputFile,
+  BuildSummary,
+  BuildRagOptions,
+  StartBuildOptions,
+  DeleteDocumentInput,
+  DocumentDiffAction,
+  DocumentDiffItem,
+  DocumentDiffSummary,
+  PruneDocumentResult,
   CustomModelConfig,
   ModelLoader,
   ChatModelAdapter,

@@ -14,7 +14,7 @@ describe('loadCommunityGraph', () => {
       ]) as never) as typeof prismaClient.rAGGraphEdge.findMany;
 
     try {
-      const result = await loadCommunityGraph();
+      const result = await loadCommunityGraph('ns-a');
       expect(result.edges).toEqual([
         { source: 'Alpha', target: 'Beta', weight: 4 },
         { source: 'Beta', target: 'Gamma', weight: 2 },
@@ -31,7 +31,7 @@ describe('loadCommunityGraph', () => {
       ]) as never) as typeof prismaClient.rAGGraphEdge.findMany;
 
     try {
-      const result = await loadCommunityGraph();
+      const result = await loadCommunityGraph('ns-a');
       expect(result.edges).toEqual([{ source: 'Alpha', target: 'Beta', weight: 1 }]);
     } finally {
       prismaClient.rAGGraphEdge.findMany = originalFindMany;
