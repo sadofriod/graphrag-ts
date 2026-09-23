@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import { prismaClient } from '../../helper/prismaClient';
 import { modelLoaderSingleton } from '../../modelLoader';
+import { computeCommunityFingerprint } from './communityFingerprint';
 import { persistCommunitySummaries } from './persistCommunitySummaries';
 import type { CommunityDetectionResult } from '../types';
 
@@ -305,6 +306,15 @@ describe('persistCommunitySummaries', () => {
   it('reuses unchanged existing community summary and prunes stale summaries', async () => {
     let summaryCreateCount = 0;
     let deleteWhere: unknown;
+    const unchangedFingerprint = computeCommunityFingerprint({
+      members: ['A', 'B'],
+      entities: [
+        { name: 'A', description: 'desc A' },
+        { name: 'B', description: 'desc B' },
+      ],
+      edges: [{ source: 'A', target: 'B', relationshipDesc: 'friends' }],
+      claims: [{ subject: 'A', object: 'B', description: 'A and B are buddies' }],
+    });
 
     modelLoaderSingleton.models = {
       embedding: { embedQuery: async () => [0.1, 0.2] },
@@ -347,7 +357,7 @@ describe('persistCommunitySummaries', () => {
 
     prismaClient.rAGCommunitySummary.findMany = (() =>
       Promise.resolve([
-        { id: 'existing-sum-1', communityName: 'Community AB' },
+        { id: 'existing-sum-1', communityName: 'Community AB', contentFingerprint: unchangedFingerprint },
         { id: 'stale-sum-99', communityName: 'Obsolete Community' },
       ]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
 
@@ -362,6 +372,7 @@ describe('persistCommunitySummaries', () => {
     }) as never;
     prismaClient.rAGGraphEdge.update = (() => Promise.resolve({ id: 'e' })) as never;
     prismaClient.rAGClaim.update = (() => Promise.resolve({ id: 'c' })) as never;
+    prismaClient.$executeRaw = (() => Promise.resolve(1)) as never;
 
     try {
       const persistStats = await persistCommunitySummaries(
@@ -389,6 +400,8 @@ describe('persistCommunitySummaries', () => {
       prismaClient.rAGGraphEdge.update = originalEdgeUpdate;
       prismaClient.rAGClaim.update = originalClaimUpdate;
       prismaClient.$executeRaw = originalExecuteRaw;
+      prismaClient.$executeRaw = originalExecuteRaw;
     }
   });
+
 });

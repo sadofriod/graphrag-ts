@@ -28,6 +28,10 @@ flowchart LR
 - **Community detection** (`detectCommunity/`): Leiden clustering via
   `@graphrs/igraph-wasm`, with fingerprint-based differential summary updates
   (`persistCommunitySummaries.ts`) to reuse unchanged communities and prune stale summaries.
+  The fingerprint covers community members, entity descriptions, relationships,
+  and claims, so a changed fact invalidates the previous summary even when the
+  entity and relationship topology is unchanged. Existing summaries without a
+  fingerprint are regenerated once after the schema migration.
 - **Incremental build & document pruning** (`incremental/`): document diffing
   (`documentDiff.ts`) based on content SHA-256 hashes to skip unchanged files,
   and cascade pruners (`documentPruner.ts`) to clean up modified or removed documents.

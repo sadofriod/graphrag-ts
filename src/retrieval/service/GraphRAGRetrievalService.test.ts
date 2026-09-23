@@ -43,14 +43,28 @@ describe('GraphRAGRetrievalService', () => {
     },
   ];
 
-  const installMocks = (sliceResponses: string[]) => {
+  const installMocks = (
+    sliceResponses: string[],
+    options: { summaryContent?: string; claimTextById?: Record<string, string> } = {},
+  ) => {
     prismaClient.rAGEntity.findMany = (() => Promise.resolve(entities)) as never;
     prismaClient.rAGGraphEdge.findMany = (() => Promise.resolve(edgeRows)) as never;
     prismaClient.rAGCommunitySummary.findMany = ((args: unknown) => {
       const ids = (args as { where?: { id?: { in?: string[] } } })?.where?.id?.in;
-      return Promise.resolve(ids ? summaries.filter((summary) => ids.includes(summary.id)) : summaries);
+      const currentSummaries = summaries.map((summary) => ({
+        ...summary,
+        ...(options.summaryContent !== undefined ? { summaryContent: options.summaryContent } : {}),
+      }));
+      return Promise.resolve(ids ? currentSummaries.filter((summary) => ids.includes(summary.id)) : currentSummaries);
     }) as never;
-    prismaClient.rAGClaim.findMany = (() => Promise.resolve(claimRows)) as never;
+    prismaClient.rAGClaim.findMany = (() => Promise.resolve(
+      claimRows.map((claim) => ({
+        ...claim,
+        ...(options.claimTextById?.[claim.id] !== undefined
+          ? { description: options.claimTextById[claim.id] }
+          : {}),
+      })),
+    )) as never;
     prismaClient.$queryRaw = ((query: unknown) => {
       const text = JSON.stringify(query);
       if (text.includes('WITH RECURSIVE')) {
@@ -115,6 +129,65 @@ describe('GraphRAGRetrievalService', () => {
         { text: 'Source chunk about A and B working together', sourceChunkId: 'child-9' },
         { text: 'Keyword supplement chunk for A and B', sourceChunkId: 'child-kw' },
       ]);
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  it('returns the updated summary and evidence after a fact changes', async () => {
+    installMocks(
+      [
+        JSON.stringify({ rawQuery: 'agreement date', entities: ['A'], keywords: ['agreement'], themes: [] }),
+        JSON.stringify({ selectedCommunityIds: ['c1'] }),
+        'Answer: the agreement date is 2025-02-01',
+      ],
+      {
+        summaryContent: 'The agreement date is 2025-02-01.',
+        claimTextById: { 'claim-1': 'The agreement date is 2025-02-01' },
+      },
+    );
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const result = await service.retrieve({ query: 'agreement date', topK: 5 });
+
+      expect(result.communities[0]?.summary).toBe('The agreement date is 2025-02-01.');
+      expect(result.evidence).toContainEqual({
+        claimId: 'claim-1',
+        text: 'The agreement date is 2025-02-01',
+        sourceDocumentId: 'p1',
+        sourceChunkId: 'child-1',
+      });
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  it('returns the regenerated summary when only claim text changes and topology stays the same', async () => {
+    installMocks(
+      [
+        JSON.stringify({ rawQuery: 'agreement renewal', entities: ['A'], keywords: ['renewal'], themes: [] }),
+        JSON.stringify({ selectedCommunityIds: ['c1'] }),
+        'Answer: the renewal date is 2025-03-15',
+      ],
+      {
+        summaryContent: 'The renewal date is 2025-03-15.',
+        claimTextById: { 'claim-1': 'The renewal date is 2025-03-15' },
+      },
+    );
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const result = await service.retrieve({ query: 'agreement renewal', topK: 5 });
+
+      expect(result.communities.map((community) => community.id)).toEqual(['c1']);
+      expect(result.communities[0]?.summary).toBe('The renewal date is 2025-03-15.');
+      expect(result.evidence).toContainEqual({
+        claimId: 'claim-1',
+        text: 'The renewal date is 2025-03-15',
+        sourceDocumentId: 'p1',
+        sourceChunkId: 'child-1',
+      });
     } finally {
       restoreMocks();
     }
