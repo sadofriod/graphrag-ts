@@ -161,6 +161,36 @@ describe('GraphRAGRetrievalService', () => {
     }
   });
 
+  it('returns the regenerated summary when only claim text changes and topology stays the same', async () => {
+    installMocks(
+      [
+        JSON.stringify({ rawQuery: 'agreement renewal', entities: ['A'], keywords: ['renewal'], themes: [] }),
+        JSON.stringify({ selectedCommunityIds: ['c1'] }),
+        'Answer: the renewal date is 2025-03-15',
+      ],
+      {
+        summaryContent: 'The renewal date is 2025-03-15.',
+        claimText: 'The renewal date is 2025-03-15',
+      },
+    );
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const result = await service.retrieve({ query: 'agreement renewal', topK: 5 });
+
+      expect(result.communities.map((community) => community.id)).toEqual(['c1']);
+      expect(result.communities[0]?.summary).toBe('The renewal date is 2025-03-15.');
+      expect(result.evidence).toContainEqual({
+        claimId: 'claim-1',
+        text: 'The renewal date is 2025-03-15',
+        sourceDocumentId: 'p1',
+        sourceChunkId: 'child-1',
+      });
+    } finally {
+      restoreMocks();
+    }
+  });
+
   it('returns community details with members, claims and evidence', async () => {
     installMocks([]);
 
