@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.8 — 2026-09-23
+
+- **feat(build)**: Add incremental GraphRAG write and differential graph maintenance.
+- **feat(adapter)**: add custom model adapter registry and provider support
+- **fix(ci)**: avoid DATABASE_URL lookup during prisma generate
+- **fix**: fix persisted edge counts and community namespace guard
+- **fix(release)**: align 0.1.6 version from npm base and update bump script
+- **docs**: add local demo
+- **docs(changelog)**: update changelog for model adapter features
+- **ci**: automate changelog generation and version bump in CI workflow
+- Merge pull request #3 from sadofriod/feat/complete-incremental-write
+- fix ci error
+- fix type and lint err
+- Use Bun hashing in document diff
+- Fix incremental review feedback
+- export incremetal apis
+
 ## 0.1.7 — 2026-09-22
 
 - **feat(build)**: Add incremental GraphRAG write and differential graph maintenance.
