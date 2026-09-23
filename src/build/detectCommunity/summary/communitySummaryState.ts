@@ -11,29 +11,33 @@ import type {
   SummaryPersistenceState,
 } from './communitySummaryTypes';
 
-export const buildMemberToCommunityMap = (communities: readonly Community[]): ReadonlyMap<string, number> =>
-  communities.reduce(
-    (members, community) =>
-      community.members.reduce(
-        (nextMembers, member) => new Map(nextMembers).set(member, community.id),
-        members,
-      ),
-    new Map<string, number>(),
-  );
+export const buildMemberToCommunityMap = (communities: readonly Community[]): ReadonlyMap<string, number> => {
+  const members = new Map<string, number>();
+
+  for (const community of communities) {
+    for (const member of community.members) {
+      members.set(member, community.id);
+    }
+  }
+
+  return members;
+};
 
 const countBySummaryId = <T extends { communitySummaryId?: string | null }>(
   rows: readonly T[],
-): ReadonlyMap<string, number> =>
-  rows.reduce(
-    (counts, row) =>
-      row.communitySummaryId
-        ? new Map(counts).set(
-          row.communitySummaryId,
-          (counts.get(row.communitySummaryId) ?? 0) + 1,
-        )
-        : counts,
-    new Map<string, number>(),
-  );
+): ReadonlyMap<string, number> => {
+  const counts = new Map<string, number>();
+
+  for (const row of rows) {
+    if (!row.communitySummaryId) {
+      continue;
+    }
+
+    counts.set(row.communitySummaryId, (counts.get(row.communitySummaryId) ?? 0) + 1);
+  }
+
+  return counts;
+};
 
 export const computeSummaryAssignedCounts = (
   edgeRows: readonly CommunityEdgeRow[],
@@ -99,13 +103,18 @@ export const persistCommunity = async (
   );
 
   if (matched) {
+    const communitySummaries = new Map(state.communitySummaries);
+    communitySummaries.set(community.id, {
+      id: matched.id,
+      name: matched.communityName,
+    });
+    const usedSummaryIds = new Set(state.usedSummaryIds);
+    usedSummaryIds.add(matched.id);
+
     return {
       ...state,
-      communitySummaries: new Map(state.communitySummaries).set(community.id, {
-        id: matched.id,
-        name: matched.communityName,
-      }),
-      usedSummaryIds: new Set(state.usedSummaryIds).add(matched.id),
+      communitySummaries,
+      usedSummaryIds,
       reused: state.reused + 1,
     };
   }
@@ -118,10 +127,15 @@ export const persistCommunity = async (
     embeddingModel,
   );
 
+  const communitySummaries = new Map(state.communitySummaries);
+  communitySummaries.set(community.id, saved);
+  const usedSummaryIds = new Set(state.usedSummaryIds);
+  usedSummaryIds.add(saved.id);
+
   return {
     ...state,
-    communitySummaries: new Map(state.communitySummaries).set(community.id, saved),
-    usedSummaryIds: new Set(state.usedSummaryIds).add(saved.id),
+    communitySummaries,
+    usedSummaryIds,
     updated: state.updated + 1,
   };
 };

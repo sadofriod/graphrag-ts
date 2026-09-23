@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
+import { withNamespace } from '../../namespace/namespaceContext';
 import { modelLoaderSingleton } from '../modelLoader';
 import { prismaClient } from '../../build/helper/prismaClient';
 import { detectCommunity, loadCommunityGraph } from './index';
@@ -55,6 +56,26 @@ describe('detectCommunity', () => {
 
     expect(result.membership).toEqual([0, 0, 0, 0]);
     expect(result.communities).toEqual([{ id: 0, members: ['A', 'B', 'C', 'D'] }]);
+  });
+
+  it('loads graph edges inside the explicit namespace context', async () => {
+    const originalFindMany = prismaClient.rAGGraphEdge.findMany;
+    const findManyCalls: unknown[] = [];
+
+    prismaClient.rAGGraphEdge.findMany = ((args: unknown) => {
+      findManyCalls.push(args);
+      return Promise.resolve([
+        { sourceEntity: { name: 'A' }, targetEntity: { name: 'B' }, weight: 2 },
+      ]) as never;
+    }) as typeof prismaClient.rAGGraphEdge.findMany;
+
+    try {
+      await withNamespace('wrong-ns', () => detectCommunity({ namespace: 'ns-a' }));
+
+      expect(findManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
+    } finally {
+      prismaClient.rAGGraphEdge.findMany = originalFindMany;
+    }
   });
 
   it('persists each detected community as a summary and links the matching edges', async () => {
