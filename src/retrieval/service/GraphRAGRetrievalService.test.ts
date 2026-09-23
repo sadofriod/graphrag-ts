@@ -53,14 +53,14 @@ describe('GraphRAGRetrievalService', () => {
       const ids = (args as { where?: { id?: { in?: string[] } } })?.where?.id?.in;
       const currentSummaries = summaries.map((summary) => ({
         ...summary,
-        ...(options.summaryContent ? { summaryContent: options.summaryContent } : {}),
+        ...(options.summaryContent !== undefined ? { summaryContent: options.summaryContent } : {}),
       }));
       return Promise.resolve(ids ? currentSummaries.filter((summary) => ids.includes(summary.id)) : currentSummaries);
     }) as never;
     prismaClient.rAGClaim.findMany = (() => Promise.resolve(
       claimRows.map((claim) => ({
         ...claim,
-        ...(options.claimText ? { description: options.claimText } : {}),
+        ...(options.claimText !== undefined ? { description: options.claimText } : {}),
       })),
     )) as never;
     prismaClient.$queryRaw = ((query: unknown) => {
