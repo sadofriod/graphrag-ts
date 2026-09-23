@@ -45,7 +45,7 @@ describe('GraphRAGRetrievalService', () => {
 
   const installMocks = (
     sliceResponses: string[],
-    options: { summaryContent?: string; claimText?: string } = {},
+    options: { summaryContent?: string; claimTextById?: Record<string, string> } = {},
   ) => {
     prismaClient.rAGEntity.findMany = (() => Promise.resolve(entities)) as never;
     prismaClient.rAGGraphEdge.findMany = (() => Promise.resolve(edgeRows)) as never;
@@ -60,7 +60,9 @@ describe('GraphRAGRetrievalService', () => {
     prismaClient.rAGClaim.findMany = (() => Promise.resolve(
       claimRows.map((claim) => ({
         ...claim,
-        ...(options.claimText !== undefined ? { description: options.claimText } : {}),
+        ...(options.claimTextById?.[claim.id] !== undefined
+          ? { description: options.claimTextById[claim.id] }
+          : {}),
       })),
     )) as never;
     prismaClient.$queryRaw = ((query: unknown) => {
@@ -141,7 +143,7 @@ describe('GraphRAGRetrievalService', () => {
       ],
       {
         summaryContent: 'The agreement date is 2025-02-01.',
-        claimText: 'The agreement date is 2025-02-01',
+        claimTextById: { 'claim-1': 'The agreement date is 2025-02-01' },
       },
     );
 
@@ -170,7 +172,7 @@ describe('GraphRAGRetrievalService', () => {
       ],
       {
         summaryContent: 'The renewal date is 2025-03-15.',
-        claimText: 'The renewal date is 2025-03-15',
+        claimTextById: { 'claim-1': 'The renewal date is 2025-03-15' },
       },
     );
 
