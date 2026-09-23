@@ -4,6 +4,9 @@
   "type": "module",
   "packageManager": "pnpm@10.22.0",
   "main": "./src/index.ts",
+  "bin": {
+    "graphrag-ts": "./examples/local-demo.ts"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*.ts",
@@ -47,7 +50,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "demo": "bun run examples/demo.ts",
-    "demo:benchmark": "bun run examples/benchmark-recall-demo.ts"
+    "demo:benchmark": "bun run examples/benchmark-recall-demo.ts",
+    "graphrag-ts": "bun run examples/local-demo.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

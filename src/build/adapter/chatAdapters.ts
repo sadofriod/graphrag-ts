@@ -29,7 +29,7 @@ export const openaiChatAdapter: ChatModelAdapter = ({ config, isSlice }) =>
       baseURL: config.baseURL,
     },
     ...(isSlice
-      ? { modelKwargs: { response_format: { type: 'json_object' } as const } }
+      ? { modelKwargs: { response_format: { type: 'text' } as const } }
       : {}),
     ...(config.options ?? {}),
   });
