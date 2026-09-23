@@ -3,6 +3,7 @@ import { loadIgraph } from '../graph/igraphLoader';
 import { loadCommunityGraph } from '../graph/loadCommunityGraph';
 import { persistCommunitySummaries } from '../summary/persistCommunitySummaries';
 import { toWeightedEdgePairs } from '../graph/toWeightedEdgePairs';
+import { withNamespace } from '../../../namespace/namespaceContext';
 import type { CommunityDetectionResult, LeidenResult, WeightedGraphEdge } from '../types';
 
 export const detectCommunity = async ({
@@ -35,7 +36,7 @@ export const detectCommunity = async ({
     };
 
     if (shouldPersistCommunitySummaries) {
-      await persistCommunitySummaries(result, namespace);
+      await withNamespace(namespace, () => persistCommunitySummaries(result, namespace));
     }
 
     return result;

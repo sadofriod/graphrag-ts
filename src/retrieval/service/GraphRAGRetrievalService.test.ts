@@ -43,14 +43,26 @@ describe('GraphRAGRetrievalService', () => {
     },
   ];
 
-  const installMocks = (sliceResponses: string[]) => {
+  const installMocks = (
+    sliceResponses: string[],
+    options: { summaryContent?: string; claimText?: string } = {},
+  ) => {
     prismaClient.rAGEntity.findMany = (() => Promise.resolve(entities)) as never;
     prismaClient.rAGGraphEdge.findMany = (() => Promise.resolve(edgeRows)) as never;
     prismaClient.rAGCommunitySummary.findMany = ((args: unknown) => {
       const ids = (args as { where?: { id?: { in?: string[] } } })?.where?.id?.in;
-      return Promise.resolve(ids ? summaries.filter((summary) => ids.includes(summary.id)) : summaries);
+      const currentSummaries = summaries.map((summary) => ({
+        ...summary,
+        ...(options.summaryContent ? { summaryContent: options.summaryContent } : {}),
+      }));
+      return Promise.resolve(ids ? currentSummaries.filter((summary) => ids.includes(summary.id)) : currentSummaries);
     }) as never;
-    prismaClient.rAGClaim.findMany = (() => Promise.resolve(claimRows)) as never;
+    prismaClient.rAGClaim.findMany = (() => Promise.resolve(
+      claimRows.map((claim) => ({
+        ...claim,
+        ...(options.claimText ? { description: options.claimText } : {}),
+      })),
+    )) as never;
     prismaClient.$queryRaw = ((query: unknown) => {
       const text = JSON.stringify(query);
       if (text.includes('WITH RECURSIVE')) {
@@ -115,6 +127,35 @@ describe('GraphRAGRetrievalService', () => {
         { text: 'Source chunk about A and B working together', sourceChunkId: 'child-9' },
         { text: 'Keyword supplement chunk for A and B', sourceChunkId: 'child-kw' },
       ]);
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  it('returns the updated summary and evidence after a fact changes', async () => {
+    installMocks(
+      [
+        JSON.stringify({ rawQuery: 'agreement date', entities: ['A'], keywords: ['agreement'], themes: [] }),
+        JSON.stringify({ selectedCommunityIds: ['c1'] }),
+        'Answer: the agreement date is 2025-02-01',
+      ],
+      {
+        summaryContent: 'The agreement date is 2025-02-01.',
+        claimText: 'The agreement date is 2025-02-01',
+      },
+    );
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const result = await service.retrieve({ query: 'agreement date', topK: 5 });
+
+      expect(result.communities[0]?.summary).toBe('The agreement date is 2025-02-01.');
+      expect(result.evidence).toContainEqual({
+        claimId: 'claim-1',
+        text: 'The agreement date is 2025-02-01',
+        sourceDocumentId: 'p1',
+        sourceChunkId: 'child-1',
+      });
     } finally {
       restoreMocks();
     }

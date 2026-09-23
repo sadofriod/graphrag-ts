@@ -84,6 +84,7 @@ model RAGCommunitySummary {
   namespace        String        @map("namespace")
   communityName    String        @map("community_name") @db.VarChar(100)
   summaryContent   String        @map("summary_content") @db.Text
+  contentFingerprint String?      @map("content_fingerprint") @db.Char(64)
   summaryEmbedding Unsupported("vector(768)")? @map("summary_embedding")
   edges            RAGGraphEdge[]
   claims           RAGClaim[]
