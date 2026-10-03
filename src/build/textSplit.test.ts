@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { buildChildInsertSql } from './helper/buildChildInsertSql';
 import { prismaClient } from './helper/prismaClient';
 import { modelLoaderSingleton } from './modelLoader';
-import { textSplit } from './textSplit';
+import { textSplit } from './textSplit/textSplit';
 
 describe('buildChildInsertSql', () => {
   it('builds a single insert statement that computes fts tokens in SQL', () => {

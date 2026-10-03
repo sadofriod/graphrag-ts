@@ -1,5 +1,5 @@
 import type { BuildRagDeps } from './types';
-import type { ChunkEdge, SplitResult } from '../textSplit';
+import type { ChunkEdge, SplitResult } from '../textSplit/types';
 
 const withWeight = (edge: ChunkEdge): ChunkEdge => ({ ...edge, weight: edge.weight ?? 1 });
 
