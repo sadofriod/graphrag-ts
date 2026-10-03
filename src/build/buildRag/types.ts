@@ -4,51 +4,51 @@ import type { ChunkEdge } from '../helper/buildEdges';
 import type { ChunkEntity } from '../helper/buildEntities';
 import type { DocumentDiffSummary } from '../incremental/documentDiff';
 import type { PruneDocumentResult } from '../incremental/documentPruner';
-import type { SplitResult } from '../textSplit';
+import type { SplitResult } from '../textSplit/types';
 
 export interface BuildInputFile {
-  readonly title: string;
-  readonly content: string;
+  title: string;
+  content: string;
 }
 
 export interface BuildSummary {
-  readonly files: number;
-  readonly parents: number;
-  readonly edges: number;
-  readonly claims: number;
-  readonly communities: number;
-  readonly insertedFiles?: number;
-  readonly updatedFiles?: number;
-  readonly skippedFiles?: number;
+  files: number;
+  parents: number;
+  edges: number;
+  claims: number;
+  communities: number;
+  insertedFiles?: number;
+  updatedFiles?: number;
+  skippedFiles?: number;
 }
 
 export interface BuildRagOptions {
-  readonly incremental?: boolean | undefined;
+  incremental?: boolean | undefined;
 }
 
 export interface BuildRagDeps {
-  readonly split: (input: { content: string; title: string; namespace: string }) => Promise<SplitResult[]>;
-  readonly buildEdges: (chunks: ChunkEdge[], parentId: string, namespace: string) => Promise<unknown[]>;
-  readonly buildClaims: (claims: ChunkClaim[], opts: {
+  split: (input: { content: string; title: string; namespace: string }) => Promise<SplitResult[]>;
+  buildEdges: (chunks: ChunkEdge[], parentId: string, namespace: string) => Promise<unknown[]>;
+  buildClaims: (claims: ChunkClaim[], opts: {
     parentId: string;
     childIds: readonly string[];
     namespace: string;
   }) => Promise<number>;
-  readonly buildEntities: (entities: ChunkEntity[], namespace: string) => Promise<number>;
-  readonly detectCommunity: (options: {
+  buildEntities: (entities: ChunkEntity[], namespace: string) => Promise<number>;
+  detectCommunity: (options: {
     edges?: WeightedGraphEdge[];
     persistCommunitySummaries?: boolean;
     namespace: string;
   }) => Promise<CommunityDetectionResult>;
-  readonly diffDocuments?: (files: readonly BuildInputFile[], namespace: string) => Promise<DocumentDiffSummary>;
-  readonly excludeFromCommunityDetection?: (parentIds: readonly string[], namespace: string) => Promise<void>;
-  readonly pruneDocuments?: (parentIds: readonly string[], namespace: string) => Promise<PruneDocumentResult>;
+  diffDocuments?: (files: readonly BuildInputFile[], namespace: string) => Promise<DocumentDiffSummary>;
+  excludeFromCommunityDetection?: (parentIds: readonly string[], namespace: string) => Promise<void>;
+  pruneDocuments?: (parentIds: readonly string[], namespace: string) => Promise<PruneDocumentResult>;
 }
 
 export interface IncrementalResolution {
-  readonly filesToProcess: readonly BuildInputFile[];
-  readonly insertedCount: number;
-  readonly updatedCount: number;
-  readonly skippedCount: number;
-  readonly parentIdsToPrune: readonly string[];
+  filesToProcess: readonly BuildInputFile[];
+  insertedCount: number;
+  updatedCount: number;
+  skippedCount: number;
+  parentIdsToPrune: readonly string[];
 }

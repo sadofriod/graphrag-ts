@@ -19,7 +19,7 @@ import {
 } from './incremental/documentPruner';
 import { withNamespace } from '../namespace/namespaceContext';
 import { prismaClient } from './helper/prismaClient';
-import { textSplit } from './textSplit';
+import { textSplit } from './textSplit/textSplit';
 
 export interface StartBuildOptions extends BuildRagOptions {
   runner?: (files: readonly BuildInputFile[], namespace: string) => Promise<BuildSummary>;
