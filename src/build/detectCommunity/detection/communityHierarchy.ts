@@ -1,12 +1,12 @@
 import type { Community, HierarchicalCommunity, WeightedGraphEdge } from '../types';
 
 type CommunityPartition = (
-  edges: readonly WeightedGraphEdge[],
-) => Promise<readonly Community[]>;
+  edges: WeightedGraphEdge[],
+) => Promise<Community[]>;
 
 const getInducedEdges = (
-  edges: readonly WeightedGraphEdge[],
-  members: readonly string[],
+  edges: WeightedGraphEdge[],
+  members: string[],
 ): WeightedGraphEdge[] => {
   const memberSet = new Set(members);
 
@@ -15,7 +15,7 @@ const getInducedEdges = (
 
 const isCompleteStrictPartition = (
   parent: Community,
-  children: readonly Community[],
+  children: Community[],
 ): boolean => {
   if (children.length < 2) {
     return false;
@@ -37,8 +37,8 @@ const isCompleteStrictPartition = (
 
 export const createCommunityHierarchyBuilder = (partition: CommunityPartition) =>
   async (
-    edges: readonly WeightedGraphEdge[],
-    roots: readonly Community[],
+    edges: WeightedGraphEdge[],
+    roots: Community[],
   ): Promise<HierarchicalCommunity[]> => {
     let nextId = roots.reduce((maximum, community) => Math.max(maximum, community.id), -1) + 1;
 
@@ -46,7 +46,7 @@ export const createCommunityHierarchyBuilder = (partition: CommunityPartition) =
       community: Community,
       level: number,
       parentId: number | null,
-      communityEdges: readonly WeightedGraphEdge[],
+      communityEdges: WeightedGraphEdge[],
     ): Promise<HierarchicalCommunity> => {
       const inducedEdges = getInducedEdges(communityEdges, community.members);
       const detectedChildren = inducedEdges.length > 0 ? await partition(inducedEdges) : [];

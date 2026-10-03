@@ -90,12 +90,12 @@ export const persistCommunitySummaries = async (
   };
 };
 
-const getLeafCommunities = (communities: readonly HierarchicalCommunity[]): HierarchicalCommunity[] =>
+const getLeafCommunities = (communities: HierarchicalCommunity[]): HierarchicalCommunity[] =>
   communities.flatMap((community) =>
     community.children.length > 0 ? getLeafCommunities(community.children) : [community]
   );
 
-const countHierarchyNodes = (communities: readonly HierarchicalCommunity[]): number =>
+const countHierarchyNodes = (communities: HierarchicalCommunity[]): number =>
   communities.reduce(
     (count, community) => count + 1 + countHierarchyNodes(community.children),
     0,

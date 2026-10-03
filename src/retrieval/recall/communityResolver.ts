@@ -55,7 +55,7 @@ export async function recallCommunitiesByTopology(
 }
 
 export async function resolveCommunityIdsAtLevel(
-  communityIds: readonly CommunityId[],
+  communityIds: CommunityId[],
   communityLevel: number,
 ): Promise<CommunityId[]> {
   if (communityIds.length === 0) {

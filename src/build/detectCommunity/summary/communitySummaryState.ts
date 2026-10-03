@@ -50,7 +50,7 @@ export const computeSummaryAssignedCounts = (
 
 const buildSummaryContext = (
   input: ReturnType<typeof buildCommunityContextInput>,
-  childSummaries: readonly ChildCommunitySummary[],
+  childSummaries: ChildCommunitySummary[],
 ): { content: string; usesChildReports: boolean } => {
   const maxTokens = getCommunityContextMaxTokens();
   const detailedContext = buildCommunityContext(input, { maxTokens: Number.MAX_SAFE_INTEGER });
@@ -132,7 +132,7 @@ export const persistCommunity = async (
   namespace: string,
   embeddingModel: Embeddings,
   level = 0,
-  childSummaries: readonly ChildCommunitySummary[] = [],
+  childSummaries: ChildCommunitySummary[] = [],
 ): Promise<SummaryPersistenceState> => {
   const input = buildCommunityContextInput(community, edgeRows, claimRows, entityDescriptions);
   const { content: summaryContext, usesChildReports } = buildSummaryContext(input, childSummaries);

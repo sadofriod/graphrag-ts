@@ -10,7 +10,7 @@ const SUBCOMMUNITY_HEADER = '[Sub-community reports]';
 export const buildHierarchySummaryContext = (
   elementContext: string,
   boundedElementContext: string,
-  childSummaries: readonly ChildCommunitySummary[],
+  childSummaries: ChildCommunitySummary[],
   maxTokens: number,
 ): string => {
   if (estimateTokens(elementContext) <= maxTokens || childSummaries.length === 0) {

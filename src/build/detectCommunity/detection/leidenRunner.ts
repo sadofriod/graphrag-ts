@@ -9,7 +9,7 @@ import type { Community, CommunityDetectionResult, LeidenResult, WeightedGraphEd
 
 const runLeidenPartition = async (
   WasmGraph: Awaited<ReturnType<typeof loadIgraph>>,
-  graphEdges: readonly WeightedGraphEdge[],
+  graphEdges: WeightedGraphEdge[],
 ): Promise<{ communities: Community[]; membership: number[]; score?: number }> => {
   const vertexOrder = Array.from(new Set(graphEdges.flatMap(({ source, target }) => [source, target])));
   const graph = WasmGraph.fromEdges(toWeightedEdgePairs([...graphEdges]), false);
