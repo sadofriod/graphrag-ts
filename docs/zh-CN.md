@@ -269,6 +269,7 @@ const result = await service.retrieve({
   query: 'Who is Irene Adler?',
   topK: 6,
   options: {
+    communityLevel: 1,
     vectorChildTopK: 20,
     keywordSearchLimit: 30,
     evidenceChildLimit: 50,
@@ -280,6 +281,7 @@ const result = await service.retrieve({
 这些参数控制检索窗口和排序行为：
 
 - `topK`：语义层面候选社区数量
+- `communityLevel`：可选的零基社区层级；不设置时保持混合层级摘要召回和叶子层拓扑召回
 - `vectorChildTopK`：向量搜索返回的 child chunk 数量
 - `keywordSearchLimit`：关键词匹配的 child chunk 上限
 - `evidenceChildLimit`：证据合并上限

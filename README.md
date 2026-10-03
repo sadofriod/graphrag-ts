@@ -232,6 +232,7 @@ const result = await service.retrieve({
   query: 'Who is Irene Adler?',
   topK: 6,
   options: {
+    communityLevel: 1,
     vectorChildTopK: 20,
     keywordSearchLimit: 30,
     evidenceChildLimit: 50,
@@ -243,6 +244,7 @@ const result = await service.retrieve({
 These knobs control the retrieval window and ranking behavior:
 
 - `topK`: community-level candidate count
+- `communityLevel`: optional zero-based hierarchy level; omit it to preserve mixed-level summary recall and leaf-level topology recall
 - `vectorChildTopK`: child chunks returned by vector search
 - `keywordSearchLimit`: keyword-matched child chunks
 - `evidenceChildLimit`: evidence merge cap

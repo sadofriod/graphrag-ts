@@ -56,6 +56,7 @@ export interface RetrievalRequest {
     keywordSearchLimit?: number;
     evidenceChildLimit?: number;
     rrfK?: number;
+    communityLevel?: number;
   };
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { prismaClient } from '../../build/helper/prismaClient';
-import { recallCommunitiesByTopology } from './communityResolver';
+import { recallCommunitiesByTopology, resolveCommunityIdsAtLevel } from './communityResolver';
 
 describe('recallCommunitiesByTopology', () => {
   it('returns communities and expanded entities from the traversed rows', async () => {
@@ -84,6 +84,46 @@ describe('recallCommunitiesByTopology', () => {
       const result = await recallCommunitiesByTopology([]);
 
       expect(result).toEqual({ communityIds: [], expandedEntityIds: [] });
+      expect(called).toBe(false);
+    } finally {
+      prismaClient.$queryRaw = originalQueryRaw;
+    }
+  });
+});
+
+describe('resolveCommunityIdsAtLevel', () => {
+  it('resolves topology hits to their ancestor community at the requested level', async () => {
+    const originalQueryRaw = prismaClient.$queryRaw;
+    const calls: unknown[] = [];
+
+    prismaClient.$queryRaw = (async (query: unknown) => {
+      calls.push(query);
+      return [{ community_id: 'parent-c0' }];
+    }) as never;
+
+    try {
+      const result = await resolveCommunityIdsAtLevel(['leaf-c1', 'leaf-c2'], 0);
+
+      expect(result).toEqual(['parent-c0']);
+      expect((calls[0] as { text?: string }).text).toContain('parent_community_id');
+      expect((calls[0] as { text?: string }).text).toContain('level =');
+      expect((calls[0] as { values?: unknown[] }).values).toContain(0);
+    } finally {
+      prismaClient.$queryRaw = originalQueryRaw;
+    }
+  });
+
+  it('does not query when there are no topology hits', async () => {
+    const originalQueryRaw = prismaClient.$queryRaw;
+    let called = false;
+
+    prismaClient.$queryRaw = (async () => {
+      called = true;
+      return [];
+    }) as never;
+
+    try {
+      expect(await resolveCommunityIdsAtLevel([], 1)).toEqual([]);
       expect(called).toBe(false);
     } finally {
       prismaClient.$queryRaw = originalQueryRaw;

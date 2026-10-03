@@ -5,6 +5,12 @@ export interface Community<TId = number> {
   members: string[];
 }
 
+export interface HierarchicalCommunity extends Community<number> {
+  level: number;
+  parentId: number | null;
+  children: HierarchicalCommunity[];
+}
+
 export interface WeightedGraphEdge extends GraphEdge {
   weight?: number;
 }
@@ -14,6 +20,7 @@ export type CommunityDetectionAlgorithm = 'leiden';
 export interface CommunityDetectionResult {
   algorithm: CommunityDetectionAlgorithm;
   communities: Community[];
+  hierarchy?: HierarchicalCommunity[];
   membership: number[];
   score?: number;
 }

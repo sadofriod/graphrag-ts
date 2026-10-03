@@ -20,8 +20,12 @@ export const vectorLiteral = (vector: number[]): Prisma.Sql =>
 export async function searchSimilarCommunitySummaries(
   queryVector: number[],
   topK = 5,
+  communityLevel?: number,
 ): Promise<CommunitySummaryHit[]> {
   const query = vectorLiteral(queryVector);
+  const levelFilter = communityLevel === undefined
+    ? Prisma.empty
+    : Prisma.sql`AND "level" = ${communityLevel}`;
   const rows = await prismaClient.$queryRaw<
     Array<{ id: string; similarity: number | string }>
   >(Prisma.sql`
@@ -29,6 +33,7 @@ export async function searchSimilarCommunitySummaries(
     FROM "rag_community_summaries"
     WHERE "summary_embedding" IS NOT NULL
       AND "namespace" = ${getCurrentNamespace()}
+      ${levelFilter}
     ORDER BY "summary_embedding" <=> ${query}
     LIMIT ${topK}
   `);

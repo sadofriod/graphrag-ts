@@ -26,8 +26,13 @@ flowchart LR
   turns slice output into `rag_graph_edges`, `rag_entities`, and `rag_claims`
   rows, with SHA-256 claim deduplication.
 - **Community detection** (`detectCommunity/`): Leiden clustering via
-  `@graphrs/igraph-wasm`, with fingerprint-based differential summary updates
-  (`persistCommunitySummaries.ts`) to reuse unchanged communities and prune stale summaries.
+  `@graphrs/igraph-wasm`. Each partition is recursively reclustered on its
+  induced subgraph until Leiden cannot produce a complete strict refinement;
+  resulting summaries persist their level, member snapshot, and parent link.
+  Summaries are generated bottom-up. If a higher-level community's element
+  context exceeds the token budget, lower-level community reports replace it.
+  Fingerprint-based differential updates (`persistCommunitySummaries.ts`) reuse
+  unchanged summaries and prune stale ones.
   The fingerprint covers community members, entity descriptions, relationships,
   and claims, so a changed fact invalidates the previous summary even when the
   entity and relationship topology is unchanged. Existing summaries without a
