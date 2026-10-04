@@ -29,16 +29,18 @@ describe('selectGlobalReduceAnswers', () => {
     });
   });
 
-  it('stops at the first answer that exceeds the budget', () => {
+  it('skips answers that exceed the budget and keeps considering lower-ranked answers', () => {
     const answers: GlobalMapAnswer[] = [
-      { answer: 'First', usefulness: 90, communityIds: ['c1'] },
-      { answer: 'x'.repeat(400), usefulness: 80, communityIds: ['c2'] },
+      { answer: 'x'.repeat(400), usefulness: 90, communityIds: ['c1'] },
+      { answer: 'Fits', usefulness: 80, communityIds: ['c2'] },
       { answer: 'Third', usefulness: 70, communityIds: ['c3'] },
     ];
     const skeleton = 'Question prompt';
     const selected = selectGlobalReduceAnswers(answers, skeleton, 20);
 
-    expect(selected.map((item) => item.answer)).toEqual(['First']);
-    expect(estimateTokens(`${skeleton}\n${selected[0]?.answer}`)).toBeLessThanOrEqual(20);
+    expect(selected.map((item) => item.answer)).toEqual(['Fits']);
+    expect(estimateTokens(
+      `${skeleton}\n[Usefulness: 80; Community IDs: c2]\nFits`,
+    )).toBeLessThanOrEqual(20);
   });
 });

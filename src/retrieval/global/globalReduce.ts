@@ -30,7 +30,7 @@ export const selectGlobalReduceAnswers = (
   for (const { answer } of ranked) {
     const candidate = [context, formatAnswer(answer)].filter(Boolean).join('\n\n');
     if (estimateTokens(`${promptSkeleton}\n${candidate}`) > promptBudget) {
-      break;
+      continue;
     }
     selected.push(answer);
     context = candidate;
