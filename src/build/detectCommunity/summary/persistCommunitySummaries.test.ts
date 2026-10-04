@@ -162,6 +162,7 @@ describe('persistCommunitySummaries', () => {
       modelLoaderSingleton.models = originalModels;
       prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
       prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGCommunitySummary.update = originalSummaryUpdate;
       prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
       prismaClient.rAGClaim.findMany = originalClaimFindMany;
       prismaClient.rAGEntity.findMany = originalEntityFindMany;

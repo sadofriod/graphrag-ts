@@ -311,9 +311,13 @@ describe('GraphRAGRetrievalService', () => {
   it('rejects negative community levels before querying', async () => {
     installMocks([]);
 
-    const service = new GraphRAGRetrievalService();
-    await expect(
-      service.retrieve({ query: 'A partnership', options: { communityLevel: -1 } }),
-    ).rejects.toThrow('communityLevel must be a non-negative integer.');
+    try {
+      const service = new GraphRAGRetrievalService();
+      await expect(
+        service.retrieve({ query: 'A partnership', options: { communityLevel: -1 } }),
+      ).rejects.toThrow('communityLevel must be a non-negative integer.');
+    } finally {
+      restoreMocks();
+    }
   });
 });
