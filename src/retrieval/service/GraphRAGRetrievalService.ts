@@ -1,5 +1,6 @@
 import { prismaClient } from '../../build/helper/prismaClient';
 import { logger } from '../../logger';
+import { retrieveGlobal } from '../global/globalSearch';
 import { generateAnswer } from '../answer/answerGenerator';
 import { embedText } from '../entity/embedding';
 import { matchEntitiesWithSemantic } from '../entity/entityMatcher';
@@ -31,6 +32,8 @@ import type {
 import type {
   CommunityDetails,
   EntityNeighborResult,
+  GlobalRetrievalRequest,
+  GlobalRetrievalResult,
   MatchedEntity,
   RetrievalRequest,
   RetrievalResult,
@@ -205,6 +208,10 @@ const resolveRetrievalOptions = (request: RetrievalRequest): NormalizedRetrieval
 };
 
 export class GraphRAGRetrievalService {
+  async retrieveGlobal(request: GlobalRetrievalRequest): Promise<GlobalRetrievalResult> {
+    return retrieveGlobal(request);
+  }
+
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
     const opts = resolveRetrievalOptions(request);

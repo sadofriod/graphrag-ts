@@ -153,6 +153,20 @@ const result = await service.retrieve({
 console.log(result.answer);
 ```
 
+For corpus-wide questions, `retrieveGlobal` applies Map-Reduce to every community summary at one hierarchy level:
+
+```ts
+const globalResult = await service.retrieveGlobal({
+  query: 'What themes and trends appear across the corpus?',
+  options: { communityLevel: 0 },
+});
+
+console.log(globalResult.answer);
+console.log(globalResult.selectedMapAnswers); // usefulness scores and source community IDs
+```
+
+The global path defaults to hierarchy level `0`, batches summaries by token budget, maps batches concurrently, then ranks intermediate answers before the Reduce call. It is separate from `retrieve(...)`, which continues to perform hybrid local retrieval.
+
 ## Public API
 
 This repo exposes a compact API surface that matches the implementation (available via root package or subpaths like `@ashes_born/graph-rag-ts/incremental`):
@@ -165,6 +179,7 @@ This repo exposes a compact API surface that matches the implementation (availab
 - `diffDocuments(...)` / `computeCommunityFingerprint(...)`: incremental comparison and topological fingerprint utilities
 - `createBuildRegistry()`: tracks build lifecycle state
 - `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
+- `GraphRAGRetrievalService.retrieveGlobal(...)`: runs hierarchical community-summary Map-Reduce retrieval
 - `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults
 - `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`: register custom LangChain models (e.g. Anthropic, Ollama, Google GenAI)
 
@@ -217,6 +232,11 @@ await injectGraphRAG({
     keywordSearchLimit: 24,
     evidenceChildLimit: 40,
     rrfK: 80,
+    globalMapTokenBudget: 8000,
+    globalReduceTokenBudget: 8000,
+    globalMapOutputReserve: 512,
+    globalReduceOutputReserve: 1024,
+    globalMapConcurrency: 4,
   },
   buildDefaults: {
     maxChunkSize: 800,
@@ -249,6 +269,9 @@ These knobs control the retrieval window and ranking behavior:
 - `keywordSearchLimit`: keyword-matched child chunks
 - `evidenceChildLimit`: evidence merge cap
 - `rrfK`: reciprocal rank fusion sensitivity
+- `globalMapTokenBudget` / `globalReduceTokenBudget`: total estimated context budgets for each global Map/Reduce call
+- `globalMapOutputReserve` / `globalReduceOutputReserve`: input budget reserved for generated output
+- `globalMapConcurrency`: maximum number of concurrent global Map calls
 - `maxChunkSize` and `chunkOverlapRatio`: deterministic chunking fallback
 
 ## Demo and benchmark

@@ -48,7 +48,14 @@ import {
 import { prismaClient, injectPrismaClient, getPrismaClient } from './build/helper/prismaClient';
 import type { CustomModelConfig } from './build/custom.model.conf.type';
 import { configureDefaults } from './config/defaults';
-import type { RetrievalRequest, RetrievalResult } from './retrieval/types/retrieval';
+import type {
+  GlobalMapAnswer,
+  GlobalRetrievalOptions,
+  GlobalRetrievalRequest,
+  GlobalRetrievalResult,
+  RetrievalRequest,
+  RetrievalResult,
+} from './retrieval/types/retrieval';
 
 export {
   GraphRAGRetrievalService,
@@ -87,6 +94,10 @@ export type {
   ModelLoader,
   RetrievalRequest,
   RetrievalResult,
+  GlobalMapAnswer,
+  GlobalRetrievalOptions,
+  GlobalRetrievalRequest,
+  GlobalRetrievalResult,
   ChatModelAdapter,
   EmbeddingModelAdapter,
   ChatAdapterContext,
