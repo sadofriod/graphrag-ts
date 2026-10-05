@@ -1,12 +1,16 @@
 import { prismaClient } from '../../build/helper/prismaClient';
 import { logger } from '../../logger';
+import { retrieveGlobal } from '../global/globalSearch';
 import { generateAnswer } from '../answer/answerGenerator';
 import { embedText } from '../entity/embedding';
 import { matchEntitiesWithSemantic } from '../entity/entityMatcher';
 import { fetchCommunityDetails, getEntityNeighbors } from '../evidence/evidenceRetriever';
 import { parseQuery } from '../query/queryParser';
 import { rankCommunities } from '../ranking/communityRanker';
-import { recallCommunitiesByTopology } from '../recall/communityResolver';
+import {
+  recallCommunitiesByTopology,
+  resolveCommunityIdsAtLevel,
+} from '../recall/communityResolver';
 import {
   buildKeywordTerms,
   mergeChildChunks,
@@ -28,6 +32,8 @@ import type {
 import type {
   CommunityDetails,
   EntityNeighborResult,
+  GlobalRetrievalRequest,
+  GlobalRetrievalResult,
   MatchedEntity,
   RetrievalRequest,
   RetrievalResult,
@@ -93,7 +99,9 @@ const loadCommunities = async (
     id: row.id,
     name: row.communityName,
     summary: row.summaryContent,
-    members: [...(membersByCommunity.get(row.id) ?? [])],
+    members: row.members?.length ? row.members : [...(membersByCommunity.get(row.id) ?? [])],
+    level: row.level,
+    parentCommunityId: row.parentCommunityId,
   }));
 };
 
@@ -167,6 +175,7 @@ interface NormalizedRetrievalOptions {
   keywordSearchLimit: number;
   evidenceChildLimit: number;
   rrfK: number;
+  communityLevel: number | undefined;
 }
 
 const fallbackValue = (val: number | undefined, fallback: number | undefined, defaultValue: number): number => {
@@ -182,16 +191,27 @@ const fallbackValue = (val: number | undefined, fallback: number | undefined, de
 const resolveRetrievalOptions = (request: RetrievalRequest): NormalizedRetrievalOptions => {
   const opts = request.options;
   const defs = GLOBAL_RETRIEVAL_DEFAULTS;
+  const communityLevel = opts?.communityLevel;
+
+  if (communityLevel !== undefined && (!Number.isInteger(communityLevel) || communityLevel < 0)) {
+    throw new RangeError('communityLevel must be a non-negative integer.');
+  }
+
   return {
     topK: fallbackValue(request.topK, opts?.topK, fallbackValue(defs.topK, undefined, 5)),
     vectorChildTopK: fallbackValue(opts?.vectorChildTopK, defs.vectorChildTopK, 8),
     keywordSearchLimit: fallbackValue(opts?.keywordSearchLimit, defs.keywordSearchLimit, 16),
     evidenceChildLimit: fallbackValue(opts?.evidenceChildLimit, defs.evidenceChildLimit, 20),
     rrfK: fallbackValue(opts?.rrfK, defs.rrfK, 60),
+    communityLevel,
   };
 };
 
 export class GraphRAGRetrievalService {
+  async retrieveGlobal(request: GlobalRetrievalRequest): Promise<GlobalRetrievalResult> {
+    return retrieveGlobal(request);
+  }
+
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
     const opts = resolveRetrievalOptions(request);
@@ -206,15 +226,18 @@ export class GraphRAGRetrievalService {
     const matchedByQuery = await matchEntitiesWithSemantic(query, entities, [], undefined, opts.rrfK);
     const matched = fuseMatchedWithIntent(matchedByQuery, intent.entities, entities);
 
-    const { communityIds } = await recallCommunitiesByTopology(
+    const { communityIds: topologyCommunityIds } = await recallCommunitiesByTopology(
       matched.map((item) => item.name),
       2,
     );
+    const communityIds = opts.communityLevel === undefined
+      ? topologyCommunityIds
+      : await resolveCommunityIdsAtLevel(topologyCommunityIds, opts.communityLevel);
 
     const queryEmbedding = await embedText(query);
-    const semanticRankings = (await searchSimilarCommunitySummaries(queryEmbedding, opts.topK)).map(
-      (hit) => hit.id,
-    );
+    const semanticRankings = (
+      await searchSimilarCommunitySummaries(queryEmbedding, opts.topK, opts.communityLevel)
+    ).map((hit) => hit.id);
 
     const childChunks = mergeChildChunks(
       await searchSimilarChildChunks(queryEmbedding, opts.vectorChildTopK),

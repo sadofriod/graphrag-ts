@@ -16,6 +16,7 @@ describe('persistCommunitySummaries', () => {
   const originalSummaryCreate = prismaClient.rAGCommunitySummary.create;
   const originalSummaryFindMany = prismaClient.rAGCommunitySummary.findMany;
   const originalSummaryDeleteMany = prismaClient.rAGCommunitySummary.deleteMany;
+  const originalSummaryUpdate = prismaClient.rAGCommunitySummary.update;
   const originalEdgeFindMany = prismaClient.rAGGraphEdge.findMany;
   const originalClaimFindMany = prismaClient.rAGClaim.findMany;
   const originalEntityFindMany = prismaClient.rAGEntity.findMany;
@@ -31,6 +32,19 @@ describe('persistCommunitySummaries', () => {
       { id: 0, members: ['A', 'B'] },
       { id: 1, members: ['C'] },
     ],
+    hierarchy: [
+      {
+        id: 0,
+        level: 0,
+        parentId: null,
+        members: ['A', 'B'],
+        children: [
+          { id: 2, level: 1, parentId: 0, members: ['A'], children: [] },
+          { id: 3, level: 1, parentId: 0, members: ['B'], children: [] },
+        ],
+      },
+      { id: 1, level: 0, parentId: null, members: ['C'], children: [] },
+    ],
   };
 
   it('persists a summary per community and backfills edge and claim assignments', async () => {
@@ -43,6 +57,7 @@ describe('persistCommunitySummaries', () => {
     const entityFindManyCalls: unknown[] = [];
     const profileFindManyCalls: unknown[] = [];
     const summaryFindManyCalls: unknown[] = [];
+    const summaryUpdateCalls: unknown[] = [];
 
     modelLoaderSingleton.models = {
       embedding: { embedQuery: async () => [0.1, 0.2] },
@@ -92,6 +107,11 @@ describe('persistCommunitySummaries', () => {
       }) as never;
     }) as typeof prismaClient.rAGCommunitySummary.create;
 
+    prismaClient.rAGCommunitySummary.update = ((args: unknown) => {
+      summaryUpdateCalls.push(args);
+      return Promise.resolve({ id: (args as { where: { id: string } }).where.id }) as never;
+    }) as typeof prismaClient.rAGCommunitySummary.update;
+
     prismaClient.rAGGraphEdge.update = ((args: unknown) => {
       edgeUpdateCalls.push(args);
       return Promise.resolve({ id: (args as { where: { id: string } }).where.id }) as never;
@@ -110,25 +130,39 @@ describe('persistCommunitySummaries', () => {
     try {
       await persistCommunitySummaries(result, 'ns-a');
 
-      expect(summaryCreateCalls).toHaveLength(2);
+      expect(summaryCreateCalls).toHaveLength(4);
       expect(summaryCreateCalls[0]).toMatchObject({
-        data: { namespace: 'ns-a', communityName: 'n', summaryContent: 's' },
+        data: {
+          namespace: 'ns-a',
+          communityName: 'n',
+          summaryContent: 's',
+          members: ['A'],
+          level: 1,
+        },
+      });
+      expect(summaryCreateCalls[2]).toMatchObject({
+        data: { members: ['A', 'B'], level: 0 },
       });
       expect(edgeFindManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
       expect(claimFindManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
       expect(entityFindManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
       expect(profileFindManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
       expect(summaryFindManyCalls[0]).toMatchObject({ where: { namespace: 'ns-a' } });
-      expect(executeRawCalls).toHaveLength(2);
+      expect(executeRawCalls).toHaveLength(4);
       expect((executeRawCalls[0] as { text?: string }).text).toContain('"namespace"');
       expect(edgeUpdateCalls.length).toBeGreaterThan(0);
       expect(claimUpdateCalls).toEqual([
         { where: { id: 'claim-a' }, data: { communitySummaryId: 'summary-1' } },
       ]);
+      expect(summaryUpdateCalls).toEqual([
+        { where: { id: 'summary-1' }, data: { parentCommunityId: 'summary-3' } },
+        { where: { id: 'summary-2' }, data: { parentCommunityId: 'summary-3' } },
+      ]);
     } finally {
       modelLoaderSingleton.models = originalModels;
       prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
       prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
+      prismaClient.rAGCommunitySummary.update = originalSummaryUpdate;
       prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
       prismaClient.rAGClaim.findMany = originalClaimFindMany;
       prismaClient.rAGEntity.findMany = originalEntityFindMany;
@@ -225,6 +259,7 @@ describe('persistCommunitySummaries', () => {
       prismaClient.rAGCommunitySummary.create = originalSummaryCreate;
       prismaClient.rAGCommunitySummary.findMany = originalSummaryFindMany;
       prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
+      prismaClient.rAGCommunitySummary.update = originalSummaryUpdate;
       prismaClient.rAGGraphEdge.findMany = originalEdgeFindMany;
       prismaClient.rAGClaim.findMany = originalClaimFindMany;
       prismaClient.rAGEntity.findMany = originalEntityFindMany;

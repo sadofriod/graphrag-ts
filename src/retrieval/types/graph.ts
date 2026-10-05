@@ -21,6 +21,8 @@ export interface CommunityEdge extends WeightedGraphEdge {
 export interface CommunityRecord extends Community<string> {
   name?: string;
   summary?: string;
+  level?: number;
+  parentCommunityId?: string | null;
 }
 
 export interface CommunityMember {

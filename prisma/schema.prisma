@@ -84,6 +84,11 @@ model RAGCommunitySummary {
   namespace        String        @map("namespace")
   communityName    String        @map("community_name") @db.VarChar(100)
   summaryContent   String        @map("summary_content") @db.Text
+  members          String[]      @default([])
+  level            Int           @default(0)
+  parentCommunityId String?      @map("parent_community_id")
+  parentCommunity RAGCommunitySummary? @relation("CommunityHierarchy", fields: [parentCommunityId], references: [id], onDelete: SetNull)
+  childCommunities RAGCommunitySummary[] @relation("CommunityHierarchy")
   /// Stores the runtime-generated SHA-256 fingerprint as a 64-character string, or NULL for legacy rows until regeneration.
   contentFingerprint String?      @map("content_fingerprint") @db.Char(64)
   summaryEmbedding Unsupported("vector(768)")? @map("summary_embedding")
@@ -93,6 +98,8 @@ model RAGCommunitySummary {
 
   @@index([namespace])
   @@index([communityName])
+  @@index([parentCommunityId])
+  @@index([namespace, level])
   @@map("rag_community_summaries")
 }
 

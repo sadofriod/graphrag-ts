@@ -56,6 +56,7 @@ export interface RetrievalRequest {
     keywordSearchLimit?: number;
     evidenceChildLimit?: number;
     rrfK?: number;
+    communityLevel?: number;
   };
 }
 
@@ -64,4 +65,33 @@ export interface RetrievalResult {
   communities: CommunityHit[];
   evidence: EvidenceSnippet[];
   answer: string;
+}
+
+export interface GlobalRetrievalOptions {
+  communityLevel?: number;
+  mapTokenBudget?: number;
+  reduceTokenBudget?: number;
+  mapOutputReserve?: number;
+  reduceOutputReserve?: number;
+  mapConcurrency?: number;
+}
+
+export interface GlobalRetrievalRequest {
+  query: string;
+  options?: GlobalRetrievalOptions;
+}
+
+export interface GlobalMapAnswer {
+  answer: string;
+  usefulness: number;
+  communityIds: CommunityId[];
+}
+
+export interface GlobalRetrievalResult {
+  query: string;
+  communityLevel: number;
+  status: 'completed' | 'partial' | 'no_results';
+  answer: string;
+  selectedMapAnswers: GlobalMapAnswer[];
+  failedMapBatches: number;
 }

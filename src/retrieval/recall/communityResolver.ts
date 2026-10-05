@@ -53,3 +53,32 @@ export async function recallCommunitiesByTopology(
 
   return { communityIds, expandedEntityIds };
 }
+
+export async function resolveCommunityIdsAtLevel(
+  communityIds: CommunityId[],
+  communityLevel: number,
+): Promise<CommunityId[]> {
+  if (communityIds.length === 0) {
+    return [];
+  }
+
+  const rows = await prismaClient.$queryRaw<Array<{ community_id: CommunityId }>>(Prisma.sql`
+    WITH RECURSIVE community_ancestors(id, parent_community_id, level) AS (
+      SELECT id, parent_community_id, level
+      FROM "rag_community_summaries"
+      WHERE id IN (${Prisma.join(communityIds)})
+        AND namespace = ${getCurrentNamespace()}
+      UNION ALL
+      SELECT parent.id, parent.parent_community_id, parent.level
+      FROM "rag_community_summaries" parent
+      JOIN community_ancestors child ON child.parent_community_id = parent.id
+      WHERE parent.namespace = ${getCurrentNamespace()}
+    )
+    SELECT DISTINCT id AS community_id
+    FROM community_ancestors
+    WHERE level = ${communityLevel}
+    ORDER BY community_id
+  `);
+
+  return rows.map(({ community_id }) => community_id);
+}

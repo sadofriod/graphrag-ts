@@ -4,6 +4,11 @@ export interface RetrievalDefaults {
   keywordSearchLimit?: number;
   evidenceChildLimit?: number;
   rrfK?: number;
+  globalMapTokenBudget?: number;
+  globalReduceTokenBudget?: number;
+  globalMapOutputReserve?: number;
+  globalReduceOutputReserve?: number;
+  globalMapConcurrency?: number;
 }
 
 export interface BuildDefaults {
@@ -18,6 +23,11 @@ const defaults: { retrieval: RetrievalDefaults; build: BuildDefaults } = {
     keywordSearchLimit: 24,
     evidenceChildLimit: 40,
     rrfK: 80,
+    globalMapTokenBudget: 8000,
+    globalReduceTokenBudget: 8000,
+    globalMapOutputReserve: 512,
+    globalReduceOutputReserve: 1024,
+    globalMapConcurrency: 4,
   },
   build: {
     maxChunkSize: 800,

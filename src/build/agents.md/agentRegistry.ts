@@ -23,6 +23,14 @@ export const agentRegistry = {
     file: 'answerGeneration.agent.md',
     dir: './',
   },
+  globalMap: {
+    file: 'globalMap.agent.md',
+    dir: './',
+  },
+  globalReduce: {
+    file: 'globalReduce.agent.md',
+    dir: './',
+  },
 } as const satisfies Record<string, { file: string; dir: string }>;
 
 export type AgentRegistryKey = keyof typeof agentRegistry;

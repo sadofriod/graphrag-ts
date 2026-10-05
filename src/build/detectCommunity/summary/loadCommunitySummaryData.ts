@@ -33,7 +33,14 @@ export const loadCommunitySummaryData = async (namespace: string): Promise<Loade
     prismaClient.rAGCommunitySummary.findMany
       ? prismaClient.rAGCommunitySummary.findMany({
         where: { namespace },
-        select: { id: true, communityName: true, contentFingerprint: true },
+        select: {
+          id: true,
+          communityName: true,
+          summaryContent: true,
+          contentFingerprint: true,
+          members: true,
+          level: true,
+        },
       })
       : Promise.resolve([]),
   ]);

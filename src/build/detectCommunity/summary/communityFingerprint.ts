@@ -2,7 +2,10 @@ import { createHash } from 'node:crypto';
 
 import type { CommunityContextInput } from './buildCommunityContext';
 
-export const computeCommunityFingerprint = (input: CommunityContextInput): string => {
+export const computeCommunityFingerprint = (
+  input: CommunityContextInput,
+  summaryContext?: string,
+): string => {
   const sortedMembers = [...input.members].sort();
   const sortedEntities = [...input.entities]
     .map((e) => `${e.name}:${e.description ?? ''}`)
@@ -21,6 +24,7 @@ export const computeCommunityFingerprint = (input: CommunityContextInput): strin
     entities: sortedEntities,
     edges: sortedEdges,
     claims: sortedClaims,
+    ...(summaryContext !== undefined ? { summaryContext } : {}),
   });
 
   return createHash('sha256').update(payload, 'utf8').digest('hex');

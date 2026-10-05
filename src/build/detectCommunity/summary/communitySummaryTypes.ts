@@ -4,6 +4,9 @@ export interface ExistingSummaryRecord {
   id: string;
   communityName: string;
   contentFingerprint: string | null;
+  summaryContent?: string;
+  members?: string[];
+  level?: number;
 }
 
 export interface LoadedGraphData {
@@ -19,7 +22,7 @@ export interface SummaryAssignedItems {
 }
 
 export interface SummaryPersistenceState {
-  communitySummaries: ReadonlyMap<number, { id: string; name: string }>;
+  communitySummaries: ReadonlyMap<number, { id: string; name: string; content: string }>;
   usedSummaryIds: ReadonlySet<string>;
   reused: number;
   updated: number;

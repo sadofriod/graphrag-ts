@@ -2,6 +2,7 @@ import type { Embeddings } from '@langchain/core/embeddings';
 
 import { buildCommunityContext, getCommunityContextMaxTokens } from './buildCommunityContext';
 import { buildCommunityContextInput } from './buildCommunityContextInput';
+import { buildHierarchySummaryContext, type ChildCommunitySummary } from './buildHierarchySummaryContext';
 import { computeCommunityFingerprint } from './communityFingerprint';
 import { saveCommunitySummary } from './saveCommunitySummary';
 import type { Community, CommunityClaimRow, CommunityEdgeRow } from '../types';
@@ -47,14 +48,53 @@ export const computeSummaryAssignedCounts = (
   claimCountBySummaryId: countBySummaryId(claimRows),
 });
 
+const buildSummaryContext = (
+  input: ReturnType<typeof buildCommunityContextInput>,
+  childSummaries: ChildCommunitySummary[],
+): { content: string; usesChildReports: boolean } => {
+  const maxTokens = getCommunityContextMaxTokens();
+  const detailedContext = buildCommunityContext(input, { maxTokens: Number.MAX_SAFE_INTEGER });
+  const boundedContext = buildCommunityContext(input, { maxTokens });
+  const content = buildHierarchySummaryContext(
+    detailedContext,
+    boundedContext,
+    childSummaries,
+    maxTokens,
+  );
+
+  return {
+    content,
+    usesChildReports: childSummaries.length > 0 &&
+      content !== detailedContext &&
+      content !== boundedContext,
+  };
+};
+
 const findMatchingSummary = (
   community: Community,
+  level: number,
   edgeRows: readonly CommunityEdgeRow[],
   claimRows: readonly CommunityClaimRow[],
   existingSummaries: readonly ExistingSummaryRecord[],
   assignedCounts: SummaryAssignedItems,
   contentFingerprint: string,
 ): ExistingSummaryRecord | undefined => {
+  const members = [...community.members].sort();
+  const matchingHierarchySummary = existingSummaries.find((summary) =>
+    summary.contentFingerprint === contentFingerprint &&
+    (summary.level ?? 0) === level &&
+    summary.members?.length === members.length &&
+    [...(summary.members ?? [])].sort().every((member, index) => member === members[index])
+  );
+
+  if (matchingHierarchySummary) {
+    return matchingHierarchySummary;
+  }
+
+  if (level > 0) {
+    return undefined;
+  }
+
   const memberSet = new Set(community.members);
   const communityEdges = edgeRows.filter(
     (edge) => memberSet.has(edge.sourceEntity.name) || memberSet.has(edge.targetEntity.name),
@@ -76,7 +116,8 @@ const findMatchingSummary = (
       communityClaims.length === (assignedCounts.claimCountBySummaryId.get(summary.id) ?? 0) &&
       communityClaims.every((claim) => claim.communitySummaryId === summary.id);
 
-    return edgesMatch && claimsMatch && summary.contentFingerprint === contentFingerprint;
+    return edgesMatch && claimsMatch && summary.contentFingerprint === contentFingerprint &&
+      (summary.level ?? 0) === 0;
   });
 };
 
@@ -90,11 +131,18 @@ export const persistCommunity = async (
   assignedCounts: SummaryAssignedItems,
   namespace: string,
   embeddingModel: Embeddings,
+  level = 0,
+  childSummaries: ChildCommunitySummary[] = [],
 ): Promise<SummaryPersistenceState> => {
   const input = buildCommunityContextInput(community, edgeRows, claimRows, entityDescriptions);
-  const contentFingerprint = computeCommunityFingerprint(input);
+  const { content: summaryContext, usesChildReports } = buildSummaryContext(input, childSummaries);
+  const contentFingerprint = computeCommunityFingerprint(
+    input,
+    usesChildReports ? summaryContext : undefined,
+  );
   const matched = findMatchingSummary(
     community,
+    level,
     edgeRows,
     claimRows,
     existingSummaries,
@@ -107,6 +155,7 @@ export const persistCommunity = async (
     communitySummaries.set(community.id, {
       id: matched.id,
       name: matched.communityName,
+      content: matched.summaryContent ?? '',
     });
     const usedSummaryIds = new Set(state.usedSummaryIds);
     usedSummaryIds.add(matched.id);
@@ -121,10 +170,11 @@ export const persistCommunity = async (
 
   const saved = await saveCommunitySummary(
     community,
-    buildCommunityContext(input, { maxTokens: getCommunityContextMaxTokens() }),
+    summaryContext,
     contentFingerprint,
     namespace,
     embeddingModel,
+    level,
   );
 
   const communitySummaries = new Map(state.communitySummaries);

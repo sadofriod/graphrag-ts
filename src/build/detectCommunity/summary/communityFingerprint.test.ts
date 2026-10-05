@@ -42,4 +42,17 @@ describe('computeCommunityFingerprint', () => {
 
     expect(computeCommunityFingerprint(base)).not.toBe(computeCommunityFingerprint(modified));
   });
+
+  it('includes child report context for hierarchical summaries', () => {
+    const input = {
+      members: ['Alice'],
+      entities: [{ name: 'Alice' }],
+      edges: [],
+      claims: [],
+    };
+
+    expect(computeCommunityFingerprint(input, 'Child report A'))
+      .not.toBe(computeCommunityFingerprint(input, 'Child report B'));
+    expect(computeCommunityFingerprint(input)).toBe(computeCommunityFingerprint(input, undefined));
+  });
 });

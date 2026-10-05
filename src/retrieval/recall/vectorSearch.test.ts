@@ -26,6 +26,7 @@ describe('searchSimilarCommunitySummaries', () => {
       expect((calls[0] as { text?: string }).text).toContain('rag_community_summaries');
       expect((calls[0] as { text?: string }).text).toContain('<=>');
       expect((calls[0] as { text?: string }).text).toContain('"namespace"');
+      expect((calls[0] as { text?: string }).text).not.toContain('"level"');
     } finally {
       prismaClient.$queryRaw = originalQueryRaw;
     }
@@ -40,6 +41,26 @@ describe('searchSimilarCommunitySummaries', () => {
       const result = await searchSimilarCommunitySummaries([0.1], 1);
 
       expect(result[0]?.similarity).toBe(0.85);
+    } finally {
+      prismaClient.$queryRaw = originalQueryRaw;
+    }
+  });
+
+  it('filters community summaries by the requested level', async () => {
+    const originalQueryRaw = prismaClient.$queryRaw;
+    const calls: unknown[] = [];
+
+    prismaClient.$queryRaw = (async (query: unknown) => {
+      calls.push(query);
+      return [{ id: 'c-level-2', similarity: 0.85 }];
+    }) as never;
+
+    try {
+      const result = await searchSimilarCommunitySummaries([0.1], 3, 2);
+
+      expect(result).toEqual([{ id: 'c-level-2', similarity: 0.85 }]);
+      expect((calls[0] as { text?: string }).text).toContain('"level" =');
+      expect((calls[0] as { values?: unknown[] }).values).toContain(2);
     } finally {
       prismaClient.$queryRaw = originalQueryRaw;
     }

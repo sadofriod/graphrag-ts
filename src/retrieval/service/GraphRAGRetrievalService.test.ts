@@ -11,6 +11,7 @@ describe('GraphRAGRetrievalService', () => {
   const originalFindManySummary = prismaClient.rAGCommunitySummary.findMany;
   const originalFindManyClaim = prismaClient.rAGClaim.findMany;
   const originalQueryRaw = prismaClient.$queryRaw;
+  const queryRawCalls: unknown[] = [];
 
   const entities = [
     { id: 'eA', name: 'A' },
@@ -45,8 +46,15 @@ describe('GraphRAGRetrievalService', () => {
 
   const installMocks = (
     sliceResponses: string[],
-    options: { summaryContent?: string; claimTextById?: Record<string, string> } = {},
+    options: {
+      summaryContent?: string;
+      claimTextById?: Record<string, string>;
+      members?: string[];
+      level?: number;
+      parentCommunityId?: string | null;
+    } = {},
   ) => {
+    queryRawCalls.length = 0;
     prismaClient.rAGEntity.findMany = (() => Promise.resolve(entities)) as never;
     prismaClient.rAGGraphEdge.findMany = (() => Promise.resolve(edgeRows)) as never;
     prismaClient.rAGCommunitySummary.findMany = ((args: unknown) => {
@@ -54,6 +62,11 @@ describe('GraphRAGRetrievalService', () => {
       const currentSummaries = summaries.map((summary) => ({
         ...summary,
         ...(options.summaryContent !== undefined ? { summaryContent: options.summaryContent } : {}),
+        ...(options.members !== undefined ? { members: options.members } : {}),
+        ...(options.level !== undefined ? { level: options.level } : {}),
+        ...(options.parentCommunityId !== undefined
+          ? { parentCommunityId: options.parentCommunityId }
+          : {}),
       }));
       return Promise.resolve(ids ? currentSummaries.filter((summary) => ids.includes(summary.id)) : currentSummaries);
     }) as never;
@@ -66,7 +79,11 @@ describe('GraphRAGRetrievalService', () => {
       })),
     )) as never;
     prismaClient.$queryRaw = ((query: unknown) => {
+      queryRawCalls.push(query);
       const text = JSON.stringify(query);
+      if (text.includes('parent_community_id')) {
+        return Promise.resolve([{ community_id: 'c1' }]);
+      }
       if (text.includes('WITH RECURSIVE')) {
         return Promise.resolve([{ community_id: 'c1', entity_id: 'eA' }]);
       }
@@ -226,6 +243,25 @@ describe('GraphRAGRetrievalService', () => {
     }
   });
 
+  it('uses stored hierarchy members when a parent summary has no assigned edges', async () => {
+    installMocks([], {
+      members: ['A', 'B', 'C'],
+      level: 1,
+      parentCommunityId: 'parent-community',
+    });
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const details = await service.getCommunityDetails('c1');
+
+      expect(details.memberEntities).toEqual(['A', 'B', 'C']);
+      expect(details.level).toBe(1);
+      expect(details.parentCommunityId).toBe('parent-community');
+    } finally {
+      restoreMocks();
+    }
+  });
+
   it('throws when the requested community is missing', async () => {
     installMocks([]);
 
@@ -248,6 +284,38 @@ describe('GraphRAGRetrievalService', () => {
         { entityId: 'eB', entityName: 'B', relationType: 'partnership', weight: 2 },
       ]);
       expect(result.communityIds).toEqual(['c1']);
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  it('limits community recall to the requested hierarchy level', async () => {
+    installMocks([
+      JSON.stringify({ rawQuery: 'A partnership', entities: ['A'], keywords: [], themes: [] }),
+      JSON.stringify({ selectedCommunityIds: ['c1'] }),
+      'Answer: partnership',
+    ]);
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      await service.retrieve({ query: 'A partnership', options: { communityLevel: 1 } });
+
+      const sqlTexts = queryRawCalls.map((query) => (query as { text?: string }).text ?? '');
+      expect(sqlTexts.some((text) => text.includes('"level" ='))).toBe(true);
+      expect(sqlTexts.some((text) => text.includes('parent_community_id'))).toBe(true);
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  it('rejects negative community levels before querying', async () => {
+    installMocks([]);
+
+    try {
+      const service = new GraphRAGRetrievalService();
+      await expect(
+        service.retrieve({ query: 'A partnership', options: { communityLevel: -1 } }),
+      ).rejects.toThrow('communityLevel must be a non-negative integer.');
     } finally {
       restoreMocks();
     }
