@@ -1,0 +1,32 @@
+{
+  "name": "graphrag-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --noEmit -p tsconfig.json",
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "db:push": "bun src/db-push.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ashes_born/graph-rag-ts": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@prisma/client": "6.19.3",
+    "dotenv": "^16.6.1",
+    "pg": "^8.16.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/node": "^24.5.2",
+    "@types/pg": "^8.15.5",
+    "prisma": "6.19.3",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

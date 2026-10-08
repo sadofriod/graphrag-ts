@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thank you for your interest in contributing to `graphrag-ts`. This repository is maintained as a standalone project, and code and documentation are modified directly in this repository. Before opening a pull request, please read this guide and make sure your changes stay within the current repository's intended boundaries.
+Thank you for your interest in contributing to `graphrag-ts`. The core library and its MCP integration are maintained together in this repository, with separate runtime and release boundaries. Before opening a pull request, please read this guide and make sure your changes stay within the current repository's intended boundaries.
 
 ## 1. Read these documents first
 
@@ -18,6 +18,7 @@ If you are modifying implementation, architecture, or documentation, please foll
 The following paths may be modified directly in this repository:
 
 - `src/`
+- `integrations/mcp/`
 - `README.md`
 - `docs/`
 - `examples/`
@@ -26,6 +27,9 @@ The following paths may be modified directly in this repository:
 - `.gitignore`
 - `CONTRIBUTING.md`
 - `package.json`
+- `pnpm-workspace.yaml`
+- `pnpm-lock.yaml`
+- `docker-compose.yml`
 - `tsconfig.json`
 - `.env.example`
 - `LICENSE`
@@ -60,6 +64,9 @@ cp .env.example .env
 bun run lint
 bun run typecheck
 bun test
+pnpm --filter graphrag-mcp-server build
+pnpm --filter graphrag-mcp-server test
+docker compose --env-file .env.example config --quiet
 ```
 
 4. For documentation-only changes, state clearly in the PR that the work is a documentation change and does not modify runtime behavior.
