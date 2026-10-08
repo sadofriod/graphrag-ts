@@ -146,6 +146,7 @@ const buildId = startBuild(
 
 const service = new GraphRAGRetrievalService();
 const result = await service.retrieve({
+  namespace: 'demo-namespace',
   query: 'Who works with Alice?',
   topK: 5,
 });

@@ -37,8 +37,9 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
       },
     } as never;
 
-    const result = await withNamespace('global-test', () =>
+    const result = await withNamespace('ambient-wrong-namespace', () =>
       new GraphRAGRetrievalService().retrieveGlobal({
+        namespace: 'global-test',
         query: 'How do groups coordinate?',
         options: { communityLevel: 2 },
       }),
@@ -66,7 +67,10 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
       slice: { invoke: async () => { calls += 1; return ''; } },
     } as never;
 
-    const result = await new GraphRAGRetrievalService().retrieveGlobal({ query: 'global question' });
+    const result = await new GraphRAGRetrievalService().retrieveGlobal({
+      namespace: 'global-empty-test',
+      query: 'global question',
+    });
 
     expect(result).toMatchObject({
       communityLevel: 0,
@@ -93,7 +97,10 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
       },
     } as never;
 
-    const result = await new GraphRAGRetrievalService().retrieveGlobal({ query: 'global question' });
+    const result = await new GraphRAGRetrievalService().retrieveGlobal({
+      namespace: 'global-zero-score-test',
+      query: 'global question',
+    });
 
     expect(result.status).toBe('no_results');
     expect(result.selectedMapAnswers).toEqual([]);

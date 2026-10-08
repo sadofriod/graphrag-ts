@@ -48,6 +48,7 @@ export interface EntityNeighborResult {
 }
 
 export interface RetrievalRequest {
+  namespace: string;
   query: string;
   topK?: number;
   options?: {
@@ -77,6 +78,7 @@ export interface GlobalRetrievalOptions {
 }
 
 export interface GlobalRetrievalRequest {
+  namespace: string;
   query: string;
   options?: GlobalRetrievalOptions;
 }

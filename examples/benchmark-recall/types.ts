@@ -53,6 +53,7 @@ export interface RetrievedContextOptions {
 }
 
 export type Retrieve = (input: {
+  namespace: string;
   query: string;
   topK: number;
 }) => Promise<RetrievalResult>;
