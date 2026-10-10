@@ -10,8 +10,14 @@ export interface ModelLoader {
   embedding: Embeddings;
 }
 
-export const invokeModelText = async (model: BaseChatModel, prompt: string): Promise<string> => {
-  const response = await model.invoke(prompt);
+export const invokeModelText = async (
+  model: BaseChatModel,
+  prompt: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const response = signal
+    ? await model.invoke(prompt, { signal })
+    : await model.invoke(prompt);
   if (typeof response === 'string') return response;
   const content = (response as { content?: unknown }).content;
   return typeof content === 'string' ? content : JSON.stringify(content ?? '');

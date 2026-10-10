@@ -17,6 +17,7 @@
       "./src/input/*.ts",
       "./src/input/*/index.ts"
     ],
+    "./namespace/*": "./src/namespace/*.ts",
     "./retrieval/*": [
       "./src/retrieval/*.ts",
       "./src/retrieval/*/index.ts"

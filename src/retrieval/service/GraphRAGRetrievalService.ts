@@ -51,6 +51,7 @@ interface LoadedEdge {
 
 import { getRetrievalDefaults } from '../../config/defaults';
 import { withNamespace } from '../../namespace/namespaceContext';
+import { awaitRetrieval, withRetrievalSignal } from '../retrievalContext';
 
 const GLOBAL_RETRIEVAL_DEFAULTS = getRetrievalDefaults();
 
@@ -210,34 +211,38 @@ const resolveRetrievalOptions = (request: RetrievalRequest): NormalizedRetrieval
 
 export class GraphRAGRetrievalService {
   async retrieveGlobal(request: GlobalRetrievalRequest): Promise<GlobalRetrievalResult> {
-    return withNamespace(request.namespace, () => retrieveGlobal(request));
+    return withNamespace(request.namespace, () =>
+      withRetrievalSignal(request.signal, () => retrieveGlobal(request)));
   }
 
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
-    return withNamespace(request.namespace, () => this.retrieveInNamespace(request));
+    return withNamespace(request.namespace, () =>
+      withRetrievalSignal(request.signal, () => this.retrieveInNamespace(request)));
   }
 
   private async retrieveInNamespace(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
     const opts = resolveRetrievalOptions(request);
 
-    const [entities, loadedEdges, claims] = await Promise.all([
+    const [entities, loadedEdges, claims] = await awaitRetrieval(() => Promise.all([
       loadEntities(),
       loadEdges(),
       loadClaims(),
-    ]);
+    ]));
 
-    const intent = await parseQuery(query);
-    const matchedByQuery = await matchEntitiesWithSemantic(query, entities, [], undefined, opts.rrfK);
+    const intent = await awaitRetrieval(() => parseQuery(query));
+    const matchedByQuery = await awaitRetrieval(() =>
+      matchEntitiesWithSemantic(query, entities, [], undefined, opts.rrfK));
     const matched = fuseMatchedWithIntent(matchedByQuery, intent.entities, entities);
 
-    const { communityIds: topologyCommunityIds } = await recallCommunitiesByTopology(
+    const { communityIds: topologyCommunityIds } = await awaitRetrieval(() => recallCommunitiesByTopology(
       matched.map((item) => item.name),
       2,
-    );
-    const communityIds = opts.communityLevel === undefined
+    ));
+    const requestedCommunityLevel = opts.communityLevel;
+    const communityIds = requestedCommunityLevel === undefined
       ? topologyCommunityIds
-      : await resolveCommunityIdsAtLevel(topologyCommunityIds, opts.communityLevel);
+      : await awaitRetrieval(() => resolveCommunityIdsAtLevel(topologyCommunityIds, requestedCommunityLevel));
 
     const queryEmbedding = await embedText(query);
     const semanticRankings = (
@@ -258,7 +263,7 @@ export class GraphRAGRetrievalService {
     );
 
     const candidateIds = Array.from(new Set([...communityIds, ...semanticRankings]));
-    const communities = await loadCommunities(candidateIds, loadedEdges);
+    const communities = await awaitRetrieval(() => loadCommunities(candidateIds, loadedEdges));
     const edges = toCommunityEdges(loadedEdges);
 
     const ranked = rankCommunities(
@@ -270,7 +275,7 @@ export class GraphRAGRetrievalService {
       opts.topK,
       opts.rrfK,
     );
-    const selected = await selectFinalCommunities(query, ranked, true);
+    const selected = await awaitRetrieval(() => selectFinalCommunities(query, ranked, true));
 
     const evidence = [
       ...selected.flatMap((community) =>
@@ -282,11 +287,11 @@ export class GraphRAGRetrievalService {
       })),
     ];
 
-    const answer = await generateAnswer(
+    const answer = await awaitRetrieval(() => generateAnswer(
       query,
       selected.map((community) => community.summary ?? ''),
       evidence,
-    );
+    ));
 
     return { query, communities: selected, evidence, answer };
   }

@@ -2,6 +2,7 @@ import type { Embeddings } from '@langchain/core/embeddings';
 
 import { CustomModelConfigType } from '../../build/custom.model.conf.type';
 import { modelLoaderSingleton } from '../../build/modelLoader';
+import { awaitRetrieval } from '../retrievalContext';
 
 export async function embedText(text: string): Promise<number[]> {
   const embeddingModel = modelLoaderSingleton.models?.embedding as Embeddings | undefined;
@@ -12,5 +13,5 @@ export async function embedText(text: string): Promise<number[]> {
     );
   }
 
-  return embeddingModel.embedQuery(text);
+  return awaitRetrieval(() => embeddingModel.embedQuery(text));
 }

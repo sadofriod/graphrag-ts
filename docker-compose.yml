@@ -1,0 +1,65 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-graphrag}
+      POSTGRES_USER: ${POSTGRES_USER:-graphrag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./integrations/mcp/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  mcp-server:
+    build:
+      context: .
+      dockerfile: integrations/mcp/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-graphrag}:${POSTGRES_PASSWORD_URLENCODED:?Set POSTGRES_PASSWORD_URLENCODED in .env}@db:5432/${POSTGRES_DB:-graphrag}?schema=public
+      INPUT_ROOT: /app/input
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3000
+      MAX_HTTP_SESSIONS: ${MAX_HTTP_SESSIONS:-100}
+      HTTP_SESSION_IDLE_TIMEOUT_MS: ${HTTP_SESSION_IDLE_TIMEOUT_MS:-900000}
+      RAG_SLICE_BASE_URL: ${COMPOSE_RAG_SLICE_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_SLICE_MODEL: ${COMPOSE_RAG_SLICE_MODEL:-local-model}
+      RAG_SLICE_API_KEY: ${COMPOSE_RAG_SLICE_API_KEY:-lm-studio}
+      RAG_JUDGE_BASE_URL: ${COMPOSE_RAG_JUDGE_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_JUDGE_MODEL: ${COMPOSE_RAG_JUDGE_MODEL:-local-model}
+      RAG_JUDGE_API_KEY: ${COMPOSE_RAG_JUDGE_API_KEY:-lm-studio}
+      RAG_EMBED_BASE_URL: ${COMPOSE_RAG_EMBED_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_EMBED_MODEL: ${COMPOSE_RAG_EMBED_MODEL:-local-embedding-model}
+      RAG_EMBED_API_KEY: ${COMPOSE_RAG_EMBED_API_KEY:-lm-studio}
+      MAX_FILES_PER_JOB: ${MAX_FILES_PER_JOB:-100}
+      MAX_FILE_BYTES: ${MAX_FILE_BYTES:-2000000}
+      MAX_JOB_BYTES: ${MAX_JOB_BYTES:-10000000}
+      MAX_OUTPUT_CHARS: ${MAX_OUTPUT_CHARS:-8000}
+      QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-60000}
+      MAX_ACTIVE_QUERIES: ${MAX_ACTIVE_QUERIES:-4}
+      MAX_RETAINED_VERSIONS: ${MAX_RETAINED_VERSIONS:-3}
+      QUEUE_POLL_MS: ${QUEUE_POLL_MS:-1000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:${MCP_PORT:-3000}:3000"
+    volumes:
+      - ${INPUT_HOST_DIR:-./examples/sample-corpus}:/app/input:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

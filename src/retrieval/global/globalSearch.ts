@@ -1,6 +1,7 @@
 import { agentRegistry } from '../../build/agents.md/agentRegistry';
 import { assmblyAgent } from '../../build/agents.md/assmblyAgent';
 import { prismaClient } from '../../build/helper/prismaClient';
+import { awaitRetrieval } from '../retrievalContext';
 import { getRetrievalDefaults } from '../../config/defaults';
 import { getCurrentNamespace } from '../../namespace/namespaceContext';
 import { logger } from '../../logger';
@@ -78,11 +79,11 @@ const noResults = (
 });
 
 const loadSummaries = async (communityLevel: number) => {
-  const summaries = await prismaClient.rAGCommunitySummary.findMany({
+  const summaries = await awaitRetrieval(() => prismaClient.rAGCommunitySummary.findMany({
     where: { namespace: getCurrentNamespace(), level: communityLevel },
     select: { id: true, summaryContent: true },
     orderBy: { id: 'asc' },
-  });
+  }));
   return summaries
     .filter((summary) => summary.summaryContent.trim().length > 0)
     .map(({ id, summaryContent }) => ({ id, text: summaryContent }));
@@ -93,10 +94,10 @@ const makeMapBatches = async (
   summaries: Awaited<ReturnType<typeof loadSummaries>>,
   promptBudget: number,
 ) => {
-  const mapPromptSkeleton = await assmblyAgent(
+  const mapPromptSkeleton = await awaitRetrieval(() => assmblyAgent(
     { query, content: '' },
     agentRegistry.globalMap,
-  );
+  ));
   return buildSummaryBatches(summaries, mapPromptSkeleton, promptBudget);
 };
 
@@ -115,10 +116,10 @@ const generateGlobalResult = async (
     return noResults(query, communityLevel, mapAnswers.errors.length);
   }
 
-  const reducePromptSkeleton = await assmblyAgent(
+  const reducePromptSkeleton = await awaitRetrieval(() => assmblyAgent(
     { query, content: '' },
     agentRegistry.globalReduce,
-  );
+  ));
   const selectedAnswers = selectGlobalReduceAnswers(
     rankedAnswers,
     reducePromptSkeleton,
@@ -129,7 +130,7 @@ const generateGlobalResult = async (
     return noResults(query, communityLevel, mapAnswers.errors.length);
   }
 
-  const reduceResult = await generateGlobalReduceAnswer(query, selectedAnswers);
+  const reduceResult = await awaitRetrieval(() => generateGlobalReduceAnswer(query, selectedAnswers));
   logger.debug({
     communityLevel,
     summaryCount: summariesCount,
@@ -172,12 +173,12 @@ export const retrieveGlobal = async (
 
   const batches = await makeMapBatches(query, summaries, mapPromptBudget);
   const mapAnswers = await runGlobalMap(query, batches, settings.mapConcurrency);
-  return generateGlobalResult(
+  return awaitRetrieval(() => generateGlobalResult(
     query,
     settings.communityLevel,
     mapAnswers,
     summaries.length,
     batches.length,
     reducePromptBudget,
-  );
+  ));
 };

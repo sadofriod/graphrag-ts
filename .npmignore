@@ -1,0 +1,15 @@
+integrations/mcp/
+.git/
+.env
+.env.*
+!.env.example
+node_modules/
+**/node_modules/
+.tmp/
+coverage/
+dist/
+_rag-builds/
+*.db
+examples/generated/
+model.config.json
+.DS_Store

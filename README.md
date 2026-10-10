@@ -50,6 +50,23 @@ The implementation matches this flow in the codebase:
 
 ## Quick start
 
+### Try it through MCP with Docker Compose
+
+The MCP server provides a ready-to-run local experience. It starts PostgreSQL with pgvector and an MCP HTTP service; an OpenAI-compatible chat and embedding endpoint must be available separately. The default input mount uses the Markdown corpus in `examples/sample-corpus`.
+
+```bash
+cp .env.example .env
+# Set a strong POSTGRES_PASSWORD and configure the model endpoint and names.
+docker compose up -d --build
+curl http://127.0.0.1:3000/healthz
+```
+
+Connect an MCP client to `http://127.0.0.1:3000/mcp`, then call `submit_index_job` with path `.` to index the mounted sample corpus. Once the job succeeds, use `query_graph` or `query_graph_global`. Embeddings must be 768 dimensions. See [the MCP guide](https://github.com/sadofriod/graphrag-ts/blob/main/integrations/mcp/README.md) for client setup, configuration, and troubleshooting.
+
+Stop the services with `docker compose down`. The PostgreSQL volume is retained; `docker compose down -v` deletes the indexed data.
+
+### Use the library directly
+
 ```bash
 # install dependencies
 pnpm install

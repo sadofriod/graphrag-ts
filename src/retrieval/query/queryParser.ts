@@ -3,9 +3,10 @@ import { assmblyAgent } from '../../build/agents.md/assmblyAgent';
 import { parseLlmJson } from '../../helper/parseLlmJson';
 import { invokeSliceModel } from '../llm';
 import type { QueryIntent } from '../types/retrieval';
+import { awaitRetrieval } from '../retrievalContext';
 
 export async function parseQuery(query: string): Promise<QueryIntent> {
-  const prompt = await assmblyAgent({ query }, agentRegistry.queryIntent);
+  const prompt = await awaitRetrieval(() => assmblyAgent({ query }, agentRegistry.queryIntent));
   const raw = await invokeSliceModel(prompt);
   const parsed = parseLlmJson<Partial<QueryIntent>>(raw);
 
