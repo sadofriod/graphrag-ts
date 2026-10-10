@@ -53,11 +53,10 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             git add package.json CHANGELOG.md
             git commit -m "chore(release): ${NEW_VERSION} [skip ci]"
-            git tag "v${NEW_VERSION}"
+            git tag -a "v${NEW_VERSION}" -m "chore(release): ${NEW_VERSION}"
             git push origin HEAD:main --follow-tags
           else
             echo "has_changes=false" >> $GITHUB_OUTPUT
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

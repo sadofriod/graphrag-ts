@@ -60,11 +60,12 @@ export const fetchNpmLatestVersion = async (pkgName: string): Promise<string | n
   }
 };
 
-export const getLatestTag = (): string | null => {
+export const getLatestTag = (cwd = process.cwd()): string | null => {
   try {
     const tag = execSync('git describe --tags --abbrev=0', {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore'],
+      cwd,
     }).trim();
     return tag || null;
   } catch {
@@ -72,10 +73,25 @@ export const getLatestTag = (): string | null => {
   }
 };
 
-export const getCommitsSinceTag = (tag: string | null): CommitInfo[] => {
-  const range = tag ? `${tag}..HEAD` : 'HEAD';
+export const getCommitsSinceTag = (
+  tag: string | null,
+  cwd = process.cwd(),
+): CommitInfo[] => {
+  let latestReleaseCommit: string | null = null;
+  try {
+    latestReleaseCommit = execSync(
+      "git log -1 --format=%H --grep='^chore(release):'",
+      { encoding: 'utf8', cwd },
+    ).trim() || null;
+  } catch {
+    latestReleaseCommit = null;
+  }
+
+  const baseline = latestReleaseCommit || tag;
+  const range = baseline ? `${baseline}..HEAD` : 'HEAD';
   const output = execSync(`git log ${range} --oneline`, {
     encoding: 'utf8',
+    cwd,
   }).trim();
 
   if (!output) return [];
@@ -193,12 +209,12 @@ export const runBump = async (options: {
   // Use npm version as base if available
   const baseVersion = npmVersion || localVersion;
 
-  const latestTag = getLatestTag();
+  const latestTag = getLatestTag(root);
   console.log(`Latest git tag: ${latestTag || '(none)'}`);
   console.log(`Base version: ${baseVersion} (local package.json was ${localVersion})`);
 
-  const commits = getCommitsSinceTag(latestTag);
-  console.log(`Found ${commits.length} relevant commits since ${latestTag || 'repo start'}.`);
+  const commits = getCommitsSinceTag(latestTag, root);
+  console.log(`Found ${commits.length} relevant commits since the latest release.`);
 
   if (commits.length === 0) {
     console.log('No new commits found to release. Exiting.');
