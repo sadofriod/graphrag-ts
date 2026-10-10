@@ -21,11 +21,13 @@ services:
       context: .
       dockerfile: integrations/mcp/Dockerfile
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-graphrag}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-graphrag}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-graphrag}:${POSTGRES_PASSWORD_URLENCODED:?Set POSTGRES_PASSWORD_URLENCODED in .env}@db:5432/${POSTGRES_DB:-graphrag}?schema=public
       INPUT_ROOT: /app/input
       MCP_TRANSPORT: http
       MCP_HOST: 0.0.0.0
       MCP_PORT: 3000
+      MAX_HTTP_SESSIONS: ${MAX_HTTP_SESSIONS:-100}
+      HTTP_SESSION_IDLE_TIMEOUT_MS: ${HTTP_SESSION_IDLE_TIMEOUT_MS:-900000}
       RAG_SLICE_BASE_URL: ${COMPOSE_RAG_SLICE_BASE_URL:-http://host.docker.internal:1234/v1}
       RAG_SLICE_MODEL: ${COMPOSE_RAG_SLICE_MODEL:-local-model}
       RAG_SLICE_API_KEY: ${COMPOSE_RAG_SLICE_API_KEY:-lm-studio}

@@ -11,6 +11,8 @@ const configFor = (inputRoot: string): AppConfig => ({
   MCP_TRANSPORT: 'stdio',
   MCP_HOST: '127.0.0.1',
   MCP_PORT: 3000,
+  MAX_HTTP_SESSIONS: 100,
+  HTTP_SESSION_IDLE_TIMEOUT_MS: 900_000,
   MAX_FILES_PER_JOB: 3,
   MAX_FILE_BYTES: 8,
   MAX_JOB_BYTES: 12,

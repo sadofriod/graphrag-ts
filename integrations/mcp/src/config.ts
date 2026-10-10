@@ -7,6 +7,8 @@ const environmentSchema = z.object({
   MCP_TRANSPORT: z.enum(['http', 'stdio']).default('http'),
   MCP_HOST: z.string().default('127.0.0.1'),
   MCP_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  MAX_HTTP_SESSIONS: z.coerce.number().int().min(1).max(1000).default(100),
+  HTTP_SESSION_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(900_000),
   MAX_FILES_PER_JOB: z.coerce.number().int().min(1).max(1000).default(100),
   MAX_FILE_BYTES: z.coerce.number().int().min(1).default(2_000_000),
   MAX_JOB_BYTES: z.coerce.number().int().min(1).default(10_000_000),

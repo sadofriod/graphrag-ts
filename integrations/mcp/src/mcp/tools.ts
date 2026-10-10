@@ -46,6 +46,25 @@ type QueryOutcome =
 
 type QueryLease = NonNullable<Awaited<ReturnType<IndexStore['acquireActiveVersionLease']>>>;
 
+export const createQueryLimiter = (limit: number) => {
+  let activeQueries = 0;
+  return {
+    tryAcquire: (): (() => void) | undefined => {
+      if (activeQueries >= limit) {
+        return undefined;
+      }
+      activeQueries += 1;
+      let released = false;
+      return () => {
+        if (!released) {
+          released = true;
+          activeQueries -= 1;
+        }
+      };
+    },
+  };
+};
+
 const startRetrieval = (
   query: string,
   mode: 'local' | 'global',
@@ -171,19 +190,21 @@ const executeQuery = async (
   }
 };
 
-const createQuerySnapshot = (context: ToolContext) => {
-  let activeQueries = 0;
+const createQuerySnapshot = (
+  context: ToolContext,
+  queryLimiter: ReturnType<typeof createQueryLimiter>,
+) => {
   return async (
     query: string,
     mode: 'local' | 'global',
     maxResults: number,
     communityLevel?: number,
   ) => {
-    if (activeQueries >= context.config.MAX_ACTIVE_QUERIES) {
+    const releaseQuerySlot = queryLimiter.tryAcquire();
+    if (!releaseQuerySlot) {
       return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
     }
-    activeQueries += 1;
-    return executeQuery(context, query, mode, maxResults, communityLevel, () => { activeQueries -= 1; });
+    return executeQuery(context, query, mode, maxResults, communityLevel, releaseQuerySlot);
   };
 };
 
@@ -313,12 +334,17 @@ const registerQueryTools = (
   );
 };
 
-export const createMcpServer = (store: IndexStore, config: AppConfig, logger: Logger): McpServer => {
+export const createMcpServer = (
+  store: IndexStore,
+  config: AppConfig,
+  logger: Logger,
+  queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
+): McpServer => {
   const server = new McpServer({ name: 'graphrag-mcp-server', version: '0.1.0' });
   const context = { store, config, logger };
   registerPathInputTool(server, context);
   registerTextInputTool(server, context);
   registerJobTool(server, context);
-  registerQueryTools(server, createQuerySnapshot(context));
+  registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
   return server;
 };

@@ -10,7 +10,7 @@ From the repository root:
 
 ```sh
 cp .env.example .env
-# Set a strong POSTGRES_PASSWORD and configure the COMPOSE_RAG_* endpoints and models.
+# Set a strong POSTGRES_PASSWORD, its percent-encoded copy in POSTGRES_PASSWORD_URLENCODED, and configure the COMPOSE_RAG_* endpoints and models.
 docker compose up -d --build
 curl http://127.0.0.1:3000/healthz
 ```
@@ -76,7 +76,7 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 
 The input handler rejects absolute paths, `..`, and symlinks. Defaults limit each file to 2 MB, each job to 10 MB, and each job to 100 files. Queries continue to use the old snapshot during a build; failed builds do not replace the active version.
 
-The server retains the active snapshot and the most recent versions up to `MAX_RETAINED_VERSIONS`. In-flight queries hold renewable leases on their snapshot; failed or interrupted builds have their unpublished namespace removed. `MAX_ACTIVE_QUERIES` bounds retrieval work that remains in progress after a client receives a timeout.
+The server retains the active snapshot and the most recent versions up to `MAX_RETAINED_VERSIONS`. In-flight queries hold renewable leases on their snapshot; failed or interrupted builds have their unpublished namespace removed. `MAX_ACTIVE_QUERIES` bounds retrieval work that remains in progress after a client receives a timeout, across all HTTP sessions. HTTP sessions expire after `HTTP_SESSION_IDLE_TIMEOUT_MS` of inactivity, and at most `MAX_HTTP_SESSIONS` sessions can be open at once.
 
 ## Development and Validation
 
@@ -101,4 +101,4 @@ On first startup, the service enables pgvector and runs `prisma db push` against
 
 ## Configuration
 
-See the root `.env.example` for all supported settings. Compose reads model endpoint URLs, names, and API keys from the `COMPOSE_RAG_*` variables and maps them to the library's `RAG_*` settings inside the container. Query timeout/concurrency, snapshot retention, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.
+See the root `.env.example` for all supported settings. Set `POSTGRES_PASSWORD_URLENCODED` to the percent-encoded form of the same raw password in `POSTGRES_PASSWORD`; the raw value is used by PostgreSQL, while the encoded value is used only in the MCP connection URL. Compose reads model endpoint URLs, names, and API keys from the `COMPOSE_RAG_*` variables and maps them to the library's `RAG_*` settings inside the container. HTTP session count and idle timeout, query timeout/concurrency, snapshot retention, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.
