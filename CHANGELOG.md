@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.11 — 2026-10-10
+
+- **feat(mcp)**: add Docker Compose GraphRAG server
+- fix version number
+- update version
+- Merge pull request #8 from sadofriod/feat/mcp-docker-compose
+- Bound MCP sessions and shared queries
+- address commnets
+
 ## 0.1.9 — 2026-10-10
 
 - update ci flow
