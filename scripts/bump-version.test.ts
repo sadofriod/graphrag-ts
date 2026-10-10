@@ -65,6 +65,24 @@ describe('bump-version script', () => {
     expect(result.version).toBe('0.1.6');
   });
 
+  test('uses the highest local, npm, and git tag version when npm is stale', async () => {
+    const projectRoot = createProject();
+    writeFileSync(
+      join(projectRoot, 'package.json'),
+      JSON.stringify({ name: 'test-package', version: '0.1.10' }),
+    );
+    execFileSync('git', ['-C', projectRoot, 'tag', 'v0.1.9']);
+
+    const result = await runBump({
+      dryRun: true,
+      npmVersionOverride: '0.1.8',
+      projectRoot,
+    });
+
+    expect(result.updated).toBeTrue();
+    expect(result.version).toBe('0.1.11');
+  });
+
   test('respects explicit bump type in dry run with npm base', async () => {
     const projectRoot = createProject();
     const result = await runBump({

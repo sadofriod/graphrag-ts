@@ -112,6 +112,18 @@ export const bumpVersion = (
   return `${major}.${minor}.${patch + 1}`;
 };
 
+const compareVersions = (left: string, right: string): number => {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+
+  return 0;
+};
+
 export const determineBumpType = (
   currentVersion: string,
   commits: CommitInfo[],
@@ -206,23 +218,30 @@ export const runBump = async (options: {
     console.log(`Could not fetch npm version, falling back to local version: ${localVersion}`);
   }
 
-  // Use npm version as base if available
-  const baseVersion = npmVersion || localVersion;
-
   const latestTag = getLatestTag(root);
   console.log(`Latest git tag: ${latestTag || '(none)'}`);
-  console.log(`Base version: ${baseVersion} (local package.json was ${localVersion})`);
+  const versionCandidates = [
+    localVersion,
+    npmVersion,
+    latestTag?.replace(/^v/, ''),
+  ].filter((version): version is string => Boolean(version));
+  const highestVersion = versionCandidates.reduce((highest, version) =>
+    compareVersions(version, highest) > 0 ? version : highest,
+  );
+  console.log(
+    `Base version: ${highestVersion} (npm: ${npmVersion || 'unavailable'}, local: ${localVersion})`,
+  );
 
   const commits = getCommitsSinceTag(latestTag, root);
   console.log(`Found ${commits.length} relevant commits since the latest release.`);
 
   if (commits.length === 0) {
     console.log('No new commits found to release. Exiting.');
-    return { updated: false, version: baseVersion };
+    return { updated: false, version: highestVersion };
   }
 
-  const bumpType = determineBumpType(baseVersion, commits, options.bump);
-  const nextVersion = bumpVersion(baseVersion, bumpType);
+  const bumpType = determineBumpType(highestVersion, commits, options.bump);
+  const nextVersion = bumpVersion(highestVersion, bumpType);
   const today = new Date().toISOString().split('T')[0];
 
   console.log(`Calculated bump: ${bumpType} -> Next version: ${nextVersion}`);
