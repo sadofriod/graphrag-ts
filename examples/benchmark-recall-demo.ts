@@ -1,7 +1,6 @@
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { envModelConfigs, injectModelConfigs } from '../src/build/modelLoader';
 import { startBuild } from '../src/build/startBuild';
-import { withNamespace } from '../src/namespace/namespaceContext';
 import { GraphRAGRetrievalService } from '../src/retrieval/service/GraphRAGRetrievalService';
 import {
   DEFAULT_LONG_CORPUS_DIR,
@@ -73,6 +72,7 @@ const buildLongMarkdownIndex = async (
 };
 
 const runRecallQueries = async (options: {
+  readonly namespace: string;
   readonly dataset: readonly RecallQuery[];
   readonly topK?: number;
   readonly includeAnswer?: boolean;
@@ -80,7 +80,11 @@ const runRecallQueries = async (options: {
 }): Promise<PerQueryResult[]> => {
   const results: PerQueryResult[] = [];
   for (const query of options.dataset) {
-    const retrieved = await options.retrieve({ query: query.query, topK: options.topK ?? query.topK });
+    const retrieved = await options.retrieve({
+      namespace: options.namespace,
+      query: query.query,
+      topK: options.topK ?? query.topK,
+    });
     const context = buildRetrievedContext(
       retrieved,
       options.includeAnswer === undefined ? {} : { includeAnswer: options.includeAnswer },
@@ -108,14 +112,13 @@ export const runRecallBenchmarkDemo = async (options: RecallDemoOptions = {}) =>
       );
   const service = new GraphRAGRetrievalService();
   const retrieve = options.retrieve ?? ((input) => service.retrieve(input));
-  const results = await withNamespace(namespace, () =>
-    runRecallQueries({
-      dataset,
-      retrieve,
-      ...(options.topK !== undefined ? { topK: options.topK } : {}),
-      ...(options.includeAnswer !== undefined ? { includeAnswer: options.includeAnswer } : {}),
-    }),
-  );
+      const results = await runRecallQueries({
+        namespace,
+        dataset,
+        retrieve,
+        ...(options.topK !== undefined ? { topK: options.topK } : {}),
+        ...(options.includeAnswer !== undefined ? { includeAnswer: options.includeAnswer } : {}),
+      });
 
   return { buildId, namespace, corpusDir, report: aggregateResults(results), results };
 };
@@ -161,9 +164,7 @@ const printDiagnosticSnippets = async (options: RecallDemoOptions): Promise<void
   const debugTopK = options.debugTopK ?? options.topK ?? 5;
 
   for (const query of dataset) {
-    const result = await withNamespace(namespace, () =>
-      retrieve({ query: query.query, topK: debugTopK }),
-    );
+    const result = await retrieve({ namespace, query: query.query, topK: debugTopK });
     printSingleQueryDiagnostic(query, result, debugTopK);
   }
 };

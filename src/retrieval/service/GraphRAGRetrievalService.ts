@@ -50,6 +50,7 @@ interface LoadedEdge {
 }
 
 import { getRetrievalDefaults } from '../../config/defaults';
+import { withNamespace } from '../../namespace/namespaceContext';
 
 const GLOBAL_RETRIEVAL_DEFAULTS = getRetrievalDefaults();
 
@@ -209,10 +210,14 @@ const resolveRetrievalOptions = (request: RetrievalRequest): NormalizedRetrieval
 
 export class GraphRAGRetrievalService {
   async retrieveGlobal(request: GlobalRetrievalRequest): Promise<GlobalRetrievalResult> {
-    return retrieveGlobal(request);
+    return withNamespace(request.namespace, () => retrieveGlobal(request));
   }
 
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
+    return withNamespace(request.namespace, () => this.retrieveInNamespace(request));
+  }
+
+  private async retrieveInNamespace(request: RetrievalRequest): Promise<RetrievalResult> {
     const { query } = request;
     const opts = resolveRetrievalOptions(request);
 
@@ -286,19 +291,23 @@ export class GraphRAGRetrievalService {
     return { query, communities: selected, evidence, answer };
   }
 
-  async getCommunityDetails(communityId: CommunityId): Promise<CommunityDetails> {
-    const [loadedEdges, claims] = await Promise.all([loadEdges(), loadClaims()]);
-    const communities = await loadCommunities([communityId], loadedEdges);
-    const edges = toCommunityEdges(loadedEdges);
+  async getCommunityDetails(communityId: CommunityId, namespace: string): Promise<CommunityDetails> {
+    return withNamespace(namespace, async () => {
+      const [loadedEdges, claims] = await Promise.all([loadEdges(), loadClaims()]);
+      const communities = await loadCommunities([communityId], loadedEdges);
+      const edges = toCommunityEdges(loadedEdges);
 
-    return fetchCommunityDetails(communityId, communities, edges, claims);
+      return fetchCommunityDetails(communityId, communities, edges, claims);
+    });
   }
 
-  async getEntityNeighbors(entityName: string, depth = 1): Promise<EntityNeighborResult> {
-    const [entities, loadedEdges] = await Promise.all([loadEntities(), loadEdges()]);
-    const edges = toCommunityEdges(loadedEdges);
-    const communityMembers = toCommunityMembers(loadedEdges);
+  async getEntityNeighbors(entityName: string, namespace: string, depth = 1): Promise<EntityNeighborResult> {
+    return withNamespace(namespace, async () => {
+      const [entities, loadedEdges] = await Promise.all([loadEntities(), loadEdges()]);
+      const edges = toCommunityEdges(loadedEdges);
+      const communityMembers = toCommunityMembers(loadedEdges);
 
-    return getEntityNeighbors(entityName, entities, edges, communityMembers, depth);
+      return getEntityNeighbors(entityName, entities, edges, communityMembers, depth);
+    });
   }
 }

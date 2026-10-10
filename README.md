@@ -146,6 +146,7 @@ const buildId = startBuild(
 
 const service = new GraphRAGRetrievalService();
 const result = await service.retrieve({
+  namespace: 'demo-namespace',
   query: 'Who works with Alice?',
   topK: 5,
 });
@@ -157,6 +158,7 @@ For corpus-wide questions, `retrieveGlobal` applies Map-Reduce to every communit
 
 ```ts
 const globalResult = await service.retrieveGlobal({
+  namespace: 'demo-namespace',
   query: 'What themes and trends appear across the corpus?',
   options: { communityLevel: 0 },
 });

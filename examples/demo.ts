@@ -3,7 +3,6 @@ import { join } from 'node:path';
 
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { startBuild } from '../src/build/startBuild';
-import { withNamespace } from '../src/namespace/namespaceContext';
 import { GraphRAGRetrievalService } from '../src/retrieval/service/GraphRAGRetrievalService';
 
 const CORPUS_DIR = new URL('./sample-corpus', import.meta.url).pathname;
@@ -45,20 +44,19 @@ const main = async (): Promise<void> => {
   const files = readMarkdownFiles(CORPUS_DIR);
   console.log(`indexing ${files.length} files from ${CORPUS_DIR}`);
 
-  await withNamespace(NAMESPACE, async () => {
-    const registry = createBuildRegistry();
-    const id = startBuild(files, registry, NAMESPACE);
-    await waitForBuild(id, registry);
-    console.log('build succeeded');
+  const registry = createBuildRegistry();
+  const id = startBuild(files, registry, NAMESPACE);
+  await waitForBuild(id, registry);
+  console.log('build succeeded');
 
-    const service = new GraphRAGRetrievalService();
-    const result = await service.retrieve({
-      query: process.env.RAG_DEMO_QUERY ?? 'What does the limited reset actually shut down?',
-      topK: 5,
-    });
-    console.log(`answer: ${result.answer}`);
-    console.log(`evidence snippets: ${result.evidence.length}`);
+  const service = new GraphRAGRetrievalService();
+  const result = await service.retrieve({
+    namespace: NAMESPACE,
+    query: process.env.RAG_DEMO_QUERY ?? 'What does the limited reset actually shut down?',
+    topK: 5,
   });
+  console.log(`answer: ${result.answer}`);
+  console.log(`evidence snippets: ${result.evidence.length}`);
 };
 
 main().catch((error) => {

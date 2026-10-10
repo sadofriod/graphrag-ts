@@ -9,7 +9,6 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./*": "./src/*.ts",
     "./build/*": [
       "./src/build/*.ts",
       "./src/build/*/index.ts"
@@ -17,10 +16,6 @@
     "./input/*": [
       "./src/input/*.ts",
       "./src/input/*/index.ts"
-    ],
-    "./namespace/*": [
-      "./src/namespace/*.ts",
-      "./src/namespace/*/index.ts"
     ],
     "./retrieval/*": [
       "./src/retrieval/*.ts",

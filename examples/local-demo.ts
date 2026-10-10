@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { envModelConfigs, injectModelConfigs } from '../src/build/modelLoader';
 import { startBuild } from '../src/build/startBuild';
-import { withNamespace } from '../src/namespace/namespaceContext';
 import { GraphRAGRetrievalService } from '../src/retrieval/service/GraphRAGRetrievalService';
 import type { RetrievalResult } from '../src/retrieval/types/retrieval';
 
@@ -128,12 +127,10 @@ const main = async (): Promise<void> => {
   }
 
   const service = new GraphRAGRetrievalService();
-  const [local, global] = await withNamespace(NAMESPACE, async () =>
-    Promise.all([
-      service.retrieve({ query: LOCAL_QUERY, topK: 4 }),
-      service.retrieve({ query: GLOBAL_QUERY, topK: 4 }),
-    ]),
-  );
+  const [local, global] = await Promise.all([
+    service.retrieve({ namespace: NAMESPACE, query: LOCAL_QUERY, topK: 4 }),
+    service.retrieve({ namespace: NAMESPACE, query: GLOBAL_QUERY, topK: 4 }),
+  ]);
   const elapsedMs = Date.now() - startedAt;
   const report = [
     '# GraphRAG LM Studio Local Demo',

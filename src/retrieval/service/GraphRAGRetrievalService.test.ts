@@ -130,7 +130,11 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const result = await service.retrieve({ query: 'A and B partnership background', topK: 5 });
+      const result = await service.retrieve({
+        namespace: 'service-test',
+        query: 'A and B partnership background',
+        topK: 5,
+      });
 
       expect(result.answer).toBe('Answer: A and B have a partnership');
       expect(result.communities.map((community) => community.id)).toEqual(['c1']);
@@ -166,7 +170,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const result = await service.retrieve({ query: 'agreement date', topK: 5 });
+      const result = await service.retrieve({ namespace: 'service-test', query: 'agreement date', topK: 5 });
 
       expect(result.communities[0]?.summary).toBe('The agreement date is 2025-02-01.');
       expect(result.evidence).toContainEqual({
@@ -195,7 +199,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const result = await service.retrieve({ query: 'agreement renewal', topK: 5 });
+      const result = await service.retrieve({ namespace: 'service-test', query: 'agreement renewal', topK: 5 });
 
       expect(result.communities.map((community) => community.id)).toEqual(['c1']);
       expect(result.communities[0]?.summary).toBe('The renewal date is 2025-03-15.');
@@ -215,7 +219,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const details = await service.getCommunityDetails('c1');
+      const details = await service.getCommunityDetails('c1', 'service-test');
 
       expect(details.id).toBe('c1');
       expect(details.memberEntities).toEqual(['A', 'B']);
@@ -252,7 +256,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const details = await service.getCommunityDetails('c1');
+      const details = await service.getCommunityDetails('c1', 'service-test');
 
       expect(details.memberEntities).toEqual(['A', 'B', 'C']);
       expect(details.level).toBe(1);
@@ -267,7 +271,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      await expect(service.getCommunityDetails('missing')).rejects.toThrow();
+      await expect(service.getCommunityDetails('missing', 'service-test')).rejects.toThrow();
     } finally {
       restoreMocks();
     }
@@ -278,7 +282,7 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      const result = await service.getEntityNeighbors('A', 1);
+      const result = await service.getEntityNeighbors('A', 'service-test', 1);
 
       expect(result.neighbors).toEqual([
         { entityId: 'eB', entityName: 'B', relationType: 'partnership', weight: 2 },
@@ -298,7 +302,11 @@ describe('GraphRAGRetrievalService', () => {
 
     const service = new GraphRAGRetrievalService();
     try {
-      await service.retrieve({ query: 'A partnership', options: { communityLevel: 1 } });
+      await service.retrieve({
+        namespace: 'service-test',
+        query: 'A partnership',
+        options: { communityLevel: 1 },
+      });
 
       const sqlTexts = queryRawCalls.map((query) => (query as { text?: string }).text ?? '');
       expect(sqlTexts.some((text) => text.includes('"level" ='))).toBe(true);
@@ -314,7 +322,11 @@ describe('GraphRAGRetrievalService', () => {
     try {
       const service = new GraphRAGRetrievalService();
       await expect(
-        service.retrieve({ query: 'A partnership', options: { communityLevel: -1 } }),
+        service.retrieve({
+          namespace: 'service-test',
+          query: 'A partnership',
+          options: { communityLevel: -1 },
+        }),
       ).rejects.toThrow('communityLevel must be a non-negative integer.');
     } finally {
       restoreMocks();
