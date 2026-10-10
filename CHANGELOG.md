@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.1.9 — 2026-10-10
+
+- **feat(global-search)**: impl GraphRAG global search
+- **feat(community)**: add hierarchical communities
+- **feat(build)**: Add incremental GraphRAG write and differential graph maintenance.
+- **feat(adapter)**: add custom model adapter registry and provider support
+- **fix(global-search)**: skip oversized reduce candidates
+- **fix**: restore textSplit public subpath
+- **fix**: address community detection review feedback
+- **fix(community-summary)**: refresh summaries when inputs change
+- **fix(ci)**: avoid DATABASE_URL lookup during prisma generate
+- **fix**: fix persisted edge counts and community namespace guard
+- **fix(release)**: align 0.1.6 version from npm base and update bump script
+- **refactor(retrieval)**: make namespace explicit
+- **refactor(text-split)**: modularize text splitting pipeline
+- **docs**: note nullable legacy fingerprints
+- **docs**: soften fingerprint schema contract
+- **docs**: clarify community fingerprint format
+- **docs**: note runtime fingerprint backfill behavior
+- **docs**: add local demo
+- **docs(changelog)**: update changelog for model adapter features
+- **chore**: match prisma lockfile format
+- **chore**: add prisma migration metadata
+- **test**: scope retrieval claim overrides by id
+- **test**: allow empty retrieval mock overrides
+- **test**: cover claim-only summary refresh regression
+- **ci**: automate changelog generation and version bump in CI workflow
+- Merge pull request #9 from sadofriod/refactor/explicit-retrieval-namespace
+- Merge pull request #7 from sadofriod/feat/hierarchical-communities
+- Restore mocks in affected tests
+- remove immutable type def
+- Merge pull request #6 from sadofriod/refactor/text-split-modules
+- Merge pull request #5 from sadofriod/fix/community-summary-fingerprint
+- Merge pull request #3 from sadofriod/feat/complete-incremental-write
+- fix ci error
+- fix type and lint err
+- Use Bun hashing in document diff
+- Fix incremental review feedback
+- export incremetal apis
+
 ## 0.1.8 — 2026-10-05
 
 - **feat(global-search)**: impl GraphRAG global search
