@@ -2,6 +2,10 @@
 
 ## 0.1.9 — 2026-10-10
 
+- update ci flow
+
+## 0.1.9 — 2026-10-10
+
 - **feat(global-search)**: impl GraphRAG global search
 - **feat(community)**: add hierarchical communities
 - **feat(build)**: Add incremental GraphRAG write and differential graph maintenance.
