@@ -61,6 +61,15 @@ const asJobRecord = (row: DatabaseJob): JobRecord => ({
 
 type Transaction = <Result>(operation: (client: PoolClient) => Promise<Result>) => Promise<Result>;
 
+const deleteGraphNamespace = async (client: PoolClient, namespace: string): Promise<void> => {
+  await client.query('DELETE FROM rag_claims WHERE namespace = $1', [namespace]);
+  await client.query('DELETE FROM rag_graph_edges WHERE namespace = $1', [namespace]);
+  await client.query('DELETE FROM rag_community_summaries WHERE namespace = $1', [namespace]);
+  await client.query('DELETE FROM rag_parents WHERE namespace = $1', [namespace]);
+  await client.query('DELETE FROM rag_entities WHERE namespace = $1', [namespace]);
+  await client.query('DELETE FROM generation_jobs WHERE namespace = $1', [namespace]);
+};
+
 const inTransaction = (pool: Pool): Transaction => async (operation) => {
   const client = await pool.connect();
   try {
@@ -177,7 +186,7 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
   return { enqueue, claimNextJob };
 };
 
-const createJobOperations = (pool: Pool) => {
+const createJobOperations = (pool: Pool, transaction: Transaction) => {
   const getJob = async (id: string): Promise<JobRecord | null> => {
     const result = await pool.query<DatabaseJob>(
       `SELECT j.id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
@@ -208,11 +217,20 @@ const createJobOperations = (pool: Pool) => {
   };
 
   const recoverInterruptedJobs = async (): Promise<void> => {
-    await pool.query(
-      `UPDATE index_jobs SET status = 'failed', phase = 'failed', finished_at = now(),
-       error_code = 'WORKER_RESTARTED', error_summary = 'Worker stopped before this job completed.'
-       WHERE status = 'running'`,
-    );
+    await transaction(async (client) => {
+      await client.query(
+        `UPDATE index_jobs SET status = 'failed', phase = 'failed', finished_at = now(),
+         error_code = 'WORKER_RESTARTED', error_summary = 'Worker stopped before this job completed.'
+         WHERE status = 'running'`,
+      );
+      const interruptedSnapshots = await client.query<{ namespace: string }>(
+        'SELECT namespace FROM building_snapshots FOR UPDATE',
+      );
+      for (const snapshot of interruptedSnapshots.rows) {
+        await deleteGraphNamespace(client, snapshot.namespace);
+      }
+      await client.query('DELETE FROM building_snapshots');
+    });
   };
 
   const setPhase = async (jobId: string, phase: string): Promise<void> => {
@@ -225,35 +243,111 @@ const createJobOperations = (pool: Pool) => {
   return { fail, getInputs, getJob, recoverInterruptedJobs, setPhase };
 };
 
-const createSnapshotQueries = (pool: Pool) => {
-  const getActiveSnapshot = async (): Promise<ActiveSnapshot> => {
-    const active = await pool.query<{ id: string; namespace: string }>(
-      `SELECT v.id, v.namespace FROM active_index a
-       JOIN index_versions v ON v.id = a.version_id WHERE a.singleton = true`,
-    );
-    const version = active.rows[0] ?? null;
-    if (!version) {
-      return { version: null, sources: [] };
-    }
-    const sources = await pool.query<SourceRecord>(
-      `SELECT s.id, s.source_label AS "sourceLabel", s.content
-       FROM index_version_sources vs JOIN knowledge_sources s ON s.id = vs.source_id
-       WHERE vs.version_id = $1 ORDER BY s.created_at, s.id`,
-      [version.id],
-    );
-    return { version, sources: sources.rows };
-  };
-
-  const getActiveVersion = async (): Promise<ActiveSnapshot['version']> => {
-    const result = await pool.query<{ id: string; namespace: string }>(
-      `SELECT v.id, v.namespace FROM active_index a
-       JOIN index_versions v ON v.id = a.version_id WHERE a.singleton = true`,
-    );
-    return result.rows[0] ?? null;
-  };
-
-  return { getActiveSnapshot, getActiveVersion };
+const getActiveSnapshot = async (pool: Pool): Promise<ActiveSnapshot> => {
+  const active = await pool.query<{ id: string; namespace: string }>(
+    `SELECT v.id, v.namespace FROM active_index a
+     JOIN index_versions v ON v.id = a.version_id WHERE a.singleton = true`,
+  );
+  const version = active.rows[0] ?? null;
+  if (!version) {
+    return { version: null, sources: [] };
+  }
+  const sources = await pool.query<SourceRecord>(
+    `SELECT s.id, s.source_label AS "sourceLabel", s.content
+     FROM index_version_sources vs JOIN knowledge_sources s ON s.id = vs.source_id
+     WHERE vs.version_id = $1 ORDER BY s.created_at, s.id`,
+    [version.id],
+  );
+  return { version, sources: sources.rows };
 };
+
+const createQueryLeaseOperations = (pool: Pool, transaction: Transaction) => {
+  const acquireActiveVersionLease = async (leaseDurationMs: number) =>
+    transaction(async (client) => {
+      const result = await client.query<{ id: string; namespace: string }>(
+        `SELECT v.id, v.namespace FROM active_index a
+         JOIN index_versions v ON v.id = a.version_id
+         WHERE a.singleton = true FOR SHARE OF a, v`,
+      );
+      const version = result.rows[0];
+      if (!version) {
+        return null;
+      }
+
+      const leaseId = randomUUID();
+      await client.query(
+        `INSERT INTO version_query_leases (id, version_id, expires_at)
+         VALUES ($1, $2, now() + ($3 * interval '1 millisecond'))`,
+        [leaseId, version.id, leaseDurationMs],
+      );
+      return { ...version, leaseId };
+    });
+
+  const renewQueryLease = async (leaseId: string, leaseDurationMs: number): Promise<void> => {
+    await pool.query(
+      `UPDATE version_query_leases SET expires_at = now() + ($2 * interval '1 millisecond')
+       WHERE id = $1`,
+      [leaseId, leaseDurationMs],
+    );
+  };
+
+  const releaseQueryLease = async (leaseId: string): Promise<void> => {
+    await pool.query('DELETE FROM version_query_leases WHERE id = $1', [leaseId]);
+  };
+
+  return { acquireActiveVersionLease, releaseQueryLease, renewQueryLease };
+};
+
+const createSnapshotBuildOperations = (pool: Pool, transaction: Transaction) => ({
+  beginSnapshot: async (jobId: string, namespace: string): Promise<void> => {
+    await pool.query(
+      'INSERT INTO building_snapshots (namespace, job_id) VALUES ($1, $2)',
+      [namespace, jobId],
+    );
+  },
+  discardSnapshot: async (namespace: string): Promise<void> =>
+    transaction(async (client) => {
+      await deleteGraphNamespace(client, namespace);
+      await client.query('DELETE FROM building_snapshots WHERE namespace = $1', [namespace]);
+    }),
+});
+
+const createSnapshotPruner = (transaction: Transaction) => async (
+  maxRetainedVersions: number,
+): Promise<number> => transaction(async (client) => {
+  await client.query('DELETE FROM version_query_leases WHERE expires_at <= now()');
+  const staleVersions = await client.query<{ id: string; namespace: string }>(
+    `WITH ranked AS (
+       SELECT id, row_number() OVER (ORDER BY published_at DESC, id DESC) AS position
+       FROM index_versions
+     ), stale AS (
+       SELECT v.id, v.namespace
+       FROM index_versions v JOIN ranked r ON r.id = v.id
+       WHERE r.position > $1
+         AND NOT EXISTS (SELECT 1 FROM active_index a WHERE a.version_id = v.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM version_query_leases l
+           WHERE l.version_id = v.id AND l.expires_at > now()
+         )
+       FOR UPDATE OF v SKIP LOCKED
+     )
+     SELECT id, namespace FROM stale`,
+    [maxRetainedVersions],
+  );
+
+  for (const version of staleVersions.rows) {
+    await deleteGraphNamespace(client, version.namespace);
+    await client.query('DELETE FROM index_versions WHERE id = $1', [version.id]);
+  }
+  return staleVersions.rowCount ?? 0;
+});
+
+const createSnapshotQueries = (pool: Pool, transaction: Transaction) => ({
+  ...createQueryLeaseOperations(pool, transaction),
+  ...createSnapshotBuildOperations(pool, transaction),
+  getActiveSnapshot: () => getActiveSnapshot(pool),
+  pruneSnapshots: createSnapshotPruner(transaction),
+});
 
 const createPublisher = (pool: Pool, transaction: Transaction) => async (
   jobId: string,
@@ -309,6 +403,7 @@ const createPublisher = (pool: Pool, transaction: Transaction) => async (
        finished_at = now(), published_version_id = $2 WHERE id = $1`,
       [jobId, versionId],
     );
+    await client.query('DELETE FROM building_snapshots WHERE namespace = $1', [namespace]);
   });
 };
 
@@ -324,8 +419,8 @@ export const createStore = (databaseUrl: string) => {
     migrate: () => migrate(pool),
     ping: async () => pool.query('SELECT 1').then(() => undefined),
     ...queueOperations,
-    ...createJobOperations(pool),
-    ...createSnapshotQueries(pool),
+    ...createJobOperations(pool, transaction),
+    ...createSnapshotQueries(pool, transaction),
     publish: createPublisher(pool, transaction),
   };
 };

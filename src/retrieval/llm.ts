@@ -1,4 +1,5 @@
 import { invokeModelText, modelLoaderSingleton } from '../build/modelLoader';
+import { awaitRetrieval, getRetrievalSignal } from './retrievalContext';
 
 export async function invokeSliceModel(prompt: string): Promise<string> {
   const sliceModel = modelLoaderSingleton.models?.slice;
@@ -7,5 +8,5 @@ export async function invokeSliceModel(prompt: string): Promise<string> {
     throw new Error('Slice model is not loaded. Please check the configuration for the slice model.');
   }
 
-  return invokeModelText(sliceModel, prompt);
+  return awaitRetrieval(() => invokeModelText(sliceModel, prompt, getRetrievalSignal()));
 }

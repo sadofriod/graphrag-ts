@@ -3,6 +3,7 @@ import { assmblyAgent } from '../../build/agents.md/assmblyAgent';
 import { parseLlmJson } from '../../helper/parseLlmJson';
 import { logger } from '../../logger';
 import { invokeSliceModel } from '../llm';
+import { awaitRetrieval, throwIfRetrievalAborted } from '../retrievalContext';
 import type { GlobalMapAnswer } from '../types/retrieval';
 import type { SummaryBatch } from './summaryBatcher';
 
@@ -62,8 +63,9 @@ const runBatchWithRetry = async (
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      return { answer: await mapBatch(query, batch) };
+      return { answer: await awaitRetrieval(() => mapBatch(query, batch)) };
     } catch (error) {
+      throwIfRetrievalAborted();
       lastError = error instanceof Error ? error : new Error(String(error));
     }
   }
@@ -83,7 +85,7 @@ export const runGlobalMap = async (
   let nextIndex = 0;
   const workerCount = Math.min(concurrency, batches.length);
 
-  await Promise.all(
+  const workerResults = await Promise.allSettled(
     Array.from({ length: workerCount }, async () => {
       while (nextIndex < batches.length) {
         const batchIndex = nextIndex;
@@ -95,6 +97,10 @@ export const runGlobalMap = async (
       }
     }),
   );
+  const failedWorker = workerResults.find((result) => result.status === 'rejected');
+  if (failedWorker?.status === 'rejected') {
+    throw failedWorker.reason;
+  }
 
   const answers = results.flatMap((result) => result?.answer ? [result.answer] : []);
   const errors = results.flatMap((result) => result?.error ? [result.error] : []);

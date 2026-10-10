@@ -17,6 +17,52 @@ const errorSummary = (error: unknown): string => {
 const buildInputFiles = (sources: readonly BuildSource[]) =>
   sources.map((source) => ({ title: source.sourceLabel, content: source.content }));
 
+const processJob = async (
+  jobId: string,
+  store: IndexStore,
+  config: AppConfig,
+  logger: Logger,
+): Promise<void> => {
+  let namespace: string | undefined;
+  try {
+    await store.setPhase(jobId, 'preparing');
+    const [active, inputs] = await Promise.all([
+      store.getActiveSnapshot(),
+      store.getInputs(jobId),
+    ]);
+    namespace = `snapshot-${randomUUID()}`;
+    const versionId = randomUUID();
+    await store.beginSnapshot(jobId, namespace);
+    await store.setPhase(jobId, 'building');
+    await buildSnapshot(buildInputFiles([...active.sources, ...inputs]), namespace);
+    await store.setPhase(jobId, 'publishing');
+    await store.publish(jobId, versionId, namespace, active.sources.map((source) => source.id));
+    try {
+      const removedVersions = await store.pruneSnapshots(config.MAX_RETAINED_VERSIONS);
+      if (removedVersions > 0) {
+        logger.info('Expired GraphRAG snapshots removed.', { count: removedVersions });
+      }
+    } catch (error) {
+      logger.warn('Snapshot retention cleanup failed.', {
+        error_name: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
+    logger.info('Index job published.', { job_id: jobId, version_id: versionId });
+  } catch (error) {
+    const summary = errorSummary(error);
+    await store.fail(jobId, 'BUILD_FAILED', summary);
+    if (namespace) {
+      await store.discardSnapshot(namespace).catch((cleanupError: unknown) => {
+        logger.warn('Failed GraphRAG snapshot cleanup failed.', {
+          job_id: jobId,
+          error_name: cleanupError instanceof Error ? cleanupError.name : 'UnknownError',
+        });
+      });
+    }
+    logger.error('Index job failed.', { job_id: jobId, summary });
+  }
+};
+
 export const runWorker = async (
   store: IndexStore,
   config: AppConfig,
@@ -42,32 +88,7 @@ export const runWorker = async (
       }
 
       logger.info('Index job claimed.', { job_id: job.id });
-      try {
-        await store.setPhase(job.id, 'preparing');
-        const [active, inputs] = await Promise.all([
-          store.getActiveSnapshot(),
-          store.getInputs(job.id),
-        ]);
-        const namespace = `snapshot-${randomUUID()}`;
-        const versionId = randomUUID();
-        await store.setPhase(job.id, 'building');
-        await buildSnapshot(
-          buildInputFiles([...active.sources, ...inputs]),
-          namespace,
-        );
-        await store.setPhase(job.id, 'publishing');
-        await store.publish(
-          job.id,
-          versionId,
-          namespace,
-          active.sources.map((source) => source.id),
-        );
-        logger.info('Index job published.', { job_id: job.id, version_id: versionId });
-      } catch (error) {
-        const summary = errorSummary(error);
-        await store.fail(job.id, 'BUILD_FAILED', summary);
-        logger.error('Index job failed.', { job_id: job.id, summary });
-      }
+      await processJob(job.id, store, config, logger);
     }
   } finally {
     await lockClient.query('SELECT pg_advisory_unlock(739284729384::bigint)').catch(() => undefined);

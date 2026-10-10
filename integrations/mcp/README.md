@@ -10,7 +10,7 @@ From the repository root:
 
 ```sh
 cp .env.example .env
-# Set a strong POSTGRES_PASSWORD and configure the model names and endpoints.
+# Set a strong POSTGRES_PASSWORD and configure the COMPOSE_RAG_* endpoints and models.
 docker compose up -d --build
 curl http://127.0.0.1:3000/healthz
 ```
@@ -49,15 +49,15 @@ Save the following as `.vscode/mcp.json` in the repository. Replace the model se
       ],
       "env": {
         "INPUT_HOST_DIR": "${workspaceFolder}/examples/sample-corpus",
-        "RAG_SLICE_BASE_URL": "http://host.docker.internal:1234/v1",
-        "RAG_SLICE_MODEL": "local-model",
-        "RAG_SLICE_API_KEY": "lm-studio",
-        "RAG_JUDGE_BASE_URL": "http://host.docker.internal:1234/v1",
-        "RAG_JUDGE_MODEL": "local-model",
-        "RAG_JUDGE_API_KEY": "lm-studio",
-        "RAG_EMBED_BASE_URL": "http://host.docker.internal:1234/v1",
-        "RAG_EMBED_MODEL": "local-embedding-model",
-        "RAG_EMBED_API_KEY": "lm-studio"
+        "COMPOSE_RAG_SLICE_BASE_URL": "http://host.docker.internal:1234/v1",
+        "COMPOSE_RAG_SLICE_MODEL": "local-model",
+        "COMPOSE_RAG_SLICE_API_KEY": "lm-studio",
+        "COMPOSE_RAG_JUDGE_BASE_URL": "http://host.docker.internal:1234/v1",
+        "COMPOSE_RAG_JUDGE_MODEL": "local-model",
+        "COMPOSE_RAG_JUDGE_API_KEY": "lm-studio",
+        "COMPOSE_RAG_EMBED_BASE_URL": "http://host.docker.internal:1234/v1",
+        "COMPOSE_RAG_EMBED_MODEL": "local-embedding-model",
+        "COMPOSE_RAG_EMBED_API_KEY": "lm-studio"
       }
     }
   }
@@ -75,6 +75,8 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 - `query_graph_global`: perform corpus-wide Map-Reduce retrieval at a community level; the default level is `0`.
 
 The input handler rejects absolute paths, `..`, and symlinks. Defaults limit each file to 2 MB, each job to 10 MB, and each job to 100 files. Queries continue to use the old snapshot during a build; failed builds do not replace the active version.
+
+The server retains the active snapshot and the most recent versions up to `MAX_RETAINED_VERSIONS`. In-flight queries hold renewable leases on their snapshot; failed or interrupted builds have their unpublished namespace removed. `MAX_ACTIVE_QUERIES` bounds retrieval work that remains in progress after a client receives a timeout.
 
 ## Development and Validation
 
@@ -95,8 +97,8 @@ docker compose --env-file .env.example config --quiet
 
 ## Database Initialization
 
-On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version tables and indexes, and add the hierarchical community columns and indexes required by GraphRAG 0.1.8. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
+On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version/lease tables and indexes, and add the community hierarchy and summary fingerprint columns required by the current GraphRAG schema. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
 
 ## Configuration
 
-See the root `.env.example` for all supported settings. Compose passes the three model endpoint URLs, names, and API keys into the container. Query timeouts, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.
+See the root `.env.example` for all supported settings. Compose reads model endpoint URLs, names, and API keys from the `COMPOSE_RAG_*` variables and maps them to the library's `RAG_*` settings inside the container. Query timeout/concurrency, snapshot retention, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.

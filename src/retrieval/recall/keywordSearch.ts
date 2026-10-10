@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { prismaClient } from '../../build/helper/prismaClient';
 import { getCurrentNamespace } from '../../namespace/namespaceContext';
+import { awaitRetrieval } from '../retrievalContext';
 
 /**
  * Child-chunk keyword recall: perform substring (ILIKE) matching using query terms (entity names + keywords),
@@ -80,7 +81,7 @@ export async function searchChildChunksByKeywords(
   );
   const whereExpr = Prisma.join(capped.map(patternOf), ' OR ');
 
-  const rows = await prismaClient.$queryRaw<Array<{ id: string; content: string; matches: number }>>(
+  const rows = await awaitRetrieval(() => prismaClient.$queryRaw<Array<{ id: string; content: string; matches: number }>>(
     Prisma.sql`
       SELECT "id", "content", ${scoreExpr} AS "matches"
       FROM "rag_children"
@@ -88,7 +89,7 @@ export async function searchChildChunksByKeywords(
       ORDER BY "matches" DESC, char_length("content") DESC
       LIMIT ${limit}
     `,
-  );
+  ));
 
   return rows.map((row) => ({ id: row.id, content: row.content, matches: row.matches }));
 }

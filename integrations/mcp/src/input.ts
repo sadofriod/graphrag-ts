@@ -20,11 +20,20 @@ export class InputError extends Error {
 }
 
 const makeInput = (sourceLabel: string, content: string): JobInput => ({
-  sourceLabel,
+  sourceLabel: normalizeSourceLabel(sourceLabel),
   content,
   contentHash: createHash('sha256').update(content).digest('hex'),
   mediaType: 'text/markdown',
 });
+
+export const normalizeSourceLabel = (sourceLabel: string): string => {
+  const characters = Array.from(sourceLabel);
+  if (characters.length <= 255) {
+    return sourceLabel;
+  }
+  const suffix = `-${createHash('sha256').update(sourceLabel).digest('hex').slice(0, 16)}`;
+  return `${characters.slice(0, 255 - suffix.length).join('')}${suffix}`;
+};
 
 const validateBatch = (inputs: readonly JobInput[], config: AppConfig): void => {
   if (inputs.length === 0) {

@@ -26,20 +26,22 @@ services:
       MCP_TRANSPORT: http
       MCP_HOST: 0.0.0.0
       MCP_PORT: 3000
-      RAG_SLICE_BASE_URL: ${RAG_SLICE_BASE_URL:-http://host.docker.internal:1234/v1}
-      RAG_SLICE_MODEL: ${RAG_SLICE_MODEL:-local-model}
-      RAG_SLICE_API_KEY: ${RAG_SLICE_API_KEY:-lm-studio}
-      RAG_JUDGE_BASE_URL: ${RAG_JUDGE_BASE_URL:-http://host.docker.internal:1234/v1}
-      RAG_JUDGE_MODEL: ${RAG_JUDGE_MODEL:-local-model}
-      RAG_JUDGE_API_KEY: ${RAG_JUDGE_API_KEY:-lm-studio}
-      RAG_EMBED_BASE_URL: ${RAG_EMBED_BASE_URL:-http://host.docker.internal:1234/v1}
-      RAG_EMBED_MODEL: ${RAG_EMBED_MODEL:-local-embedding-model}
-      RAG_EMBED_API_KEY: ${RAG_EMBED_API_KEY:-lm-studio}
+      RAG_SLICE_BASE_URL: ${COMPOSE_RAG_SLICE_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_SLICE_MODEL: ${COMPOSE_RAG_SLICE_MODEL:-local-model}
+      RAG_SLICE_API_KEY: ${COMPOSE_RAG_SLICE_API_KEY:-lm-studio}
+      RAG_JUDGE_BASE_URL: ${COMPOSE_RAG_JUDGE_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_JUDGE_MODEL: ${COMPOSE_RAG_JUDGE_MODEL:-local-model}
+      RAG_JUDGE_API_KEY: ${COMPOSE_RAG_JUDGE_API_KEY:-lm-studio}
+      RAG_EMBED_BASE_URL: ${COMPOSE_RAG_EMBED_BASE_URL:-http://host.docker.internal:1234/v1}
+      RAG_EMBED_MODEL: ${COMPOSE_RAG_EMBED_MODEL:-local-embedding-model}
+      RAG_EMBED_API_KEY: ${COMPOSE_RAG_EMBED_API_KEY:-lm-studio}
       MAX_FILES_PER_JOB: ${MAX_FILES_PER_JOB:-100}
       MAX_FILE_BYTES: ${MAX_FILE_BYTES:-2000000}
       MAX_JOB_BYTES: ${MAX_JOB_BYTES:-10000000}
       MAX_OUTPUT_CHARS: ${MAX_OUTPUT_CHARS:-8000}
       QUERY_TIMEOUT_MS: ${QUERY_TIMEOUT_MS:-60000}
+      MAX_ACTIVE_QUERIES: ${MAX_ACTIVE_QUERIES:-4}
+      MAX_RETAINED_VERSIONS: ${MAX_RETAINED_VERSIONS:-3}
       QUEUE_POLL_MS: ${QUEUE_POLL_MS:-1000}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:

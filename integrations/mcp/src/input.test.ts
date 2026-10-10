@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import type { AppConfig } from './config.ts';
-import { InputError, pathInputs, textInput } from './input.ts';
+import { InputError, normalizeSourceLabel, pathInputs, textInput } from './input.ts';
 
 const configFor = (inputRoot: string): AppConfig => ({
   DATABASE_URL: 'postgresql://localhost/test',
@@ -16,6 +16,8 @@ const configFor = (inputRoot: string): AppConfig => ({
   MAX_JOB_BYTES: 12,
   MAX_OUTPUT_CHARS: 256,
   QUERY_TIMEOUT_MS: 1000,
+  MAX_ACTIVE_QUERIES: 4,
+  MAX_RETAINED_VERSIONS: 3,
   QUEUE_POLL_MS: 100,
   LOG_LEVEL: 'error',
 });
@@ -55,5 +57,14 @@ describe('input snapshots', () => {
       await rm(root, { recursive: true, force: true });
       await rm(outside, { force: true });
     }
+  });
+
+  test('shortens long source labels to the database limit with a stable hash suffix', () => {
+    const longLabel = `${'source/'.repeat(40)}document.md`;
+    const shortened = normalizeSourceLabel(longLabel);
+    expect(Array.from(shortened)).toHaveLength(255);
+    expect(shortened).toMatch(/-[a-f0-9]{16}$/);
+    expect(normalizeSourceLabel(longLabel)).toBe(shortened);
+    expect(normalizeSourceLabel(`${longLabel}!`)).not.toBe(shortened);
   });
 });

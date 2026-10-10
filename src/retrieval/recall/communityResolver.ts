@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prismaClient } from '../../build/helper/prismaClient';
 import { getCurrentNamespace } from '../../namespace/namespaceContext';
 import type { CommunityId } from '../types/graph';
+import { awaitRetrieval } from '../retrievalContext';
 
 export interface CommunityRecall {
   communityIds: CommunityId[];
@@ -17,7 +18,7 @@ export async function recallCommunitiesByTopology(
     return { communityIds: [], expandedEntityIds: [] };
   }
 
-  const rows = await prismaClient.$queryRaw<Array<{ community_id: string | null; entity_id: string }>>(
+  const rows = await awaitRetrieval(() => prismaClient.$queryRaw<Array<{ community_id: string | null; entity_id: string }>>(
     Prisma.sql`
       WITH RECURSIVE reachable(entity_id, hop) AS (
         SELECT "id", 0
@@ -44,7 +45,7 @@ export async function recallCommunitiesByTopology(
       FROM hits
       ORDER BY hits.community_id
     `,
-  );
+  ));
 
   const communityIds = Array.from(
     new Set(rows.map((row) => row.community_id).filter((id): id is string => id !== null)),
@@ -62,7 +63,7 @@ export async function resolveCommunityIdsAtLevel(
     return [];
   }
 
-  const rows = await prismaClient.$queryRaw<Array<{ community_id: CommunityId }>>(Prisma.sql`
+  const rows = await awaitRetrieval(() => prismaClient.$queryRaw<Array<{ community_id: CommunityId }>>(Prisma.sql`
     WITH RECURSIVE community_ancestors(id, parent_community_id, level) AS (
       SELECT id, parent_community_id, level
       FROM "rag_community_summaries"
@@ -78,7 +79,7 @@ export async function resolveCommunityIdsAtLevel(
     FROM community_ancestors
     WHERE level = ${communityLevel}
     ORDER BY community_id
-  `);
+  `));
 
   return rows.map(({ community_id }) => community_id);
 }

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { prismaClient } from '../../build/helper/prismaClient';
 import { getCurrentNamespace } from '../../namespace/namespaceContext';
+import { awaitRetrieval } from '../retrievalContext';
 
 export interface CommunitySummaryHit {
   id: string;
@@ -26,7 +27,7 @@ export async function searchSimilarCommunitySummaries(
   const levelFilter = communityLevel === undefined
     ? Prisma.empty
     : Prisma.sql`AND "level" = ${communityLevel}`;
-  const rows = await prismaClient.$queryRaw<
+  const rows = await awaitRetrieval(() => prismaClient.$queryRaw<
     Array<{ id: string; similarity: number | string }>
   >(Prisma.sql`
     SELECT "id", 1 - ("summary_embedding" <=> ${query}) AS "similarity"
@@ -36,7 +37,7 @@ export async function searchSimilarCommunitySummaries(
       ${levelFilter}
     ORDER BY "summary_embedding" <=> ${query}
     LIMIT ${topK}
-  `);
+  `));
 
   return rows.map((row) => ({ id: row.id, similarity: Number(row.similarity) }));
 }
@@ -46,7 +47,7 @@ export async function searchSimilarChildChunks(
   topK = 5,
 ): Promise<ChildChunkHit[]> {
   const query = vectorLiteral(queryVector);
-  const rows = await prismaClient.$queryRaw<
+  const rows = await awaitRetrieval(() => prismaClient.$queryRaw<
     Array<{ id: string; content: string; similarity: number | string }>
   >(Prisma.sql`
     SELECT "id", "content", 1 - ("embedding" <=> ${query}) AS "similarity"
@@ -54,7 +55,7 @@ export async function searchSimilarChildChunks(
     WHERE "namespace" = ${getCurrentNamespace()}
     ORDER BY "embedding" <=> ${query}
     LIMIT ${topK}
-  `);
+  `));
 
   return rows.map((row) => ({
     id: row.id,

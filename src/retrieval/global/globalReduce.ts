@@ -4,6 +4,7 @@ import { estimateTokens } from '../../build/detectCommunity/summary/estimateToke
 import { parseLlmJson } from '../../helper/parseLlmJson';
 import { invokeSliceModel } from '../llm';
 import type { GlobalMapAnswer } from '../types/retrieval';
+import { awaitRetrieval } from '../retrievalContext';
 
 export interface GlobalReduceResult {
   answer: string;
@@ -55,7 +56,7 @@ export const generateGlobalReduceAnswer = async (
   answers: readonly GlobalMapAnswer[],
 ): Promise<GlobalReduceResult> => {
   const content = answers.map(formatAnswer).join('\n\n');
-  const prompt = await assmblyAgent({ query, content }, agentRegistry.globalReduce);
+  const prompt = await awaitRetrieval(() => assmblyAgent({ query, content }, agentRegistry.globalReduce));
   const raw = await invokeSliceModel(prompt);
   return { answer: parseGlobalReduceOutput(raw), promptTokens: estimateTokens(prompt) };
 };

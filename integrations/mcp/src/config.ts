@@ -12,6 +12,8 @@ const environmentSchema = z.object({
   MAX_JOB_BYTES: z.coerce.number().int().min(1).default(10_000_000),
   MAX_OUTPUT_CHARS: z.coerce.number().int().min(256).default(8_000),
   QUERY_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(60_000),
+  MAX_ACTIVE_QUERIES: z.coerce.number().int().min(1).max(100).default(4),
+  MAX_RETAINED_VERSIONS: z.coerce.number().int().min(1).max(100).default(3),
   QUEUE_POLL_MS: z.coerce.number().int().min(100).default(1_000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });

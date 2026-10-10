@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig } from '../config.ts';
 import { retrieve, retrieveGlobal } from '../graph-rag.ts';
-import { InputError, pathInputs, textInput } from '../input.ts';
+import { InputError, normalizeSourceLabel, pathInputs, textInput } from '../input.ts';
 import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
@@ -38,63 +38,154 @@ type ToolContext = {
   readonly logger: Logger;
 };
 
-const createQuerySnapshot = ({ store, config, logger }: ToolContext) => async (
+type QueryResult = Awaited<ReturnType<typeof retrieve>> | Awaited<ReturnType<typeof retrieveGlobal>>;
+
+type QueryOutcome =
+  | { readonly status: 'completed'; readonly result: QueryResult }
+  | { readonly status: 'failed'; readonly error: unknown };
+
+type QueryLease = NonNullable<Awaited<ReturnType<IndexStore['acquireActiveVersionLease']>>>;
+
+const startRetrieval = (
+  query: string,
+  mode: 'local' | 'global',
+  maxResults: number,
+  communityLevel: number | undefined,
+  lease: QueryLease,
+  signal: AbortSignal,
+): Promise<QueryOutcome> => {
+  const retrieval = mode === 'global'
+    ? retrieveGlobal(query, lease.namespace, communityLevel, signal)
+    : retrieve(query, lease.namespace, maxResults, communityLevel, signal);
+  return retrieval.then(
+    (result): QueryOutcome => ({ status: 'completed', result }),
+    (error: unknown): QueryOutcome => ({ status: 'failed', error }),
+  );
+};
+
+const renewLeaseWhileQuerying = (
+  store: IndexStore,
+  logger: Logger,
+  leaseId: string,
+  leaseDurationMs: number,
+): ReturnType<typeof setInterval> => setInterval(() => {
+  void store.renewQueryLease(leaseId, leaseDurationMs).catch((error: unknown) => {
+    logger.warn('Could not renew active query snapshot lease.', {
+      error_name: error instanceof Error ? error.name : 'UnknownError',
+    });
+  });
+}, Math.max(1_000, Math.floor(leaseDurationMs / 3)));
+
+const formatQueryOutcome = (
+  outcome: QueryOutcome,
+  lease: QueryLease,
+  maxOutputChars: number,
+) => {
+  if (outcome.status === 'failed') {
+    throw outcome.error;
+  }
+  if ('communityLevel' in outcome.result) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: formatGlobalQueryOutput(outcome.result, lease, maxOutputChars),
+      }],
+    };
+  }
+  if ('communities' in outcome.result) {
+    return {
+      content: [{
+        type: 'text' as const,
+        text: formatQueryOutput(outcome.result, lease, maxOutputChars),
+      }],
+    };
+  }
+  return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
+};
+
+const executeQuery = async (
+  { store, config, logger }: ToolContext,
+  query: string,
+  mode: 'local' | 'global',
+  maxResults: number,
+  communityLevel: number | undefined,
+  releaseQuerySlot: () => void,
+) => {
+  let lease: QueryLease | null = null;
+  let workStarted = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let leaseRenewalHandle: ReturnType<typeof setInterval> | undefined;
+  const leaseDurationMs = Math.max(config.QUERY_TIMEOUT_MS * 2, 60_000);
+
+  try {
+    lease = await store.acquireActiveVersionLease(leaseDurationMs);
+    if (!lease) {
+      return toolErrorResult('INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.');
+    }
+    const activeLease = lease;
+
+    const abortController = new AbortController();
+    leaseRenewalHandle = renewLeaseWhileQuerying(store, logger, activeLease.leaseId, leaseDurationMs);
+    const work = startRetrieval(query, mode, maxResults, communityLevel, activeLease, abortController.signal)
+      .finally(async () => {
+        if (leaseRenewalHandle) {
+          clearInterval(leaseRenewalHandle);
+        }
+        await store.releaseQueryLease(activeLease.leaseId).catch((error: unknown) => {
+          logger.warn('Could not release active query snapshot lease.', {
+            error_name: error instanceof Error ? error.name : 'UnknownError',
+          });
+        });
+        releaseQuerySlot();
+      });
+    workStarted = true;
+
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const error = new ToolError('QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.');
+        abortController.abort(error);
+        reject(error);
+      }, config.QUERY_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([work, timeout]);
+    return formatQueryOutcome(outcome, activeLease, config.MAX_OUTPUT_CHARS);
+  } catch (error) {
+    if (error instanceof ToolError) {
+      return toolErrorResult(error.code, error.message);
+    }
+    logger.error('MCP tool failed.', {
+      tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
+      error_name: error instanceof Error ? error.name : 'UnknownError',
+    });
+    return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    if (!workStarted) {
+      if (lease) {
+        await store.releaseQueryLease(lease.leaseId).catch(() => undefined);
+      }
+      releaseQuerySlot();
+    }
+  }
+};
+
+const createQuerySnapshot = (context: ToolContext) => {
+  let activeQueries = 0;
+  return async (
     query: string,
     mode: 'local' | 'global',
     maxResults: number,
     communityLevel?: number,
   ) => {
-    const version = await store.getActiveVersion();
-    if (!version) {
-      return toolErrorResult('INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.');
+    if (activeQueries >= context.config.MAX_ACTIVE_QUERIES) {
+      return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
     }
-
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const timeout = new Promise<never>((_resolve, reject) => {
-        timeoutHandle = setTimeout(
-          () => reject(new ToolError('QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.')),
-          config.QUERY_TIMEOUT_MS,
-        );
-      });
-      if (mode === 'global') {
-        const result = await Promise.race([retrieveGlobal(query, version.namespace, communityLevel), timeout]);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: formatGlobalQueryOutput(result, version, config.MAX_OUTPUT_CHARS),
-          }],
-        };
-      }
-
-      const result = await Promise.race([
-        retrieve(query, version.namespace, maxResults, communityLevel),
-        timeout,
-      ]);
-      return {
-        content: [{
-          type: 'text' as const,
-          text: formatQueryOutput(result, version, config.MAX_OUTPUT_CHARS),
-        }],
-      };
-    } catch (error) {
-      if (error instanceof ToolError) {
-        return toolErrorResult(error.code, error.message);
-      }
-      logger.error('MCP tool failed.', {
-        tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
-        error_name: error instanceof Error ? error.name : 'UnknownError',
-      });
-      return toolErrorResult(
-        'UPSTREAM_ERROR',
-        'GraphRAG retrieval failed. Check the configured model service and server logs.',
-      );
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-    }
+    activeQueries += 1;
+    return executeQuery(context, query, mode, maxResults, communityLevel, () => { activeQueries -= 1; });
   };
+};
 
 const registerPathInputTool = (server: McpServer, { store, config, logger }: ToolContext): void => {
   server.registerTool(
@@ -111,7 +202,10 @@ const registerPathInputTool = (server: McpServer, { store, config, logger }: Too
         const inputs = await pathInputs(path, config);
         const job = await store.enqueue(
           source
-            ? inputs.map((input) => ({ ...input, sourceLabel: `${source}/${input.sourceLabel}` }))
+            ? inputs.map((input) => ({
+                ...input,
+                sourceLabel: normalizeSourceLabel(`${source}/${input.sourceLabel}`),
+              }))
             : inputs,
         );
         return {

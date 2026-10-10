@@ -37,7 +37,13 @@ const main = async (): Promise<void> => {
     });
     logger.info('GraphRAG MCP service is ready.');
 
-    await new Promise<void>((resolve) => shutdown.signal.addEventListener('abort', () => resolve(), { once: true }));
+    await new Promise<void>((resolve) => {
+      if (shutdown.signal.aborted) {
+        resolve();
+        return;
+      }
+      shutdown.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
     await stopMcp();
     await worker;
   } finally {

@@ -36,15 +36,25 @@ export const retrieve = async (
   namespace: string,
   topK: number,
   communityLevel?: number,
+  signal?: AbortSignal,
 ) =>
   withNamespace(namespace, () => retrievalService.retrieve({
+    namespace,
     query,
     topK,
+    ...(signal ? { signal } : {}),
     ...(communityLevel === undefined ? {} : { options: { communityLevel } }),
   }));
 
-export const retrieveGlobal = async (query: string, namespace: string, communityLevel?: number) =>
+export const retrieveGlobal = async (
+  query: string,
+  namespace: string,
+  communityLevel: number | undefined,
+  signal?: AbortSignal,
+) =>
   withNamespace(namespace, () => retrievalService.retrieveGlobal({
+    namespace,
     query,
+    ...(signal ? { signal } : {}),
     ...(communityLevel === undefined ? {} : { options: { communityLevel } }),
   }));
