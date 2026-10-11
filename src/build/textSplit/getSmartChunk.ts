@@ -44,7 +44,7 @@ export const getSmartChunk = async (
       throw new Error('LLM slice output was empty (no entities/edges)');
     }
 
-    return await Promise.all(llmChunks.map(async (chunk) => {
+    const normalizedChunks = await Promise.all(llmChunks.map(async (chunk) => {
       if (chunk.parentContent.length > defaultChunkSize) {
         const backupChunks = await backupSplitter.splitText(chunk.parentContent);
         return {
@@ -54,6 +54,22 @@ export const getSmartChunk = async (
       }
       return chunk;
     }));
+
+    const sourceChunks = await backupSplitter.splitText(content);
+    const [firstChunk, ...remainingChunks] = normalizedChunks;
+    if (!firstChunk) {
+      throw new Error('LLM slice output did not contain a chunk');
+    }
+    const existingChildChunks = new Set(firstChunk.childChunks);
+    const missingSourceChunks = sourceChunks.filter((chunk) => !existingChildChunks.has(chunk));
+
+    return [
+      {
+        ...firstChunk,
+        childChunks: [...firstChunk.childChunks, ...missingSourceChunks],
+      },
+      ...remainingChunks,
+    ];
   } catch (error) {
     logger.warn('LLM chunk output is unusable; falling back to deterministic splitting', error);
     const fallbackChunks = await backupSplitter.splitText(content);

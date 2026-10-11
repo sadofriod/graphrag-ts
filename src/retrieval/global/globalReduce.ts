@@ -58,5 +58,5 @@ export const generateGlobalReduceAnswer = async (
   const content = answers.map(formatAnswer).join('\n\n');
   const prompt = await awaitRetrieval(() => assmblyAgent({ query, content }, agentRegistry.globalReduce));
   const raw = await invokeSliceModel(prompt);
-  return { answer: parseGlobalReduceOutput(raw), promptTokens: estimateTokens(prompt) };
+  return { answer: parseGlobalReduceOutput(raw), promptTokens: estimateTokens(prompt.prompt) };
 };

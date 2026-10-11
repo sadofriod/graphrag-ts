@@ -12,7 +12,7 @@ test('truncates answers and evidence within the configured response budget', () 
     evidence: [{ text: 'e'.repeat(800), sourceDocumentId: 'notes/a.md' }],
     answer: 'a'.repeat(4000),
   };
-  const output = formatQueryOutput(result, { id: 'version-id', namespace: 'snapshot-id' }, 512);
+  const output = formatQueryOutput(result, { id: 'version-id', workspaceId: 'workspace-a' }, 512);
   const parsed = JSON.parse(output) as {
     answer: string;
     sources: readonly unknown[];
@@ -26,6 +26,25 @@ test('truncates answers and evidence within the configured response budget', () 
   expect(parsed.index_version.id).toBe('version-id');
 });
 
+test('returns more than five source excerpts when they fit the response budget', () => {
+  const result: RetrievalResult = {
+    query: 'question',
+    communities: [],
+    evidence: Array.from({ length: 8 }, (_, index) => ({
+      text: `Relevant excerpt ${index + 1}`,
+      sourceDocumentId: `source-${index + 1}`,
+    })),
+    answer: 'The answer is grounded in the retrieved excerpts.',
+  };
+  const output = formatQueryOutput(result, { id: 'version-id', workspaceId: 'workspace-a' }, 8_000);
+  const parsed = JSON.parse(output) as { sources: readonly { source: string }[]; truncated: boolean };
+
+  expect(parsed.sources).toHaveLength(8);
+  expect(parsed.sources[0]?.source).toBe('source-1');
+  expect(parsed.sources[7]?.source).toBe('source-8');
+  expect(parsed.truncated).toBe(false);
+});
+
 test('formats global search metadata and truncates within the configured response budget', () => {
   const result: GlobalRetrievalResult = {
     query: 'question',
@@ -35,7 +54,7 @@ test('formats global search metadata and truncates within the configured respons
     selectedMapAnswers: [{ answer: 'map answer', usefulness: 0.9, communityIds: ['community-1'] }],
     failedMapBatches: 1,
   };
-  const output = formatGlobalQueryOutput(result, { id: 'version-id', namespace: 'snapshot-id' }, 512);
+  const output = formatGlobalQueryOutput(result, { id: 'version-id', workspaceId: 'workspace-a' }, 512);
   const parsed = JSON.parse(output) as {
     answer: string;
     status: string;

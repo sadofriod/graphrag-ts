@@ -2,6 +2,9 @@
 
 > TypeScript GraphRAG for Markdown corpora. Build a knowledge graph, detect communities, and answer with evidence-backed retrieval.
 
+> **Benchmark & reproducibility / 基准与复现**
+> [English report](examples/output/final-benchmark-report.en.md) · [中文报告](examples/output/final-benchmark-report.md) · [Start the Docker benchmark in five minutes / 五分钟内启动 Docker 基准](#start-the-docker-benchmark-in-five-minutes)
+
 ## Why this project exists
 
 Traditional vector RAG is good at similarity search, but it is limited when you need cross-document structure, entity relationships, and global context. This repository implements a GraphRAG-style pipeline in TypeScript so you can index Markdown content and retrieve answers from a graph-backed knowledge base without a Python runtime or a custom product framework.
@@ -61,9 +64,30 @@ docker compose up -d --build
 curl http://127.0.0.1:3000/healthz
 ```
 
-Connect an MCP client to `http://127.0.0.1:3000/mcp`, then call `submit_index_job` with path `.` to index the mounted sample corpus. Once the job succeeds, use `query_graph` or `query_graph_global`. Embeddings must be 768 dimensions. See [the MCP guide](https://github.com/sadofriod/graphrag-ts/blob/main/integrations/mcp/README.md) for client setup, configuration, and troubleshooting.
+Connect an MCP client to `http://127.0.0.1:3000/mcp`, then call `submit_index_job` with path `.` to index the mounted sample corpus. Once the job succeeds, use `query_graph` or `query_graph_global`. Pass the same optional `workspace_id` (default `default`) when indexing, polling job status, and querying to keep corpora and active snapshots separate. Embeddings must be 768 dimensions. See [the MCP guide](https://github.com/sadofriod/graphrag-ts/blob/main/integrations/mcp/README.md) for an example and the workspace authorization boundary.
 
 Stop the services with `docker compose down`. The PostgreSQL volume is retained; `docker compose down -v` deletes the indexed data.
+
+### Start the Docker benchmark in five minutes
+
+With Docker/Colima installed, `.env` configured, and the chat and 768-dimensional embedding models already loaded and reachable, this path targets starting the Docker stack and beginning the indexing benchmark within five minutes. Five minutes is a time-to-start target, not a promise that indexing and all queries will finish within that time. Model downloads, model loading, and machine/network variance are outside the target.
+
+1. Copy `.env.example` to `.env` and set a strong `POSTGRES_PASSWORD`; set `POSTGRES_PASSWORD_URLENCODED` to its URL-encoded form.
+2. Configure `COMPOSE_RAG_SLICE_*`, `COMPOSE_RAG_JUDGE_*`, and `COMPOSE_RAG_EMBED_*` for reachable, already-loaded models. Set `COMPOSE_RAG_SLICE_PROVIDER=openai` and `COMPOSE_RAG_JUDGE_PROVIDER=openai` for LM Studio/OpenAI-compatible chat APIs. For a host model server on macOS/Windows, use `http://host.docker.internal:1234/v1`; the default embedding model must return 768 dimensions.
+3. Run from the repository root:
+
+```bash
+pnpm benchmark:docker:quick
+```
+
+The command builds and waits for the Compose stack, mounts `examples/quickstart-corpus`, submits the index job through MCP, then continues through three in-corpus queries and prints their latency and recall. The bundled corpus is above the deterministic-split threshold, so indexing exercises LLM graph extraction rather than only vector chunking. It does not erase or reset the named PostgreSQL volume. To stop the stack, run `docker compose down`.
+
+The quick corpus is intentionally small and relation-rich. A previous reference run completed in about 4m46s (image build 43s, service readiness 16s, indexing 183s, three queries 38s); that is one observed completion time, not the five-minute target or a runtime guarantee for the current corpus revision. Its 3/3 quick hits are a smoke test, not the full 12-question benchmark or a cross-project comparison. See the [full benchmark reports](#benchmark-results) for the chapter-grounded evaluation, per-section graph counts, and methodology.
+
+## Benchmark results
+
+- [English: Docker MCP benchmark report](examples/output/final-benchmark-report.en.md)
+- [中文：Docker MCP 基准报告](examples/output/final-benchmark-report.md)
 
 ### Use the library directly
 

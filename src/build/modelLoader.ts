@@ -1,6 +1,7 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { Embeddings } from '@langchain/core/embeddings';
 import { CustomModelConfigType, type CustomModelConfig } from './custom.model.conf.type';
+import type { AgentInvocation } from './agents.md/agentRegistry';
 import { logger } from '../logger';
 import { resolveChatAdapter, resolveEmbeddingAdapter } from './adapter';
 
@@ -12,12 +13,21 @@ export interface ModelLoader {
 
 export const invokeModelText = async (
   model: BaseChatModel,
-  prompt: string,
+  invocation: AgentInvocation,
   signal?: AbortSignal,
 ): Promise<string> => {
+  if (invocation.inputFormat !== 'text') {
+    throw new Error(`Unsupported model input format: ${invocation.inputFormat}`);
+  }
+  const bindableModel = model as unknown as {
+    bind?: (options: { response_format: { type: 'json_object' } }) => BaseChatModel;
+  };
+  const modelForCall = invocation.outputFormat.type === 'json_object' && bindableModel.bind
+    ? bindableModel.bind({ response_format: { type: 'json_object' } })
+    : model;
   const response = signal
-    ? await model.invoke(prompt, { signal })
-    : await model.invoke(prompt);
+    ? await modelForCall.invoke(invocation.prompt, { signal })
+    : await modelForCall.invoke(invocation.prompt);
   if (typeof response === 'string') return response;
   const content = (response as { content?: unknown }).content;
   return typeof content === 'string' ? content : JSON.stringify(content ?? '');
@@ -76,10 +86,7 @@ export const createModelLoaderFromConfig = async (
       return acc;
     }
     const adapter = resolveChatAdapter(conf.provider);
-    acc[conf.type] = adapter({
-      config: conf,
-      isSlice: conf.type === CustomModelConfigType.slice,
-    });
+    acc[conf.type] = adapter({ config: conf });
     return acc;
   }, {} as ModelLoader);
 };

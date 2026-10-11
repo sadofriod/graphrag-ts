@@ -1,10 +1,28 @@
 import { file } from 'bun';
+import {
+  agentRegistry,
+  type AgentInvocation,
+  type AgentTemplateContract,
+  type AgentTemplateName,
+  type AgentTemplateInput,
+} from './agentRegistry';
 
-import { agentRegistry, type AgentTemplateEntry, type AgentTemplateName } from './agentRegistry';
+export type AgentInput = AgentTemplateInput;
 
-export type AgentInput = string | Record<string, string | number | boolean | null | undefined>;
+const outputFormatInstruction = (format: AgentTemplateContract['outputFormat']): string => {
+  if (format.type === 'text') {
+    return '\n\nOutput format: plain text.';
+  }
 
-const resolveTemplateEntry = (templateName: AgentTemplateName): AgentTemplateEntry => {
+  return [
+    '',
+    '',
+    'Output format: return only a JSON object matching this JSON Schema; do not include Markdown or surrounding text.',
+    JSON.stringify(format.schema, null, 2),
+  ].join('\n');
+};
+
+const resolveTemplateEntry = (templateName: AgentTemplateName): AgentTemplateContract => {
   if (typeof templateName === 'string') {
     return agentRegistry[templateName as keyof typeof agentRegistry];
   }
@@ -15,18 +33,25 @@ const resolveTemplateEntry = (templateName: AgentTemplateName): AgentTemplateEnt
 export const assmblyAgent = async (
   input: AgentInput,
   templateName: AgentTemplateName = 'ragSliceAgent',
-): Promise<string> => {
-  const { file: templateFile, dir: templateDir } = resolveTemplateEntry(templateName);
+): Promise<AgentInvocation> => {
+  const entry = resolveTemplateEntry(templateName);
+  const templateLabel = typeof templateName === 'string' ? templateName : templateName.file;
+  const { file: templateFile, dir: templateDir } = entry;
   const template = await file(new URL(`${templateDir}/${templateFile}`, import.meta.url)).text();
 
-  if (typeof input === 'string') {
-    return template.replace(/<input_content\s*\/?>/g, input);
+  const values = typeof input === 'string' ? { content: input } : input;
+  const missingVariables = entry.inputVariables.filter((key) => values[key] === undefined || values[key] === null);
+  if (missingVariables.length > 0) {
+    throw new Error(`Missing ${templateLabel} input fields: ${missingVariables.join(', ')}.`);
   }
 
-  return template
-    .replace(/\$\{input\.([A-Za-z0-9_]+)\}/g, (_, key: string) => {
-      const value = input[key];
-      return value === undefined || value === null ? '' : String(value);
-    })
-    .replace(/<input_content\s*\/?>/g, String(input.content ?? ''));
+  const prompt = template
+    .replace(/\$\{input\.([A-Za-z0-9_]+)\}/g, (_, key: string) => String(values[key] ?? ''))
+    .replace(/<input_content\s*\/?>/g, String(values.content ?? ''));
+
+  return {
+    inputFormat: entry.inputFormat,
+    prompt: `${prompt}${outputFormatInstruction(entry.outputFormat)}`,
+    outputFormat: entry.outputFormat,
+  };
 };

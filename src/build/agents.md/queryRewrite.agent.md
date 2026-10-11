@@ -6,19 +6,5 @@ Your task is to perform "semantic expansion and intent rewriting"(semantic expan
 
 Please strictly follow:
 - Only rewrite based on the given user query; do not fabricate facts.
-- The output must be strict JSON; no Markdown, explanatory text, or code block wrapping is allowed.
-- JSON field names must strictly use the following structure.
 
 User query: ${input.query}
-
-Output requirement: Return a JSON object with the following fields:
-{
-  "rewrittenQuery": "rewritten query",
-  "expandedKeywords": ["expanded keyword"]
-}
-
-Example output:
-{
-  "rewrittenQuery": "Cooperation history between Company A and Company B",
-  "expandedKeywords": ["Company A", "Company B", "cooperation", "timeline", "key milestones"]
-}

@@ -141,14 +141,14 @@ describe('GraphRAGRetrievalService', () => {
       expect(result.communities[0]?.matchedEntities).toContain('A');
       expect(result.communities[0]?.score).toBeTypeOf('number');
       expect(result.evidence).toEqual([
+        { text: 'Source chunk about A and B working together', sourceChunkId: 'child-9' },
+        { text: 'Keyword supplement chunk for A and B', sourceChunkId: 'child-kw' },
         {
           claimId: 'claim-1',
           text: 'A and B have been partners for years',
           sourceDocumentId: 'p1',
           sourceChunkId: 'child-1',
         },
-        { text: 'Source chunk about A and B working together', sourceChunkId: 'child-9' },
-        { text: 'Keyword supplement chunk for A and B', sourceChunkId: 'child-kw' },
       ]);
     } finally {
       restoreMocks();

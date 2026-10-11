@@ -57,26 +57,26 @@ const STOPWORDS = new Set([
   'your',
 ]);
 
-const TOKEN_ALIASES: Record<string, readonly string[]> = {
-  despair: ['despair', 'desperate'],
-  desperate: ['desperate', 'despair'],
-  wretchedness: ['wretchedness', 'wretched'],
-  wretched: ['wretched', 'wretchedness'],
-  mighty: ['mighty', 'great'],
-  great: ['great', 'mighty'],
-  companion: ['companion', 'partner'],
-  partner: ['partner', 'companion'],
-  identity: ['identity', 'self'],
-  self: ['self', 'identity'],
-  female: ['female', 'woman', 'girl'],
-  woman: ['woman', 'female'],
-  girl: ['girl', 'female'],
-  burden: ['burden', 'weight'],
-  weight: ['weight', 'burden'],
-  knowledge: ['knowledge', 'wisdom'],
-  wisdom: ['wisdom', 'knowledge'],
-  execution: ['execution', 'sentence'],
-  sentence: ['sentence', 'execution'],
+const TOKEN_ALIASES: Record<string, string> = {
+  despair: 'despair',
+  desperate: 'despair',
+  wretchedness: 'wretchedness',
+  wretched: 'wretchedness',
+  mighty: 'great',
+  great: 'great',
+  companion: 'companion',
+  partner: 'companion',
+  identity: 'identity',
+  self: 'identity',
+  female: 'female',
+  woman: 'female',
+  girl: 'female',
+  burden: 'burden',
+  weight: 'burden',
+  knowledge: 'knowledge',
+  wisdom: 'knowledge',
+  execution: 'execution',
+  sentence: 'execution',
 };
 
 const normalizeText = (text: string): string =>
@@ -94,7 +94,7 @@ const canonicalizeToken = (token: string): readonly string[] => {
     return [];
   }
 
-  return TOKEN_ALIASES[normalized] ?? [normalized];
+  return [TOKEN_ALIASES[normalized] ?? normalized];
 };
 
 const tokenize = (text: string): string[] =>
@@ -136,15 +136,9 @@ const includesText = (haystack: string, needle: string): boolean => {
     return true;
   }
 
-  const haystackTokens = tokenize(haystack);
-  const needleTokens = tokenize(needle);
-  const overlap = needleTokens.filter((token) => haystackTokens.includes(token)).length;
-  const overlapRatio = needleTokens.length === 0 ? 1 : overlap / needleTokens.length;
-
   return (
     normalizedHaystack.includes(normalizedNeedle) ||
-    includesTokenSequence(normalizedHaystack, normalizedNeedle) ||
-    overlapRatio >= 0.75
+    includesTokenSequence(normalizedHaystack, normalizedNeedle)
   );
 };
 

@@ -10,6 +10,7 @@ import {
 } from './registry';
 import { CustomModelConfigType, type CustomModelConfig } from '../custom.model.conf.type';
 import { createModelLoaderFromConfig } from '../modelLoader';
+import { deepseekChatAdapter } from './chatAdapters';
 
 describe('Adapter Registry - Built-in & Custom Adapters', () => {
   beforeEach(() => {
@@ -20,6 +21,20 @@ describe('Adapter Registry - Built-in & Custom Adapters', () => {
     expect(resolveChatAdapter()).toBeTypeOf('function');
     expect(resolveChatAdapter('openai')).toBeTypeOf('function');
     expect(resolveEmbeddingAdapter()).toBeTypeOf('function');
+  });
+
+  it('does not force JSON response mode for DeepSeek slice calls', () => {
+    const model = deepseekChatAdapter({
+      config: {
+        type: CustomModelConfigType.slice,
+        baseURL: 'https://example.invalid/v1',
+        model: 'test-model',
+        apiKey: 'test-key',
+      },
+    });
+
+    expect((model as unknown as { modelKwargs?: { response_format?: unknown } }).modelKwargs)
+      .not.toHaveProperty('response_format');
   });
 
   it('allows registering and resolving a custom chat adapter', () => {

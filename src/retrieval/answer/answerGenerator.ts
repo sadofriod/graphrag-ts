@@ -19,5 +19,6 @@ export async function generateAnswer(
     agentRegistry.answerGeneration,
   );
 
-  return (await invokeSliceModel(prompt)).trim();
+  const answer = (await invokeSliceModel(prompt)).trim();
+  return answer || 'I could not generate an answer from the retrieved evidence.';
 }

@@ -15,7 +15,7 @@ docker compose up -d --build
 curl http://127.0.0.1:3000/healthz
 ```
 
-The Streamable HTTP endpoint is `http://127.0.0.1:3000/mcp`. After connecting, call `submit_index_job` with path `.` to index the mounted sample corpus, then use `query_graph` or `query_graph_global`. Set `INPUT_HOST_DIR` to use a different local Markdown directory. Embedding models must return 768-dimensional vectors. Never commit a real `.env` file.
+The Streamable HTTP endpoint is `http://127.0.0.1:3000/mcp`. After connecting, call `submit_index_job` with path `.` to index the mounted sample corpus, then use `query_graph` or `query_graph_global`. All indexing, text-ingestion, job-status, and query tools accept `workspace_id`; it defaults to `default` for existing clients. Use the same ID for every operation on a corpus. Set `INPUT_HOST_DIR` to use a different mounted Markdown directory. Embedding models must return 768-dimensional vectors. Never commit a real `.env` file.
 
 PostgreSQL is not exposed on a host port, and MCP is bound to host loopback only. `docker compose down` stops the services but retains the named database volume; `docker compose down -v` deletes the indexed data.
 
@@ -68,13 +68,25 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 
 ## MCP Tools
 
-- `submit_index_job`: enqueue Markdown files from the configured read-only input directory. The input is snapshotted when the job is accepted.
-- `remember_text`: explicitly enqueue supplied text; chat history is never read automatically.
-- `get_index_job`: retrieve job status, timestamps, a safe failure summary, and the published version.
-- `query_graph`: perform local hybrid retrieval, optionally filtered by `community_level`.
-- `query_graph_global`: perform corpus-wide Map-Reduce retrieval at a community level; the default level is `0`.
+- `submit_index_job(workspace_id, path)`: enqueue Markdown files from the configured read-only input directory. The input is snapshotted when the job is accepted.
+- `remember_text(workspace_id, text)`: explicitly enqueue supplied text; chat history is never read automatically.
+- `get_index_job(workspace_id, job_id)`: retrieve a job only when it belongs to the requested workspace.
+- `query_graph(workspace_id, query)`: perform local hybrid retrieval against that workspace's latest published snapshot, optionally filtered by `community_level`.
+- `query_graph_global(workspace_id, query)`: perform corpus-wide Map-Reduce retrieval in that workspace at a community level; the default level is `0`.
 
-The input handler rejects absolute paths, `..`, and symlinks. Defaults limit each file to 2 MB, each job to 10 MB, and each job to 100 files. Queries continue to use the old snapshot during a build; failed builds do not replace the active version.
+`workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
+
+Use the same workspace ID when submitting, polling, and querying:
+
+```json
+{"name":"submit_index_job","arguments":{"workspace_id":"product-docs","path":"."}}
+{"name":"get_index_job","arguments":{"workspace_id":"product-docs","job_id":"<job_id>"}}
+{"name":"query_graph","arguments":{"workspace_id":"product-docs","query":"Which products are mentioned?"}}
+```
+
+Omitting `workspace_id` selects `default`, preserving the original single-workspace behavior. A query in a different, not-yet-indexed workspace returns `INDEX_NOT_READY`; it does not fall back to another workspace's active snapshot.
+
+The input handler rejects absolute paths, `..`, and symlinks. Defaults limit each file to 2 MB, each job to 10 MB, and each job to 100 files. Queries continue to use the old snapshot in the same workspace during a build; failed builds do not replace that workspace's active version.
 
 The server retains the active snapshot and the most recent versions up to `MAX_RETAINED_VERSIONS`. In-flight queries hold renewable leases on their snapshot; failed or interrupted builds have their unpublished namespace removed. `MAX_ACTIVE_QUERIES` bounds retrieval work that remains in progress after a client receives a timeout, across all HTTP sessions. HTTP sessions expire after `HTTP_SESSION_IDLE_TIMEOUT_MS` of inactivity, and at most `MAX_HTTP_SESSIONS` sessions can be open at once.
 
@@ -95,10 +107,22 @@ pnpm --filter graphrag-mcp-server test
 docker compose --env-file .env.example config --quiet
 ```
 
+To run the recall benchmark through a running Docker MCP server, mount the generated benchmark corpus as `INPUT_HOST_DIR` and run:
+
+```sh
+MCP_BENCHMARK_URL=http://127.0.0.1:3000/mcp pnpm --filter graphrag-mcp-server benchmark
+```
+
+The runner submits the mounted corpus through `submit_index_job`, waits for publication, and sends two query sets through `query_graph`. It preserves the original 12 scope probes, marks the five questions whose chapters are indexed as positive controls, and measures explicit refusal, returned sources, and expected-phrase leakage across the seven questions whose chapters are absent. It then reports recall for a separate 12-question set drawn only from indexed chapters. The refusal check is a text-pattern heuristic, so it should be reviewed alongside the returned answers and source excerpts. MCP answer/source recall is not directly comparable to the library benchmark, which evaluates internal evidence and community context.
+
+Set `MCP_BENCHMARK_SKIP_BUILD=true` to reuse the currently published snapshot and rerun only the queries.
+Set `MCP_BENCHMARK_ONLY_IN_CORPUS=true` with `MCP_BENCHMARK_SKIP_BUILD=true` to run only the indexed-corpus recall set.
+Set `MCP_BENCHMARK_PROFILE=quick` to run the three questions bundled with `examples/quickstart-corpus` and omit the scope probes. The repository-root `pnpm benchmark:docker:quick` command selects that corpus, builds/waits for Docker Compose, and runs the benchmark inside the MCP container, so host-side Bun dependencies are not required.
+
 ## Database Initialization
 
-On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version/lease tables and indexes, and add the community hierarchy and summary fingerprint columns required by the current GraphRAG schema. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
+On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version/lease tables and indexes, add the community hierarchy and summary fingerprint columns required by the current GraphRAG schema, and migrate the active-index pointer from the legacy single workspace to per-workspace rows. Existing jobs and versions are assigned to `default`. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
 
 ## Configuration
 
-See the root `.env.example` for all supported settings. Set `POSTGRES_PASSWORD_URLENCODED` to the percent-encoded form of the same raw password in `POSTGRES_PASSWORD`; the raw value is used by PostgreSQL, while the encoded value is used only in the MCP connection URL. Compose reads model endpoint URLs, names, and API keys from the `COMPOSE_RAG_*` variables and maps them to the library's `RAG_*` settings inside the container. HTTP session count and idle timeout, query timeout/concurrency, snapshot retention, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.
+See the root `.env.example` for all supported settings. Set `POSTGRES_PASSWORD_URLENCODED` to the percent-encoded form of the same raw password in `POSTGRES_PASSWORD`; the raw value is used by PostgreSQL, while the encoded value is used only in the MCP connection URL. For models, Compose-specific `COMPOSE_RAG_*` variables take precedence; otherwise it reuses the root `.env` `RAG_*` endpoint, model, provider, and API-key values. Set chat provider to `openai` for LM Studio/OpenAI-compatible endpoints; the container's embedding URL defaults to `http://host.docker.internal:1234/v1` for a model server on the host. HTTP session count and idle timeout, query timeout/concurrency, snapshot retention, input/output limits, worker polling interval, and log level can also be configured through environment variables. Logs go to stderr and do not include document contents or credentials.

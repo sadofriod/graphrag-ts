@@ -1,4 +1,5 @@
 import { prismaClient } from './prismaClient';
+import { upsertRagEntity } from './upsertRagEntity';
 
 export interface GraphEdge {
   source: string;
@@ -72,11 +73,7 @@ const resolveEntities = async (
 
   const records = new Map<string, { id: string }>();
   for (const name of names) {
-    const record = await prismaClient.rAGEntity.upsert({
-      where: { namespace_name: { namespace, name } },
-      update: {},
-      create: { namespace, name },
-    });
+    const record = await upsertRagEntity(namespace, name);
     records.set(name, record);
   }
   return records;

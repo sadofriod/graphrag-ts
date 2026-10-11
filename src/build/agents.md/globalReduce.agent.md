@@ -7,8 +7,3 @@ User query: ${input.query}
 
 Selected intermediate answers and source community IDs:
 <input_content/>
-
-Return only a JSON object with this shape:
-{
-  "answer": "final answer text"
-}

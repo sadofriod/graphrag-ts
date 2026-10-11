@@ -4,7 +4,7 @@ import { createLLMCallLogger } from '../llmCallbacks';
 import { LLM_TIMEOUT_MS } from '../constants';
 import type { ChatModelAdapter } from './types';
 
-export const deepseekChatAdapter: ChatModelAdapter = ({ config, isSlice }) =>
+export const deepseekChatAdapter: ChatModelAdapter = ({ config }) =>
   new ChatDeepSeek({
     apiKey: config.apiKey,
     model: config.model,
@@ -13,13 +13,10 @@ export const deepseekChatAdapter: ChatModelAdapter = ({ config, isSlice }) =>
     configuration: {
       baseURL: config.baseURL,
     },
-    ...(isSlice
-      ? { modelKwargs: { response_format: { type: 'json_object' } as const } }
-      : {}),
     ...(config.options ?? {}),
   });
 
-export const openaiChatAdapter: ChatModelAdapter = ({ config, isSlice }) =>
+export const openaiChatAdapter: ChatModelAdapter = ({ config }) =>
   new ChatOpenAI({
     openAIApiKey: config.apiKey,
     modelName: config.model,
@@ -28,8 +25,5 @@ export const openaiChatAdapter: ChatModelAdapter = ({ config, isSlice }) =>
     configuration: {
       baseURL: config.baseURL,
     },
-    ...(isSlice
-      ? { modelKwargs: { response_format: { type: 'text' } as const } }
-      : {}),
     ...(config.options ?? {}),
   });

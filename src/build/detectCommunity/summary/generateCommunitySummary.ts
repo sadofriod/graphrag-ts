@@ -1,13 +1,14 @@
 import { agentRegistry } from '../../agents.md/agentRegistry';
 import { assmblyAgent } from '../../agents.md/assmblyAgent';
 import { invokeModelText, modelLoaderSingleton } from '../../modelLoader';
+import type { AgentInvocation } from '../../agents.md/agentRegistry';
 import { parseLlmJson } from '../../../helper/parseLlmJson';
 import type { Community, CommunitySummaryResult } from '../types';
 
 const buildCommunitySummaryPrompt = async (
   community: Community,
   inputContent: string,
-): Promise<string> => {
+): Promise<AgentInvocation> => {
   return assmblyAgent(
     {
       communityId: community.id,

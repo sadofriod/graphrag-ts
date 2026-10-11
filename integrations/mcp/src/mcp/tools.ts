@@ -6,6 +6,7 @@ import { InputError, normalizeSourceLabel, pathInputs, textInput } from '../inpu
 import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
+import { workspaceIdSchema } from '../workspace.ts';
 
 class ToolError extends Error {
   readonly code: string;
@@ -124,6 +125,7 @@ const formatQueryOutcome = (
 
 const executeQuery = async (
   { store, config, logger }: ToolContext,
+  workspaceId: string,
   query: string,
   mode: 'local' | 'global',
   maxResults: number,
@@ -137,12 +139,11 @@ const executeQuery = async (
   const leaseDurationMs = Math.max(config.QUERY_TIMEOUT_MS * 2, 60_000);
 
   try {
-    lease = await store.acquireActiveVersionLease(leaseDurationMs);
+    lease = await store.acquireActiveVersionLease(workspaceId, leaseDurationMs);
     if (!lease) {
       return toolErrorResult('INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.');
     }
     const activeLease = lease;
-
     const abortController = new AbortController();
     leaseRenewalHandle = renewLeaseWhileQuerying(store, logger, activeLease.leaseId, leaseDurationMs);
     const work = startRetrieval(query, mode, maxResults, communityLevel, activeLease, abortController.signal)
@@ -158,7 +159,6 @@ const executeQuery = async (
         releaseQuerySlot();
       });
     workStarted = true;
-
     const timeout = new Promise<never>((_resolve, reject) => {
       timeoutHandle = setTimeout(() => {
         const error = new ToolError('QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.');
@@ -195,6 +195,7 @@ const createQuerySnapshot = (
   queryLimiter: ReturnType<typeof createQueryLimiter>,
 ) => {
   return async (
+    workspaceId: string,
     query: string,
     mode: 'local' | 'global',
     maxResults: number,
@@ -204,7 +205,7 @@ const createQuerySnapshot = (
     if (!releaseQuerySlot) {
       return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
     }
-    return executeQuery(context, query, mode, maxResults, communityLevel, releaseQuerySlot);
+    return executeQuery(context, workspaceId, query, mode, maxResults, communityLevel, releaseQuerySlot);
   };
 };
 
@@ -212,13 +213,14 @@ const registerPathInputTool = (server: McpServer, { store, config, logger }: Too
   server.registerTool(
     'submit_index_job',
     {
-      description: 'Queue Markdown files from the configured read-only input directory for indexing.',
+      description: 'Queue Markdown files from the configured read-only input directory in a workspace for indexing. Defaults to workspace "default".',
       inputSchema: {
+        workspace_id: workspaceIdSchema,
         path: z.string().min(1).max(1024),
         source: z.string().max(200).optional(),
       },
     },
-    async ({ path, source }) => {
+    async ({ workspace_id, path, source }) => {
       try {
         const inputs = await pathInputs(path, config);
         const job = await store.enqueue(
@@ -228,11 +230,17 @@ const registerPathInputTool = (server: McpServer, { store, config, logger }: Too
                 sourceLabel: normalizeSourceLabel(`${source}/${input.sourceLabel}`),
               }))
             : inputs,
+          workspace_id,
         );
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify({ job_id: job.id, status: 'queued', queue_position: job.queuePosition }),
+            text: JSON.stringify({
+              job_id: job.id,
+              workspace_id,
+              status: 'queued',
+              queue_position: job.queuePosition,
+            }),
           }],
         };
       } catch (error) {
@@ -246,19 +254,25 @@ const registerTextInputTool = (server: McpServer, { store, config, logger }: Too
   server.registerTool(
     'remember_text',
     {
-      description: 'Explicitly queue user-provided text for indexing; this tool does not read chat history.',
+      description: 'Explicitly queue user-provided text in a workspace; this tool does not read chat history. Defaults to workspace "default".',
       inputSchema: {
+        workspace_id: workspaceIdSchema,
         text: z.string().min(1),
         source: z.string().max(200).optional(),
       },
     },
-    async ({ text, source }) => {
+    async ({ workspace_id, text, source }) => {
       try {
-        const job = await store.enqueue(textInput(text, source, config));
+        const job = await store.enqueue(textInput(text, source, config), workspace_id);
         return {
           content: [{
             type: 'text',
-            text: JSON.stringify({ job_id: job.id, status: 'queued', queue_position: job.queuePosition }),
+            text: JSON.stringify({
+              job_id: job.id,
+              workspace_id,
+              status: 'queued',
+              queue_position: job.queuePosition,
+            }),
           }],
         };
       } catch (error) {
@@ -272,12 +286,15 @@ const registerJobTool = (server: McpServer, { store, logger }: ToolContext): voi
   server.registerTool(
     'get_index_job',
     {
-      description: 'Get the status and safe error summary for an indexing job.',
-      inputSchema: { job_id: z.string().uuid() },
+      description: 'Get the status and safe error summary for a job in a workspace.',
+      inputSchema: {
+        workspace_id: workspaceIdSchema,
+        job_id: z.string().uuid(),
+      },
     },
-    async ({ job_id }) => {
+    async ({ workspace_id, job_id }) => {
       try {
-        const job = await store.getJob(job_id);
+        const job = await store.getJob(job_id, workspace_id);
         if (!job) {
           return toolErrorResult('JOB_NOT_FOUND', 'No indexing job exists with that ID.');
         }
@@ -286,13 +303,16 @@ const registerJobTool = (server: McpServer, { store, logger }: ToolContext): voi
             type: 'text',
             text: JSON.stringify({
               job_id: job.id,
+              workspace_id: job.workspaceId,
               status: job.status,
               phase: job.phase,
               created_at: job.createdAt.toISOString(),
               started_at: job.startedAt?.toISOString() ?? null,
               finished_at: job.finishedAt?.toISOString() ?? null,
               error: job.errorCode ? { code: job.errorCode, summary: job.errorSummary } : null,
-              published_version: job.publishedVersion,
+              published_version: job.publishedVersion
+                ? { id: job.publishedVersion.id, workspace_id: job.publishedVersion.workspaceId }
+                : null,
             }),
           }],
         };
@@ -310,27 +330,30 @@ const registerQueryTools = (
   server.registerTool(
     'query_graph',
     {
-      description: 'Synchronously perform local hybrid retrieval against the latest published GraphRAG snapshot.',
+      description: 'Synchronously perform local hybrid retrieval against the latest published snapshot in a workspace. Defaults to workspace "default".',
       inputSchema: {
+        workspace_id: workspaceIdSchema,
         query: z.string().trim().min(1).max(4000),
         max_results: z.number().int().min(1).max(20).default(5),
         community_level: z.number().int().min(0).optional(),
       },
     },
-    async ({ query, max_results, community_level }) =>
-      querySnapshot(query, 'local', max_results, community_level),
+    async ({ workspace_id, query, max_results, community_level }) =>
+      querySnapshot(workspace_id, query, 'local', max_results, community_level),
   );
 
   server.registerTool(
     'query_graph_global',
     {
-      description: 'Run corpus-wide Map-Reduce retrieval over one community hierarchy level.',
+      description: 'Run corpus-wide Map-Reduce retrieval over one community hierarchy level in a workspace. Defaults to workspace "default".',
       inputSchema: {
+        workspace_id: workspaceIdSchema,
         query: z.string().trim().min(1).max(4000),
         community_level: z.number().int().min(0).optional(),
       },
     },
-    async ({ query, community_level }) => querySnapshot(query, 'global', 5, community_level),
+    async ({ workspace_id, query, community_level }) =>
+      querySnapshot(workspace_id, query, 'global', 5, community_level),
   );
 };
 

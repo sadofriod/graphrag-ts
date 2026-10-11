@@ -12,6 +12,7 @@ export interface RecallQuery {
   query: string;
   topK: number;
   expectation: RecallExpectation;
+  sourceCoverage?: 'indexed' | 'not-indexed';
 }
 
 export interface QueryEvaluation {

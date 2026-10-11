@@ -98,7 +98,7 @@ const makeMapBatches = async (
     { query, content: '' },
     agentRegistry.globalMap,
   ));
-  return buildSummaryBatches(summaries, mapPromptSkeleton, promptBudget);
+  return buildSummaryBatches(summaries, mapPromptSkeleton.prompt, promptBudget);
 };
 
 const generateGlobalResult = async (
@@ -122,7 +122,7 @@ const generateGlobalResult = async (
   ));
   const selectedAnswers = selectGlobalReduceAnswers(
     rankedAnswers,
-    reducePromptSkeleton,
+    reducePromptSkeleton.prompt,
     reducePromptBudget,
   );
   if (selectedAnswers.length === 0) {

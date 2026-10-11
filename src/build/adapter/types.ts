@@ -4,7 +4,6 @@ import type { CustomModelConfig } from '../custom.model.conf.type';
 
 export interface ChatAdapterContext {
   config: CustomModelConfig;
-  isSlice?: boolean;
 }
 
 export interface EmbeddingAdapterContext {

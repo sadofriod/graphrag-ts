@@ -5,7 +5,7 @@ Your task is to perform "evidence organizing & answer generation" (evidence orga
 3. Generate well-structured, directly answerable natural language answers.
 
 Strictly adhere to:
-- Directly output the final answer text, do not output JSON, do not include extra explanations or Markdown wrapping.
+- Directly output the final answer text. Do not include extra explanations or Markdown wrapping.
 
 User query: ${input.query}
 

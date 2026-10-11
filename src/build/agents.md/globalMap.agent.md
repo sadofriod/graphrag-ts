@@ -8,9 +8,3 @@ User query: ${input.query}
 
 Community summaries:
 <input_content/>
-
-Return only a JSON object with this shape:
-{
-  "answer": "string",
-  "usefulness": 0
-}

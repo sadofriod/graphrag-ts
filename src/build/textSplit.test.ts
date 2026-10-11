@@ -3,6 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { buildChildInsertSql } from './helper/buildChildInsertSql';
 import { prismaClient } from './helper/prismaClient';
 import { modelLoaderSingleton } from './modelLoader';
+import { getSmartChunk } from './textSplit/getSmartChunk';
 import { textSplit } from './textSplit/textSplit';
 
 describe('buildChildInsertSql', () => {
@@ -78,6 +79,7 @@ describe('textSplit', () => {
 
   const installFakeTx = (
     createdParents: Array<{ data: { namespace: string; content: string; title?: string } }>,
+    onTransaction?: () => void,
   ) => {
     const originalTransaction = prismaClient.$transaction;
     const fakeTx = {
@@ -89,8 +91,10 @@ describe('textSplit', () => {
       },
       $queryRaw: async () => [{ id: 'child-1' }, { id: 'child-2' }],
     };
-    prismaClient.$transaction = ((callback: (tx: typeof fakeTx) => Promise<unknown>) =>
-      callback(fakeTx)) as never;
+    prismaClient.$transaction = ((callback: (tx: typeof fakeTx) => Promise<unknown>) => {
+      onTransaction?.();
+      return callback(fakeTx);
+    }) as never;
     return { originalTransaction };
   };
 
@@ -135,6 +139,36 @@ describe('textSplit', () => {
       expect(createdParents[0]?.data.title).toBeUndefined();
       expect(createdParents[0]?.data.namespace).toBe('ns-a');
     } finally {
+      prismaClient.$transaction = originalTransaction;
+      restoreModels();
+    }
+  });
+
+  it('waits for embeddings before opening the persistence transaction', async () => {
+    let finishEmbedding!: () => void;
+    let markEmbeddingStarted!: () => void;
+    const embeddingGate = new Promise<void>((resolve) => { finishEmbedding = resolve; });
+    const embeddingStarted = new Promise<void>((resolve) => { markEmbeddingStarted = resolve; });
+    let transactionStarted = false;
+    stubModels({
+      embed: async () => {
+        markEmbeddingStarted();
+        await embeddingGate;
+        return [0.1, 0.2];
+      },
+    });
+    const createdParents: Array<{ data: { namespace: string; content: string; title?: string } }> = [];
+    const { originalTransaction } = installFakeTx(createdParents, () => { transactionStarted = true; });
+
+    try {
+      const splitting = textSplit({ content: 'short text', namespace: 'ns-a', mode: 'deterministic' });
+      await embeddingStarted;
+      expect(transactionStarted).toBe(false);
+      finishEmbedding();
+      await splitting;
+      expect(transactionStarted).toBe(true);
+    } finally {
+      finishEmbedding();
       prismaClient.$transaction = originalTransaction;
       restoreModels();
     }
@@ -290,5 +324,28 @@ describe('textSplit', () => {
       prismaClient.$transaction = originalTransaction;
       restoreModels();
     }
+  });
+});
+
+describe('getSmartChunk', () => {
+  it('preserves verbatim source chunks when LLM child chunks are summaries', async () => {
+    const source = `Chapter VII\n\n${'Alice looked at the table. '.repeat(40)}The March Hare offered her wine. Alice looked all round the table, but there was nothing on it but tea. There isn’t any.`;
+    const sliceModel = {
+      invoke: async () => JSON.stringify([{
+        parentContent: 'Alice is at a tea party.',
+        childChunks: ['The guests talk at the tea party.'],
+        edges: [{ source: 'Alice', target: 'March Hare', relation: 'meets' }],
+        claims: [{ subject: 'Alice', object: 'March Hare', description: 'Alice meets March Hare', childIndex: 0 }],
+        entities: [{ name: 'Alice' }, { name: 'March Hare' }],
+      }]),
+    } as never;
+
+    const chunks = await getSmartChunk(source, sliceModel);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.childChunks).toContain('The guests talk at the tea party.');
+    expect(chunks[0]?.childChunks.some((chunk) => chunk.includes('nothing on it but tea'))).toBe(true);
+    expect(chunks[0]?.claims[0]?.childIndex).toBe(0);
+    expect(chunks[0]?.childChunks[0]).toBe('The guests talk at the tea party.');
   });
 });
