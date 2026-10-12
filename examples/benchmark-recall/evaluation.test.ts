@@ -75,6 +75,17 @@ describe('evaluateRecall', () => {
     expect(evaluation.missingPhrases).toEqual([]);
   });
 
+  it('does not count reordered keywords as a phrase match', () => {
+    const evaluation = evaluateRecall('A writing desk stood near a raven.', {
+      entities: [],
+      phrases: ['raven like a writing desk'],
+    });
+
+    expect(evaluation.phraseRecall).toBe(0);
+    expect(evaluation.hit).toBe(false);
+    expect(evaluation.missingPhrases).toEqual(['raven like a writing desk']);
+  });
+
   it('treats semantically equivalent wording as a valid phrase match', () => {
     const evaluation = evaluateRecall(
       'He was wretched and desperate, and the burden of knowledge left him in misery.',

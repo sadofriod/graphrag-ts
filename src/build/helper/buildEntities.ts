@@ -1,4 +1,4 @@
-import { prismaClient } from './prismaClient';
+import { upsertRagEntity } from './upsertRagEntity';
 
 export interface ChunkEntity {
   name: string;
@@ -21,11 +21,7 @@ export const buildEntities = async (
     if (!name) {
       continue;
     }
-    await prismaClient.rAGEntity.upsert({
-      where: { namespace_name: { namespace, name } },
-      update: description ? { description } : {},
-      create: { namespace, name, ...(description ? { description } : {}) },
-    });
+    await upsertRagEntity(namespace, name, description);
     written += 1;
   }
 

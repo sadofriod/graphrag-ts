@@ -11,26 +11,7 @@ You are a data processing expert proficient in knowledge graphs and RAG architec
    - childIndex points to the index in childChunks for precise tracing; omit if not applicable.
    - Each parent block outputs at most 3 to 5 claims; avoid overly long output.
 5. Extract "entity descriptions": Provide a brief one-sentence description for each core entity, used for node-level summaries in community summaries; omit description if not available.
-6. Please strictly output in the following JSON format, without any extra explanation.
-
-[
-  {
-    "parentContent": "Full parent block text...",
-    "childChunks": [
-      "Child chunk fact 1...",
-      "Child chunk fact 2..."
-    ],
-    "edges": [
-      { "source": "Source entity", "target": "Target entity", "relation": "Relationship description" }
-    ],
-    "claims": [
-      { "subject": "Entity A", "object": "Entity B", "description": "Original fact statement about Entity A/Entity B", "childIndex": 0 }
-    ],
-    "entities": [
-      { "name": "Entity A", "description": "One-sentence description of Entity A" }
-    ]
-  }
-]
+6. Keep every childIndex aligned with the childChunks array in its parent block.
 
 The following is the input text to process:
 

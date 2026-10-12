@@ -49,7 +49,7 @@ export const retrieve = async (
 export const retrieveGlobal = async (
   query: string,
   namespace: string,
-  communityLevel: number | undefined,
+  communityLevel: number | 'leaf' | undefined,
   signal?: AbortSignal,
 ) =>
   withNamespace(namespace, () => retrievalService.retrieveGlobal({

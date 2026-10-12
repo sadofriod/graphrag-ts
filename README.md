@@ -2,308 +2,54 @@
 
 > TypeScript GraphRAG for Markdown corpora. Build a knowledge graph, detect communities, and answer with evidence-backed retrieval.
 
-## Why this project exists
+> **Benchmarks / 基准报告**
+> [English report](examples/output/final-benchmark-report.en.md) · [中文报告](examples/output/final-benchmark-report.md)
 
-Traditional vector RAG is good at similarity search, but it is limited when you need cross-document structure, entity relationships, and global context. This repository implements a GraphRAG-style pipeline in TypeScript so you can index Markdown content and retrieve answers from a graph-backed knowledge base without a Python runtime or a custom product framework.
+## Overview
 
-The project is designed for practical backend use:
+`graphrag-ts` is a TypeScript GraphRAG reference implementation for Markdown corpora. It builds a knowledge graph in PostgreSQL and answers questions with hybrid retrieval and source evidence, without requiring a Python runtime.
 
-- ingest Markdown files and split them into chunks
-- extract entities, edges, and claims
-- store graph data in PostgreSQL via Prisma
-- detect communities and build community summaries
-- support incremental ingestion with SHA-256 diffing and cascade document pruning
-- differential community summary updates (0 LLM cost for unchanged communities)
-- fuse vector, keyword, and topology-based recall for retrieval
-- generate answers from evidence instead of raw model output alone
+- Markdown ingestion, entity/relationship extraction, and community detection
+- Full and incremental builds, with unchanged community summaries reused
+- Hybrid vector, keyword, and graph retrieval, plus corpus-wide Map-Reduce queries
+- MCP server with isolated workspaces and a local browser showcase
 
-## What it gives you
-
-- a readable GraphRAG reference implementation in TypeScript
-- database-backed persistence for entities, claims, edges, and communities
-- full and incremental builds (`buildIncrementalRAG` / `startIncrementalBuild` / `deleteRAGDocument`)
-- namespace-aware builds for multi-tenant or multi-corpus usage
-- hybrid retrieval that combines semantic, keyword, and graph signals
-- deterministic fallback behavior when model-based chunking fails
-- a small public API that is easy to embed in an application service
-
-## Core pipeline
-
-```mermaid
-flowchart LR
-    MD[Markdown files] --> SPLIT[Chunking and slicing]
-    SPLIT --> GRAPH[Entity + edge + claim graph]
-    GRAPH --> COMM[Community detection]
-    COMM --> SUMMARY[Community summaries]
-    Q[User query] --> INTENT[Intent parsing]
-    INTENT --> HYBRID[Hybrid recall: vector + keyword + community]
-    HYBRID --> EVIDENCE[Evidence aggregation]
-    EVIDENCE --> ANSWER[Grounded answer]
-```
-
-The implementation matches this flow in the codebase:
-
-- `src/build/` handles slicing, graph construction, and community detection
-- `src/retrieval/` handles query parsing, ranking, evidence selection, and answer generation
-- `prisma/schema.prisma` defines the persisted GraphRAG tables
-- `src/index.ts` exposes the main runtime injection and public API
+See [the architecture guide](docs/architecture.md) for the pipeline and module details.
 
 ## Quick start
 
-### Try it through MCP with Docker Compose
+### MCP with Docker Compose
 
-The MCP server provides a ready-to-run local experience. It starts PostgreSQL with pgvector and an MCP HTTP service; an OpenAI-compatible chat and embedding endpoint must be available separately. The default input mount uses the Markdown corpus in `examples/sample-corpus`.
+The Compose stack starts PostgreSQL/pgvector and the MCP service. You must provide reachable chat and embedding endpoints; see the [MCP guide](integrations/mcp/README.md) for configuration, client setup, and workspace behavior.
 
 ```bash
 cp .env.example .env
-# Set a strong POSTGRES_PASSWORD and configure the model endpoint and names.
+# Configure the database password and model endpoints in .env.
 docker compose up -d --build
 curl http://127.0.0.1:3000/healthz
 ```
 
-Connect an MCP client to `http://127.0.0.1:3000/mcp`, then call `submit_index_job` with path `.` to index the mounted sample corpus. Once the job succeeds, use `query_graph` or `query_graph_global`. Embeddings must be 768 dimensions. See [the MCP guide](https://github.com/sadofriod/graphrag-ts/blob/main/integrations/mcp/README.md) for client setup, configuration, and troubleshooting.
+Connect an MCP client to `http://127.0.0.1:3000/mcp`. For the optional local browser showcase, configure the models and run `docker compose --profile showcase up -d --build --wait`, then open `http://127.0.0.1:8080`. The showcase is a local demo, not an authentication layer; do not expose it to untrusted users.
 
-Stop the services with `docker compose down`. The PostgreSQL volume is retained; `docker compose down -v` deletes the indexed data.
-
-### Use the library directly
+### Use the library
 
 ```bash
-# install dependencies
 pnpm install
-
-# generate Prisma client
 pnpm run db:generate
-
-# copy environment variables
 cp .env.example .env
-
-# apply the schema
+# Configure DATABASE_URL and RAG_* model settings; see the guides below.
 pnpm run db:push
-
-# run tests
-bun test
-
-# run the demo
 bun run examples/demo.ts
 ```
 
-## Requirements
+The library requires Bun, PostgreSQL with pgvector, and compatible chat and embedding endpoints. See the [English guide](docs/en-US.md) or [中文指南](docs/zh-CN.md) for environment setup, API examples, adapters, and tuning.
 
-Before running the project, make sure you have:
+## Benchmark
 
-- [pnpm](https://pnpm.io/) 10+
-- [Bun](https://bun.sh) 1.1+
-- PostgreSQL with [pgvector](https://github.com/pgvector/pgvector) enabled
-- a chat model for slicing and judging
-- an embedding model compatible with OpenAI-style APIs
+The reported in-corpus run reached 10/12 strict hits and 95.8% combined lexical recall on 12 questions from five indexed chapters. This is a small project benchmark, not human semantic grading or a cross-project comparison. The reports include methodology, per-query results, and limitations.
 
-## Runtime configuration
-
-This repo expects configuration to be provided by the caller. The model loader reads environment variables from `src/build/modelLoader.ts`.
-
-```bash
-DATABASE_URL="postgresql://user:pass@localhost:5432/graphrag?schema=public"
-
-RAG_SLICE_API_KEY="your-slice-key"
-RAG_SLICE_MODEL="deepseek-chat"
-RAG_SLICE_BASE_URL="https://api.deepseek.com/"
-
-RAG_JUDGE_API_KEY="your-judge-key"
-RAG_JUDGE_MODEL="deepseek-chat"
-RAG_JUDGE_BASE_URL="https://api.deepseek.com/"
-
-RAG_EMBED_API_KEY="your-embedding-key"
-RAG_EMBED_MODEL="local-embedding-model"
-RAG_EMBED_BASE_URL="http://127.0.0.1:1234/v1"
-```
-
-Typical runtime injection pattern:
-
-```ts
-import { PrismaClient } from '@prisma/client';
-import {
-  injectGraphRAG,
-  GraphRAGRetrievalService,
-  startBuild,
-  createBuildRegistry,
-} from '@ashes_born/graph-rag-ts';
-
-await injectGraphRAG({
-  database: {
-    client: new PrismaClient({ datasourceUrl: process.env.DATABASE_URL }),
-  },
-  models: [
-    {
-      type: 'slice',
-      baseURL: process.env.RAG_SLICE_BASE_URL!,
-      model: process.env.RAG_SLICE_MODEL!,
-      apiKey: process.env.RAG_SLICE_API_KEY!,
-    },
-    {
-      type: 'judge',
-      baseURL: process.env.RAG_JUDGE_BASE_URL!,
-      model: process.env.RAG_JUDGE_MODEL!,
-      apiKey: process.env.RAG_JUDGE_API_KEY!,
-    },
-    {
-      type: 'embedding',
-      baseURL: process.env.RAG_EMBED_BASE_URL!,
-      model: process.env.RAG_EMBED_MODEL!,
-      apiKey: process.env.RAG_EMBED_API_KEY!,
-    },
-  ],
-});
-
-const registry = createBuildRegistry();
-const buildId = startBuild(
-  [{ title: 'sample.md', content: 'Alice works with Bob at Acme Corp.' }],
-  registry,
-  'demo-namespace',
-);
-
-const service = new GraphRAGRetrievalService();
-const result = await service.retrieve({
-  namespace: 'demo-namespace',
-  query: 'Who works with Alice?',
-  topK: 5,
-});
-
-console.log(result.answer);
-```
-
-For corpus-wide questions, `retrieveGlobal` applies Map-Reduce to every community summary at one hierarchy level:
-
-```ts
-const globalResult = await service.retrieveGlobal({
-  namespace: 'demo-namespace',
-  query: 'What themes and trends appear across the corpus?',
-  options: { communityLevel: 0 },
-});
-
-console.log(globalResult.answer);
-console.log(globalResult.selectedMapAnswers); // usefulness scores and source community IDs
-```
-
-The global path defaults to hierarchy level `0`, batches summaries by token budget, maps batches concurrently, then ranks intermediate answers before the Reduce call. It is separate from `retrieve(...)`, which continues to perform hybrid local retrieval.
-
-## Public API
-
-This repo exposes a compact API surface that matches the implementation (available via root package or subpaths like `@ashes_born/graph-rag-ts/incremental`):
-
-### Ingestion & Incremental APIs
-
-- `startBuild(...)` / `startIncrementalBuild(...)`: starts an async full/incremental build job and returns a build ID
-- `buildRAG(...)` / `buildIncrementalRAG(...)`: runs full/incremental pipeline and returns `BuildSummary`
-- `deleteRAGDocument(...)`: cascades deletion of a document, its chunks, graph edges, and claims
-- `diffDocuments(...)` / `computeCommunityFingerprint(...)`: incremental comparison and topological fingerprint utilities
-- `createBuildRegistry()`: tracks build lifecycle state
-- `GraphRAGRetrievalService`: executes hybrid retrieval and evidence-grounded answer generation
-- `GraphRAGRetrievalService.retrieveGlobal(...)`: runs hierarchical community-summary Map-Reduce retrieval
-- `injectGraphRAG(...)`: injects Prisma, model config, and optional defaults
-- `registerChatAdapter(provider, adapter)` / `registerEmbeddingAdapter(provider, adapter)`: register custom LangChain models (e.g. Anthropic, Ollama, Google GenAI)
-
-### Custom LangChain Model Adapters
-
-You can register any LangChain-compatible model via the adapter layer:
-
-```ts
-import { registerChatAdapter, registerEmbeddingAdapter } from '@ashes_born/graph-rag-ts';
-import { ChatAnthropic } from '@langchain/anthropic';
-import { OllamaEmbeddings } from '@langchain/ollama';
-
-// Register custom chat adapter
-registerChatAdapter('anthropic', ({ config, isSlice }) => {
-  return new ChatAnthropic({
-    anthropicApiKey: config.apiKey,
-    modelName: config.model,
-  });
-});
-
-// Register custom embedding adapter
-registerEmbeddingAdapter('ollama', ({ config }) => {
-  return new OllamaEmbeddings({
-    baseUrl: config.baseURL,
-    model: config.model,
-  });
-});
-```
-- `injectModelConfigs(...)`: initializes model adapters from config objects
-- `injectPrismaClient(...)`: installs the shared Prisma client
-
-Repository layout:
-
-- `src/build/`: chunking, graph construction, community detection, registry
-- `src/retrieval/`: query parsing, recall, ranking, evidence selection, answer generation
-- `src/namespace/`: namespace scoping and isolation
-- `src/config/`: default retrieval/build tuning values
-- `examples/`: demo and benchmark scripts
-- `docs/`: architecture and comparison notes
-
-## Tuning and defaults
-
-The project supports global runtime defaults via `injectGraphRAG(...)`, and request-level overrides via the `retrieve(...)` options object. The production defaults live in `src/config/defaults.ts`.
-
-```ts
-await injectGraphRAG({
-  retrievalDefaults: {
-    topK: 8,
-    vectorChildTopK: 12,
-    keywordSearchLimit: 24,
-    evidenceChildLimit: 40,
-    rrfK: 80,
-    globalMapTokenBudget: 8000,
-    globalReduceTokenBudget: 8000,
-    globalMapOutputReserve: 512,
-    globalReduceOutputReserve: 1024,
-    globalMapConcurrency: 4,
-  },
-  buildDefaults: {
-    maxChunkSize: 800,
-    chunkOverlapRatio: 0.1,
-  },
-});
-```
-
-Example per-request tuning:
-
-```ts
-const result = await service.retrieve({
-  query: 'Who is Irene Adler?',
-  topK: 6,
-  options: {
-    communityLevel: 1,
-    vectorChildTopK: 20,
-    keywordSearchLimit: 30,
-    evidenceChildLimit: 50,
-    rrfK: 80,
-  },
-});
-```
-
-These knobs control the retrieval window and ranking behavior:
-
-- `topK`: community-level candidate count
-- `communityLevel`: optional zero-based hierarchy level; omit it to preserve mixed-level summary recall and leaf-level topology recall
-- `vectorChildTopK`: child chunks returned by vector search
-- `keywordSearchLimit`: keyword-matched child chunks
-- `evidenceChildLimit`: evidence merge cap
-- `rrfK`: reciprocal rank fusion sensitivity
-- `globalMapTokenBudget` / `globalReduceTokenBudget`: total estimated context budgets for each global Map/Reduce call
-- `globalMapOutputReserve` / `globalReduceOutputReserve`: input budget reserved for generated output
-- `globalMapConcurrency`: maximum number of concurrent global Map calls
-- `maxChunkSize` and `chunkOverlapRatio`: deterministic chunking fallback
-
-## Demo and benchmark
-
-```bash
-# demo build + retrieval
-bun run examples/demo.ts
-
-# benchmark recall metrics
-bun run demo:benchmark
-```
-
-The benchmark script evaluates retrieval quality against generated Markdown corpora and reports real metrics for the persisted GraphRAG namespace. It is intended to validate the actual build and retrieval pipeline instead of relying on mocked behavior.
+The English and Chinese reports are linked at the top of this page.
+To run the three-question Docker smoke benchmark, use `pnpm benchmark:docker:quick` with the model endpoints configured and loaded. See the [MCP guide](integrations/mcp/README.md) for prerequisites and the report for benchmark scope.
 
 ## Documentation
 

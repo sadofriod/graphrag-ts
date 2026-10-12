@@ -6,21 +6,5 @@ Your task is to perform "query understanding and intent decomposition" (query un
 
 Please strictly follow:
 - Only rely on the given user query, do not fabricate.
-- Output must be strict JSON; no Markdown, explanatory text, or code block wrapping is allowed.
-- JSON field names must strictly use the following structure.
 
 User query: ${input.query}
-
-Output requirement: return a JSON object with the following fields:
-{
-  "entities": ["entity name"],
-  "keywords": ["keyword"],
-  "themes": ["theme"]
-}
-
-Example output:
-{
-  "entities": ["Company A", "Company B"],
-  "keywords": ["cooperation", "background"],
-  "themes": ["cooperative relationship", "historical evolution"]
-}

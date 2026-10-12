@@ -3,11 +3,14 @@ import { readFile } from 'node:fs/promises';
 import { Pool, type PoolClient } from 'pg';
 import { fileURLToPath } from 'node:url';
 import type { JobInput } from './input.ts';
+import { createPublisher } from './publisher.ts';
+import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
 export type JobRecord = {
   readonly id: string;
+  readonly workspaceId: WorkspaceId;
   readonly status: JobStatus;
   readonly phase: string | null;
   readonly createdAt: Date;
@@ -15,7 +18,7 @@ export type JobRecord = {
   readonly finishedAt: Date | null;
   readonly errorCode: string | null;
   readonly errorSummary: string | null;
-  readonly publishedVersion: { readonly id: string; readonly namespace: string } | null;
+  readonly publishedVersion: { readonly id: string; readonly workspaceId: WorkspaceId } | null;
 };
 
 export type SourceRecord = {
@@ -27,12 +30,14 @@ export type SourceRecord = {
 export type BuildSource = Pick<SourceRecord, 'sourceLabel' | 'content'>;
 
 export type ActiveSnapshot = {
+  readonly workspaceId: WorkspaceId;
   readonly version: { readonly id: string; readonly namespace: string } | null;
   readonly sources: readonly SourceRecord[];
 };
 
 type DatabaseJob = {
   id: string;
+  workspace_id: string;
   status: JobStatus;
   phase: string | null;
   created_at: Date;
@@ -41,11 +46,11 @@ type DatabaseJob = {
   error_code: string | null;
   error_summary: string | null;
   version_id: string | null;
-  namespace: string | null;
 };
 
 const asJobRecord = (row: DatabaseJob): JobRecord => ({
   id: row.id,
+  workspaceId: row.workspace_id,
   status: row.status,
   phase: row.phase,
   createdAt: row.created_at,
@@ -54,12 +59,12 @@ const asJobRecord = (row: DatabaseJob): JobRecord => ({
   errorCode: row.error_code,
   errorSummary: row.error_summary,
   publishedVersion:
-    row.version_id && row.namespace
-      ? { id: row.version_id, namespace: row.namespace }
+    row.version_id
+      ? { id: row.version_id, workspaceId: row.workspace_id }
       : null,
 });
 
-type Transaction = <Result>(operation: (client: PoolClient) => Promise<Result>) => Promise<Result>;
+export type Transaction = <Result>(operation: (client: PoolClient) => Promise<Result>) => Promise<Result>;
 
 const deleteGraphNamespace = async (client: PoolClient, namespace: string): Promise<void> => {
   await client.query('DELETE FROM rag_claims WHERE namespace = $1', [namespace]);
@@ -138,17 +143,27 @@ const ensureGraphSchema = async (pool: Pool): Promise<void> => {
 };
 
 const migrate = async (pool: Pool): Promise<void> => {
-  for (const migration of ['001_init.sql', '002_hierarchical_communities.sql']) {
+  for (const migration of [
+    '001_init.sql',
+    '002_hierarchical_communities.sql',
+    '003_workspace_routing.sql',
+  ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
   }
 };
 
 const createQueueOperations = (pool: Pool, transaction: Transaction) => {
-  const enqueue = async (inputs: readonly JobInput[]): Promise<{ id: string; queuePosition: number }> => {
+  const enqueue = async (
+    inputs: readonly JobInput[],
+    workspaceId: WorkspaceId = DEFAULT_WORKSPACE_ID,
+  ): Promise<{ id: string; queuePosition: number }> => {
     const id = randomUUID();
     return transaction(async (client) => {
-      await client.query('INSERT INTO index_jobs (id, status, phase) VALUES ($1, $2, $3)', [id, 'queued', 'queued']);
+      await client.query(
+        'INSERT INTO index_jobs (id, workspace_id, status, phase) VALUES ($1, $2, $3, $4)',
+        [id, workspaceId, 'queued', 'queued'],
+      );
       for (const [ordinal, input] of inputs.entries()) {
         await client.query(
           `INSERT INTO job_inputs (job_id, ordinal, source_label, content, content_hash, media_type)
@@ -158,17 +173,18 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
       }
       const position = await client.query<{ position: string }>(
         `SELECT count(*)::text AS position FROM index_jobs
-         WHERE status = 'queued' AND (created_at, id) <= (SELECT created_at, id FROM index_jobs WHERE id = $1)`,
-        [id],
+         WHERE workspace_id = $2 AND status = 'queued'
+           AND (created_at, id) <= (SELECT created_at, id FROM index_jobs WHERE id = $1)`,
+        [id, workspaceId],
       );
       return { id, queuePosition: Number(position.rows[0]?.position ?? 1) };
     });
   };
 
-  const claimNextJob = async (): Promise<{ id: string } | null> =>
+  const claimNextJob = async (): Promise<{ id: string; workspaceId: WorkspaceId } | null> =>
     transaction(async (client) => {
-      const result = await client.query<{ id: string }>(
-        `SELECT id FROM index_jobs WHERE status = 'queued'
+      const result = await client.query<{ id: string; workspace_id: string }>(
+        `SELECT id, workspace_id FROM index_jobs WHERE status = 'queued'
          ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`,
       );
       const job = result.rows[0];
@@ -180,20 +196,20 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
          WHERE id = $1`,
         [job.id],
       );
-      return job;
+      return { id: job.id, workspaceId: job.workspace_id };
     });
 
   return { enqueue, claimNextJob };
 };
 
 const createJobOperations = (pool: Pool, transaction: Transaction) => {
-  const getJob = async (id: string): Promise<JobRecord | null> => {
+  const getJob = async (id: string, workspaceId: WorkspaceId): Promise<JobRecord | null> => {
     const result = await pool.query<DatabaseJob>(
-      `SELECT j.id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
-              j.error_code, j.error_summary, v.id AS version_id, v.namespace
+      `SELECT j.id, j.workspace_id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
+              j.error_code, j.error_summary, v.id AS version_id
        FROM index_jobs j LEFT JOIN index_versions v ON v.id = j.published_version_id
-       WHERE j.id = $1`,
-      [id],
+       WHERE j.id = $1 AND j.workspace_id = $2`,
+      [id, workspaceId],
     );
     const row = result.rows[0];
     return row ? asJobRecord(row) : null;
@@ -243,14 +259,19 @@ const createJobOperations = (pool: Pool, transaction: Transaction) => {
   return { fail, getInputs, getJob, recoverInterruptedJobs, setPhase };
 };
 
-const getActiveSnapshot = async (pool: Pool): Promise<ActiveSnapshot> => {
+const getActiveSnapshot = async (
+  pool: Pool,
+  workspaceId: WorkspaceId,
+): Promise<ActiveSnapshot> => {
   const active = await pool.query<{ id: string; namespace: string }>(
     `SELECT v.id, v.namespace FROM active_index a
-     JOIN index_versions v ON v.id = a.version_id WHERE a.singleton = true`,
+      JOIN index_versions v ON v.id = a.version_id AND v.workspace_id = a.workspace_id
+      WHERE a.workspace_id = $1`,
+    [workspaceId],
   );
   const version = active.rows[0] ?? null;
   if (!version) {
-    return { version: null, sources: [] };
+    return { workspaceId, version: null, sources: [] };
   }
   const sources = await pool.query<SourceRecord>(
     `SELECT s.id, s.source_label AS "sourceLabel", s.content
@@ -258,16 +279,20 @@ const getActiveSnapshot = async (pool: Pool): Promise<ActiveSnapshot> => {
      WHERE vs.version_id = $1 ORDER BY s.created_at, s.id`,
     [version.id],
   );
-  return { version, sources: sources.rows };
+  return { workspaceId, version, sources: sources.rows };
 };
 
 const createQueryLeaseOperations = (pool: Pool, transaction: Transaction) => {
-  const acquireActiveVersionLease = async (leaseDurationMs: number) =>
+  const acquireActiveVersionLease = async (
+    workspaceId: WorkspaceId,
+    leaseDurationMs: number,
+  ) =>
     transaction(async (client) => {
       const result = await client.query<{ id: string; namespace: string }>(
         `SELECT v.id, v.namespace FROM active_index a
-         JOIN index_versions v ON v.id = a.version_id
-         WHERE a.singleton = true FOR SHARE OF a, v`,
+         JOIN index_versions v ON v.id = a.version_id AND v.workspace_id = a.workspace_id
+         WHERE a.workspace_id = $1 FOR SHARE OF a, v`,
+        [workspaceId],
       );
       const version = result.rows[0];
       if (!version) {
@@ -280,7 +305,7 @@ const createQueryLeaseOperations = (pool: Pool, transaction: Transaction) => {
          VALUES ($1, $2, now() + ($3 * interval '1 millisecond'))`,
         [leaseId, version.id, leaseDurationMs],
       );
-      return { ...version, leaseId };
+      return { ...version, workspaceId, leaseId };
     });
 
   const renewQueryLease = async (leaseId: string, leaseDurationMs: number): Promise<void> => {
@@ -299,10 +324,14 @@ const createQueryLeaseOperations = (pool: Pool, transaction: Transaction) => {
 };
 
 const createSnapshotBuildOperations = (pool: Pool, transaction: Transaction) => ({
-  beginSnapshot: async (jobId: string, namespace: string): Promise<void> => {
+  beginSnapshot: async (
+    jobId: string,
+    namespace: string,
+    workspaceId: WorkspaceId,
+  ): Promise<void> => {
     await pool.query(
-      'INSERT INTO building_snapshots (namespace, job_id) VALUES ($1, $2)',
-      [namespace, jobId],
+      'INSERT INTO building_snapshots (namespace, job_id, workspace_id) VALUES ($1, $2, $3)',
+      [namespace, jobId, workspaceId],
     );
   },
   discardSnapshot: async (namespace: string): Promise<void> =>
@@ -313,18 +342,24 @@ const createSnapshotBuildOperations = (pool: Pool, transaction: Transaction) => 
 });
 
 const createSnapshotPruner = (transaction: Transaction) => async (
+  workspaceId: WorkspaceId,
   maxRetainedVersions: number,
 ): Promise<number> => transaction(async (client) => {
   await client.query('DELETE FROM version_query_leases WHERE expires_at <= now()');
   const staleVersions = await client.query<{ id: string; namespace: string }>(
     `WITH ranked AS (
-       SELECT id, row_number() OVER (ORDER BY published_at DESC, id DESC) AS position
-       FROM index_versions
+       SELECT id, row_number() OVER (
+         PARTITION BY workspace_id ORDER BY published_at DESC, id DESC
+       ) AS position
+       FROM index_versions WHERE workspace_id = $2
      ), stale AS (
        SELECT v.id, v.namespace
        FROM index_versions v JOIN ranked r ON r.id = v.id
-       WHERE r.position > $1
-         AND NOT EXISTS (SELECT 1 FROM active_index a WHERE a.version_id = v.id)
+       WHERE r.position > $1 AND v.workspace_id = $2
+         AND NOT EXISTS (
+           SELECT 1 FROM active_index a
+           WHERE a.workspace_id = $2 AND a.version_id = v.id
+         )
          AND NOT EXISTS (
            SELECT 1 FROM version_query_leases l
            WHERE l.version_id = v.id AND l.expires_at > now()
@@ -332,7 +367,7 @@ const createSnapshotPruner = (transaction: Transaction) => async (
        FOR UPDATE OF v SKIP LOCKED
      )
      SELECT id, namespace FROM stale`,
-    [maxRetainedVersions],
+    [maxRetainedVersions, workspaceId],
   );
 
   for (const version of staleVersions.rows) {
@@ -345,67 +380,9 @@ const createSnapshotPruner = (transaction: Transaction) => async (
 const createSnapshotQueries = (pool: Pool, transaction: Transaction) => ({
   ...createQueryLeaseOperations(pool, transaction),
   ...createSnapshotBuildOperations(pool, transaction),
-  getActiveSnapshot: () => getActiveSnapshot(pool),
+  getActiveSnapshot: (workspaceId: WorkspaceId) => getActiveSnapshot(pool, workspaceId),
   pruneSnapshots: createSnapshotPruner(transaction),
 });
-
-const createPublisher = (pool: Pool, transaction: Transaction) => async (
-  jobId: string,
-  versionId: string,
-  namespace: string,
-  previousSourceIds: readonly string[],
-): Promise<void> => {
-  await transaction(async (client) => {
-    const job = await client.query<{ status: JobStatus }>(
-      'SELECT status FROM index_jobs WHERE id = $1 FOR UPDATE',
-      [jobId],
-    );
-    if (job.rows[0]?.status !== 'running') {
-      throw new Error('Index job is no longer running.');
-    }
-    await client.query(
-      'INSERT INTO index_versions (id, namespace, created_by_job_id) VALUES ($1, $2, $3)',
-      [versionId, namespace, jobId],
-    );
-
-    const inputs = await client.query<{
-      source_label: string;
-      content: string;
-      content_hash: string;
-    }>(
-      `SELECT source_label, content, content_hash FROM job_inputs
-       WHERE job_id = $1 ORDER BY ordinal`,
-      [jobId],
-    );
-    const newSourceIds: string[] = [];
-    for (const input of inputs.rows) {
-      const sourceId = randomUUID();
-      newSourceIds.push(sourceId);
-      await client.query(
-        `INSERT INTO knowledge_sources (id, created_by_job_id, source_label, content, content_hash)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [sourceId, jobId, input.source_label, input.content, input.content_hash],
-      );
-    }
-    for (const sourceId of [...previousSourceIds, ...newSourceIds]) {
-      await client.query(
-        'INSERT INTO index_version_sources (version_id, source_id) VALUES ($1, $2)',
-        [versionId, sourceId],
-      );
-    }
-    await client.query(
-      `INSERT INTO active_index (singleton, version_id) VALUES (true, $1)
-       ON CONFLICT (singleton) DO UPDATE SET version_id = EXCLUDED.version_id, updated_at = now()`,
-      [versionId],
-    );
-    await client.query(
-      `UPDATE index_jobs SET status = 'succeeded', phase = 'published',
-       finished_at = now(), published_version_id = $2 WHERE id = $1`,
-      [jobId, versionId],
-    );
-    await client.query('DELETE FROM building_snapshots WHERE namespace = $1', [namespace]);
-  });
-};
 
 export const createStore = (databaseUrl: string) => {
   const pool = new Pool({ connectionString: databaseUrl, max: 10 });
@@ -421,7 +398,7 @@ export const createStore = (databaseUrl: string) => {
     ...queueOperations,
     ...createJobOperations(pool, transaction),
     ...createSnapshotQueries(pool, transaction),
-    publish: createPublisher(pool, transaction),
+    publish: createPublisher(transaction),
   };
 };
 

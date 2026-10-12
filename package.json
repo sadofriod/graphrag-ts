@@ -47,6 +47,7 @@
     "db:push": "prisma db push",
     "demo": "bun run examples/demo.ts",
     "demo:benchmark": "bun run examples/benchmark-recall-demo.ts",
+    "benchmark:docker:quick": "INPUT_HOST_DIR=./examples/quickstart-corpus docker compose up -d --build --wait && INPUT_HOST_DIR=./examples/quickstart-corpus docker compose exec -T mcp-server env MCP_BENCHMARK_URL=http://127.0.0.1:3000/mcp MCP_BENCHMARK_PROFILE=quick bun scripts/benchmark.ts",
     "graphrag-ts": "bun run examples/local-demo.ts"
   },
   "dependencies": {

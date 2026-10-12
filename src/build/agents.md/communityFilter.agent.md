@@ -6,19 +6,8 @@ Given a user query and a list of candidate communities (each in the format "comm
 
 Please strictly follow:
 - Only select from the candidate communities; do not output community ids outside the candidates.
-- The output must be strictly JSON, with no Markdown, explanatory text, or code block wrapping allowed.
 
 User query: ${input.query}
 
 Candidate communities:
 <input_content/>
-
-Output requirement: Return a JSON object with the following fields:
-{
-  "selectedCommunityIds": ["community id"]
-}
-
-Example output:
-{
-  "selectedCommunityIds": ["c1", "c3"]
-}

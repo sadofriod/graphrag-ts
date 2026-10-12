@@ -32,4 +32,20 @@ describe('generateAnswer', () => {
       modelLoaderSingleton.models = originalModels;
     }
   });
+
+  it('returns a clear abstention when the model response is blank', async () => {
+    const originalModels = modelLoaderSingleton.models;
+    modelLoaderSingleton.models = {
+      embedding: {},
+      slice: { invoke: async () => '  \n  ' },
+    } as never;
+
+    try {
+      const answer = await generateAnswer('q', [], evidence);
+
+      expect(answer).toBe('I could not generate an answer from the retrieved evidence.');
+    } finally {
+      modelLoaderSingleton.models = originalModels;
+    }
+  });
 });

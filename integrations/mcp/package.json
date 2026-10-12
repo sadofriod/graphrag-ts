@@ -11,7 +11,8 @@
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
     "db:push": "bun src/db-push.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "benchmark": "bun scripts/benchmark.ts"
   },
   "dependencies": {
     "@ashes_born/graph-rag-ts": "workspace:*",

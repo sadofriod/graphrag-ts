@@ -19,6 +19,7 @@ const buildInputFiles = (sources: readonly BuildSource[]) =>
 
 const processJob = async (
   jobId: string,
+  workspaceId: string,
   store: IndexStore,
   config: AppConfig,
   logger: Logger,
@@ -27,18 +28,24 @@ const processJob = async (
   try {
     await store.setPhase(jobId, 'preparing');
     const [active, inputs] = await Promise.all([
-      store.getActiveSnapshot(),
+      store.getActiveSnapshot(workspaceId),
       store.getInputs(jobId),
     ]);
     namespace = `snapshot-${randomUUID()}`;
     const versionId = randomUUID();
-    await store.beginSnapshot(jobId, namespace);
+    await store.beginSnapshot(jobId, namespace, workspaceId);
     await store.setPhase(jobId, 'building');
     await buildSnapshot(buildInputFiles([...active.sources, ...inputs]), namespace);
     await store.setPhase(jobId, 'publishing');
-    await store.publish(jobId, versionId, namespace, active.sources.map((source) => source.id));
+    await store.publish(
+      jobId,
+      versionId,
+      namespace,
+      workspaceId,
+      active.sources.map((source) => source.id),
+    );
     try {
-      const removedVersions = await store.pruneSnapshots(config.MAX_RETAINED_VERSIONS);
+      const removedVersions = await store.pruneSnapshots(workspaceId, config.MAX_RETAINED_VERSIONS);
       if (removedVersions > 0) {
         logger.info('Expired GraphRAG snapshots removed.', { count: removedVersions });
       }
@@ -88,7 +95,7 @@ export const runWorker = async (
       }
 
       logger.info('Index job claimed.', { job_id: job.id });
-      await processJob(job.id, store, config, logger);
+      await processJob(job.id, job.workspaceId, store, config, logger);
     }
   } finally {
     await lockClient.query('SELECT pg_advisory_unlock(739284729384::bigint)').catch(() => undefined);

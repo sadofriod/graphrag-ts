@@ -10,8 +10,15 @@ export const saveChunkResults = async (
   title?: string,
 ): Promise<SplitResult[]> =>
   Promise.all(
-    results.map((chunk) =>
-      prismaClient.$transaction(async (tx) => {
+    results.map(async (chunk) => {
+      const embeddedChildren = await Promise.all(
+        chunk.childChunks.map(async (content) => ({
+          content,
+          embedding: await embeddingModel.embedQuery(content),
+        })),
+      );
+
+      return prismaClient.$transaction(async (tx) => {
         const parent = await tx.rAGParent.create({
           data: {
             namespace,
@@ -20,13 +27,11 @@ export const saveChunkResults = async (
           },
         });
 
-        const createdChildren = await Promise.all(
-          chunk.childChunks.map(async (childContent) => ({
-            parentId: parent.id,
-            content: childContent,
-            embedding: await embeddingModel.embedQuery(childContent),
-          })),
-        );
+        const createdChildren = embeddedChildren.map(({ content, embedding }) => ({
+          parentId: parent.id,
+          content,
+          embedding,
+        }));
         const result: SplitResult = {
           parentId: parent.id,
           childIds: [],
@@ -41,6 +46,6 @@ export const saveChunkResults = async (
           result.childIds = inserted.map((row) => row.id);
         }
         return result;
-      }),
-    ),
+      });
+    }),
   );

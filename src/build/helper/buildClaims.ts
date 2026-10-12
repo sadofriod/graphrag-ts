@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { prismaClient } from './prismaClient';
+import { upsertRagEntity } from './upsertRagEntity';
 
 export interface ChunkClaim {
   subject: string;
@@ -50,11 +51,7 @@ const resolveEntityIds = async (names: readonly string[], namespace: string) => 
   const entityIds = new Map<string, string>();
   await Promise.all(
     names.map(async (name) => {
-      const record = await prismaClient.rAGEntity.upsert({
-        where: { namespace_name: { namespace, name } },
-        update: {},
-        create: { namespace, name },
-      });
+      const record = await upsertRagEntity(namespace, name);
       entityIds.set(name, record.id);
     }),
   );

@@ -1,12 +1,13 @@
 import type { RecallQuery } from './types';
 
-export const RECALL_QUERIES: readonly RecallQuery[] = [
+export const CORPUS_SCOPE_QUERIES: readonly RecallQuery[] = [
   {
     id: 'alice-rabbit-hole',
     source: "Alice's Adventures in Wonderland",
     focus: 'rabbit-hole opening scene',
     query: 'What did Alice notice about the White Rabbit before following it down the rabbit-hole?',
     topK: 6,
+    sourceCoverage: 'indexed',
     expectation: {
       entities: ['Alice', 'White Rabbit'],
       phrases: ['waistcoat-pocket', 'ORANGE MARMALADE', 'large rabbit-hole'],
@@ -18,6 +19,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Mad Tea-Party',
     query: 'At the Mad Tea-Party, who asks the raven riddle and why is it always tea-time?',
     topK: 6,
+    sourceCoverage: 'indexed',
     expectation: {
       entities: ['Alice', 'Hatter', 'March Hare', 'Dormouse'],
       phrases: ['raven like a writing-desk', "it's always tea-time", 'murdering the time'],
@@ -29,6 +31,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Dormouse story',
     query: 'What story does the Dormouse tell while Alice is at the tea-party?',
     topK: 6,
+    sourceCoverage: 'indexed',
     expectation: {
       entities: ['Alice', 'Dormouse', 'March Hare', 'Hatter'],
       phrases: ['three little sisters', 'sister, and a good deal of tea'],
@@ -40,6 +43,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Caterpillar scene',
     query: 'What advice does the Caterpillar give Alice about her size and identity?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Alice', 'Caterpillar'],
       phrases: ['you are old enough to know your own mind', 'size that you are'],
@@ -51,6 +55,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'creation scene',
     query: 'What happens on the dreary night of November when Victor completes his experiment?',
     topK: 6,
+    sourceCoverage: 'indexed',
     expectation: {
       entities: ['Victor Frankenstein', 'Elizabeth', 'Henry Clerval'],
       phrases: ['dreary night of November', 'dull yellow eye', 'lifeless thing'],
@@ -62,6 +67,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'De Lacey cottage narrative',
     query: 'What does the creature learn while hiding near the De Lacey family cottage?',
     topK: 6,
+    sourceCoverage: 'indexed',
     expectation: {
       entities: ['De Lacey', 'Agatha', 'Felix', 'Safie'],
       phrases: ['articulate sounds', 'fire, milk, bread, and wood', 'Volney'],
@@ -73,6 +79,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Justine trial',
     query: 'How does Victor react when Justine is accused and condemned for William’s murder?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Victor Frankenstein', 'Justine', 'William'],
       phrases: ['sudden darkness', 'the innocence of Justine'],
@@ -84,6 +91,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Mont Blanc journey',
     query: 'What emotional state does Victor describe on his journey through the Alps and to Mont Blanc?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Victor Frankenstein', 'Mont Blanc'],
       phrases: ['mighty Alps', 'wretchedness and despair'],
@@ -95,6 +103,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Queen of Hearts trial',
     query: 'How does Alice respond when the Queen of Hearts demands an execution and accuses everyone in the court?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Alice', 'Queen of Hearts', 'King of Hearts'],
       phrases: ['off with their heads', 'trial of the Knave'],
@@ -106,6 +115,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Caterpillar identity scene',
     query: 'What does the Caterpillar say about Alice being a little girl or a grown-up and why does that matter?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Alice', 'Caterpillar'],
       phrases: ['you are old enough to know your own mind', 'size that you are'],
@@ -117,6 +127,7 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'creature requests a companion',
     query: 'What does the creature demand from Victor before he can be at peace, and why is it so important to him?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Victor Frankenstein', 'Creature', 'Elizabeth'],
       phrases: ['female companion', 'my feelings will find a place'],
@@ -128,9 +139,238 @@ export const RECALL_QUERIES: readonly RecallQuery[] = [
     focus: 'Walton conversation',
     query: 'What does Victor confess to Walton about his obsession and the cost of his creation?',
     topK: 6,
+    sourceCoverage: 'not-indexed',
     expectation: {
       entities: ['Victor Frankenstein', 'Walton', 'Creature'],
       phrases: ['wretchedness and despair', 'burden of knowledge'],
     },
   },
 ];
+
+export const IN_CORPUS_RECALL_QUERIES: readonly RecallQuery[] = [
+  {
+    id: 'corpus-alice-rabbit-watch',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter I rabbit watch',
+    query: 'What did the White Rabbit take from its waistcoat-pocket, and what did Alice do next?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Alice', 'White Rabbit'],
+      phrases: ['watch out of its waistcoat-pocket', 'large rabbit-hole under the hedge'],
+    },
+  },
+  {
+    id: 'corpus-alice-marmalade-jar',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter I falling jar',
+    query: 'What was written on the jar Alice found while falling, and was there anything in it?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Alice'],
+      phrases: ['ORANGE MARMALADE', 'it was empty'],
+    },
+  },
+  {
+    id: 'corpus-alice-rabbit-eyes',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter I rabbit appearance',
+    query: 'What color were the White Rabbit’s eyes, and what did he say as he ran past Alice?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['White Rabbit', 'Alice'],
+      phrases: ['pink eyes', 'I shall be late'],
+    },
+  },
+  {
+    id: 'corpus-alice-tea-party-guests',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter VII tea party guests',
+    query: 'Who was having tea under the tree when Alice arrived, and where was the Dormouse sitting?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Alice', 'March Hare', 'Hatter', 'Dormouse'],
+      phrases: ['under a tree', 'sitting between them'],
+    },
+  },
+  {
+    id: 'corpus-alice-no-wine',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter VII tea offer',
+    query: 'What did Alice find on the table after the March Hare offered her wine?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Alice', 'March Hare'],
+      phrases: ['nothing on it but tea', 'There isn’t any'],
+    },
+  },
+  {
+    id: 'corpus-alice-hatter-riddle',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter VII raven riddle',
+    query: 'What riddle did the Hatter ask Alice at the tea party?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Hatter', 'Alice'],
+      phrases: ['Why is a raven like a writing-desk'],
+    },
+  },
+  {
+    id: 'corpus-alice-dormouse-story',
+    source: "Alice's Adventures in Wonderland",
+    focus: 'chapter VII Dormouse story',
+    query: 'What story did the Dormouse begin telling, and what did the three sisters live on?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Dormouse', 'Alice'],
+      phrases: ['three little sisters', 'They lived on treacle'],
+    },
+  },
+  {
+    id: 'corpus-frankenstein-creation-eye',
+    source: 'Frankenstein',
+    focus: 'chapter 5 creature awakens',
+    query: 'What did Victor see when the creature first came to life?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Victor', 'creature'],
+      phrases: ['dull yellow eye', 'convulsive motion agitated its limbs'],
+    },
+  },
+  {
+    id: 'corpus-frankenstein-victor-reaction',
+    source: 'Frankenstein',
+    focus: 'chapter 5 Victor flees',
+    query: 'How did Victor react after seeing the creature awake?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Victor', 'Elizabeth'],
+      phrases: ['rushed out of the room', 'breathless horror and disgust'],
+    },
+  },
+  {
+    id: 'corpus-frankenstein-clerval-arrival',
+    source: 'Frankenstein',
+    focus: 'chapter 5 Clerval arrives',
+    query: 'How did Henry Clerval arrive in Ingolstadt, and how did Victor feel when he saw him?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Henry Clerval', 'Victor'],
+      phrases: ['Swiss diligence', 'calm and serene joy'],
+    },
+  },
+  {
+    id: 'corpus-frankenstein-cottage-words',
+    source: 'Frankenstein',
+    focus: 'chapter 12 creature learns words',
+    query: 'Which words did the creature first learn from listening to the De Lacey family?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Agatha', 'Felix', 'father'],
+      phrases: ['fire, milk, bread, and wood', 'sister or Agatha'],
+    },
+  },
+  {
+    id: 'corpus-frankenstein-safie-arrives',
+    source: 'Frankenstein',
+    focus: 'chapter 13 Safie arrives',
+    query: 'How did Safie arrive at the cottage, and how many words did she learn in her first lesson?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Safie', 'Felix'],
+      phrases: ['on horseback', 'about twenty words at the first lesson'],
+    },
+  },
+];
+
+export const QUICKSTART_RECALL_QUERIES: readonly RecallQuery[] = [
+  {
+    id: 'quickstart-workshop-coordination',
+    source: 'Northstar Community Lab',
+    focus: 'catalogue and equipment responsibilities',
+    query: 'Who maintains the public catalogue, and what equipment does Owen Patel maintain?',
+    topK: 5,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Maya Chen', 'Owen Patel'],
+      phrases: ['public catalogue', 'laser cutter', 'ventilation filters'],
+    },
+  },
+  {
+    id: 'quickstart-roof-closure',
+    source: 'Northstar Community Lab',
+    focus: 'fabrication room closure',
+    query: 'Why was the fabrication room closed, and which lab services remained open?',
+    topK: 5,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Maya', 'Owen', 'Lena Ortiz'],
+      phrases: ['heavy rainstorm damaged the roof', 'electronics bench', 'lending desk'],
+    },
+  },
+  {
+    id: 'quickstart-soldering-kit-loan',
+    source: 'Northstar Community Lab',
+    focus: 'soldering kit lending policy',
+    query: 'How long can members borrow a portable soldering kit, and where do they return it?',
+    topK: 5,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Maya'],
+      phrases: ['seven days', 'return it to the same desk'],
+    },
+  },
+];
+
+export const GLOBAL_MAP_REDUCE_QUERIES: readonly RecallQuery[] = [
+  {
+    id: 'global-alice-creature-learning',
+    source: 'Alice and Frankenstein',
+    focus: 'Dormouse tea-party story and creature language learning',
+    query: 'What does the Dormouse describe at the tea party, and what does Frankenstein’s creature learn from observing the cottagers?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Dormouse', 'creature', 'cottagers'],
+      phrases: ['three little sisters', 'articulate sounds'],
+    },
+  },
+  {
+    id: 'global-victor-creation-cost',
+    source: 'Frankenstein',
+    focus: 'creature awakening and immediate consequences',
+    query: 'What does Victor see when the creature first awakens, and how does the experience affect him afterward?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Victor', 'creature'],
+      phrases: ['dull yellow eye', 'nervous fever'],
+    },
+  },
+];
+
+export const INCREMENTAL_UPDATE_QUERY: RecallQuery = {
+  id: 'incremental-alice-archive-note',
+  source: "Alice's Adventures in Wonderland",
+  focus: 'fact added by incremental update',
+  query: 'What does Alice keep in the west observatory?',
+  topK: 6,
+  sourceCoverage: 'indexed',
+  expectation: {
+    entities: ['Alice', 'silver compass'],
+    phrases: ['west observatory', 'new archive'],
+  },
+};
+
+export const RECALL_QUERIES = IN_CORPUS_RECALL_QUERIES;

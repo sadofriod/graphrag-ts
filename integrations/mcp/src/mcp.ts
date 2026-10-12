@@ -204,6 +204,7 @@ export const startMcpServer = async (
   const httpServer = Bun.serve({
     hostname: config.MCP_HOST,
     port: config.MCP_PORT,
+    idleTimeout: Math.min(255, Math.ceil(config.QUERY_TIMEOUT_MS / 1_000) + 5),
     fetch: createHttpHandler(store, config, logger, sessions, queryLimiter),
   });
   logger.info('MCP server listening on HTTP.', { host: config.MCP_HOST, port: config.MCP_PORT });

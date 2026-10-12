@@ -278,13 +278,13 @@ export class GraphRAGRetrievalService {
     const selected = await awaitRetrieval(() => selectFinalCommunities(query, ranked, true));
 
     const evidence = [
-      ...selected.flatMap((community) =>
-        fetchCommunityDetails(community.id, communities, edges, claims).evidence,
-      ),
       ...childChunks.map((chunk) => ({
         text: chunk.content,
         sourceChunkId: chunk.id,
       })),
+      ...selected.flatMap((community) =>
+        fetchCommunityDetails(community.id, communities, edges, claims).evidence,
+      ),
     ];
 
     const answer = await awaitRetrieval(() => generateAnswer(

@@ -31,7 +31,7 @@ describe('buildEdges', () => {
       const { where } = args as { where: { namespace_name: { namespace: string; name: string } } };
       const name = where.namespace_name.name;
       return Promise.resolve({ id: name === 'Alpha' ? 'entity-alpha' : 'entity-zulu', name }) as never;
-    }) as typeof prismaClient.rAGEntity.upsert;
+    }) as unknown as typeof prismaClient.rAGEntity.upsert;
 
     prismaClient.rAGGraphEdge.upsert = ((args: unknown) => {
       edgeUpsertCalls.push(args);
@@ -76,6 +76,44 @@ describe('buildEdges', () => {
       });
     } finally {
       prismaClient.rAGEntity.upsert = originalEntityUpsert;
+      prismaClient.rAGGraphEdge.upsert = originalEdgeUpsert;
+    }
+  });
+
+  it('reuses the concurrently created entity after a unique-key upsert race', async () => {
+    const originalEntityUpsert = prismaClient.rAGEntity.upsert;
+    const originalEntityFindUnique = prismaClient.rAGEntity.findUnique;
+    const originalEdgeUpsert = prismaClient.rAGGraphEdge.upsert;
+    let alphaUpserted = false;
+    const entityFinds: unknown[] = [];
+
+    prismaClient.rAGEntity.upsert = ((args: unknown) => {
+      const { where } = args as { where: { namespace_name: { namespace: string; name: string } } };
+      const name = where.namespace_name.name;
+      if (name === 'Alpha' && !alphaUpserted) {
+        alphaUpserted = true;
+        return Promise.reject(Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }));
+      }
+      return Promise.resolve({ id: `entity-${name.toLowerCase()}`, name }) as never;
+    }) as unknown as typeof prismaClient.rAGEntity.upsert;
+
+    prismaClient.rAGEntity.findUnique = ((args: unknown) => {
+      entityFinds.push(args);
+      return Promise.resolve({ id: 'entity-alpha', name: 'Alpha' }) as never;
+    }) as typeof prismaClient.rAGEntity.findUnique;
+
+    prismaClient.rAGGraphEdge.upsert = (() => Promise.resolve({ id: 'edge-1' })) as never;
+
+    try {
+      await buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], 'parent-1', 'ns-a');
+
+      expect(entityFinds).toEqual([{
+        where: { namespace_name: { namespace: 'ns-a', name: 'Alpha' } },
+        select: { id: true },
+      }]);
+    } finally {
+      prismaClient.rAGEntity.upsert = originalEntityUpsert;
+      prismaClient.rAGEntity.findUnique = originalEntityFindUnique;
       prismaClient.rAGGraphEdge.upsert = originalEdgeUpsert;
     }
   });
