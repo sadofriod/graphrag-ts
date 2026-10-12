@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.12 — 2026-10-12
+
+- **feat**: add React GraphRAG web showcase
+- **feat**: improve GraphRAG retrieval and MCP workspace routing
+- Merge pull request #10 from sadofriod/feat/workspace-routing-benchmark
+- update readme
+- optimize benchmark & global research
+
 ## 0.1.11 — 2026-10-10
 
 - **feat(mcp)**: add Docker Compose GraphRAG server
