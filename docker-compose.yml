@@ -63,5 +63,17 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  showcase:
+    build:
+      context: .
+      dockerfile: examples/web-demo/Dockerfile
+    profiles: [showcase]
+    ports:
+      - "127.0.0.1:${SHOWCASE_PORT:-8080}:80"
+    depends_on:
+      mcp-server:
+        condition: service_started
+    restart: unless-stopped
+
 volumes:
   postgres_data:

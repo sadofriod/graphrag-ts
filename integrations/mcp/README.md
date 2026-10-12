@@ -17,6 +17,8 @@ curl http://127.0.0.1:3000/healthz
 
 The Streamable HTTP endpoint is `http://127.0.0.1:3000/mcp`. After connecting, call `submit_index_job` with path `.` to index the mounted sample corpus, then use `query_graph` or `query_graph_global`. All indexing, text-ingestion, job-status, and query tools accept `workspace_id`; it defaults to `default` for existing clients. Use the same ID for every operation on a corpus. Set `INPUT_HOST_DIR` to use a different mounted Markdown directory. Embedding models must return 768-dimensional vectors. Never commit a real `.env` file.
 
+For the optional browser showcase, configure reachable slice, judge, and embedding models first, then run `docker compose --profile showcase up -d --build --wait` from the repository root and open `http://127.0.0.1:8080`. A model/API failure is shown in the page as an error dialog; check the `COMPOSE_RAG_*` endpoint, model, API key, provider, and embedding dimensions in `.env`. Example values in `.env.example` do not mean a model server is running.
+
 PostgreSQL is not exposed on a host port, and MCP is bound to host loopback only. `docker compose down` stops the services but retains the named database volume; `docker compose down -v` deletes the indexed data.
 
 ## VS Code with Docker and Environment Injection

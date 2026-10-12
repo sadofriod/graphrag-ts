@@ -66,6 +66,20 @@ curl http://127.0.0.1:3000/healthz
 
 Connect an MCP client to `http://127.0.0.1:3000/mcp`, then call `submit_index_job` with path `.` to index the mounted sample corpus. Once the job succeeds, use `query_graph` or `query_graph_global`. Pass the same optional `workspace_id` (default `default`) when indexing, polling job status, and querying to keep corpora and active snapshots separate. Embeddings must be 768 dimensions. See [the MCP guide](https://github.com/sadofriod/graphrag-ts/blob/main/integrations/mcp/README.md) for an example and the workspace authorization boundary.
 
+#### Two-step first run
+
+1. Configure working slice, judge, and 768-dimensional embedding endpoints in `.env`. For an OpenAI-compatible local server, set the `COMPOSE_RAG_*_BASE_URL`, `COMPOSE_RAG_*_MODEL`, and `COMPOSE_RAG_*_API_KEY` values; `host.docker.internal` is the host address from Docker on macOS/Windows. The Compose defaults are examples, not proof that a model is running.
+2. To use the browser showcase, run `docker compose --profile showcase up -d --build --wait`, then open `http://127.0.0.1:8080`. The page submits a real index job and displays local/global retrieval results. If the MCP service or a model endpoint is unavailable, it shows an error dialog with configuration guidance. The existing MCP-only path remains available with `docker compose up -d --build`.
+
+The showcase is an optional local demo, not a production web application or an authentication layer. Keep it bound to localhost; do not expose it to untrusted users.
+
+#### Two-step first run
+
+1. Configure working slice, judge, and 768-dimensional embedding endpoints in `.env`. For an OpenAI-compatible local server, set the `COMPOSE_RAG_*_BASE_URL`, `COMPOSE_RAG_*_MODEL`, and `COMPOSE_RAG_*_API_KEY` values; `host.docker.internal` is the host address from Docker on macOS/Windows. The Compose defaults are examples, not proof that a model is running.
+2. To use the browser showcase, run `docker compose --profile showcase up -d --build --wait`, then open `http://127.0.0.1:8080`. The page submits a real index job and displays local/global retrieval results. If the MCP service or a model endpoint is unavailable, it shows an error dialog with configuration guidance. The existing MCP-only path remains available with `docker compose up -d --build`.
+
+The showcase is an optional local demo, not a production web application or an authentication layer. Keep it bound to localhost; do not expose it to untrusted users.
+
 Stop the services with `docker compose down`. The PostgreSQL volume is retained; `docker compose down -v` deletes the indexed data.
 
 ### Start the Docker benchmark in five minutes
