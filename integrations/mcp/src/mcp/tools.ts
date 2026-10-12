@@ -66,17 +66,24 @@ export const createQueryLimiter = (limit: number) => {
   };
 };
 
+export const communityLevelSchema = z.number().int().min(0).optional();
+
+export const globalCommunityLevelSchema = z.union([
+  z.number().int().min(0),
+  z.literal('leaf'),
+]).optional();
+
 const startRetrieval = (
   query: string,
   mode: 'local' | 'global',
   maxResults: number,
-  communityLevel: number | undefined,
+  communityLevel: number | 'leaf' | undefined,
   lease: QueryLease,
   signal: AbortSignal,
 ): Promise<QueryOutcome> => {
   const retrieval = mode === 'global'
     ? retrieveGlobal(query, lease.namespace, communityLevel, signal)
-    : retrieve(query, lease.namespace, maxResults, communityLevel, signal);
+    : retrieve(query, lease.namespace, maxResults, communityLevel === 'leaf' ? undefined : communityLevel, signal);
   return retrieval.then(
     (result): QueryOutcome => ({ status: 'completed', result }),
     (error: unknown): QueryOutcome => ({ status: 'failed', error }),
@@ -129,7 +136,7 @@ const executeQuery = async (
   query: string,
   mode: 'local' | 'global',
   maxResults: number,
-  communityLevel: number | undefined,
+  communityLevel: number | 'leaf' | undefined,
   releaseQuerySlot: () => void,
 ) => {
   let lease: QueryLease | null = null;
@@ -199,7 +206,7 @@ const createQuerySnapshot = (
     query: string,
     mode: 'local' | 'global',
     maxResults: number,
-    communityLevel?: number,
+    communityLevel?: number | 'leaf',
   ) => {
     const releaseQuerySlot = queryLimiter.tryAcquire();
     if (!releaseQuerySlot) {
@@ -335,7 +342,7 @@ const registerQueryTools = (
         workspace_id: workspaceIdSchema,
         query: z.string().trim().min(1).max(4000),
         max_results: z.number().int().min(1).max(20).default(5),
-        community_level: z.number().int().min(0).optional(),
+        community_level: communityLevelSchema,
       },
     },
     async ({ workspace_id, query, max_results, community_level }) =>
@@ -345,11 +352,11 @@ const registerQueryTools = (
   server.registerTool(
     'query_graph_global',
     {
-      description: 'Run corpus-wide Map-Reduce retrieval over one community hierarchy level in a workspace. Defaults to workspace "default".',
+      description: 'Run corpus-wide Map-Reduce retrieval over leaf communities by default, or one exact level when community_level is an integer. Use "leaf" to select all terminal communities. Defaults to workspace "default".',
       inputSchema: {
         workspace_id: workspaceIdSchema,
         query: z.string().trim().min(1).max(4000),
-        community_level: z.number().int().min(0).optional(),
+        community_level: globalCommunityLevelSchema,
       },
     },
     async ({ workspace_id, query, community_level }) =>

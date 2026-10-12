@@ -16,7 +16,7 @@ import { buildSummaryBatches } from './summaryBatcher';
 const NO_RESULTS_ANSWER = 'No relevant community summaries were found for this query.';
 
 interface GlobalSearchSettings {
-  communityLevel: number;
+  communityLevel: number | 'leaf';
   mapTokenBudget: number;
   reduceTokenBudget: number;
   mapOutputReserve: number;
@@ -55,8 +55,11 @@ const chooseSetting = <T>(
 const resolveSettings = (request: GlobalRetrievalRequest): GlobalSearchSettings => {
   const options = request.options ?? {};
   const defaults = getRetrievalDefaults();
+  const requestedLevel = chooseSetting(options.communityLevel, undefined, 'leaf');
   return {
-    communityLevel: nonNegativeInteger(chooseSetting(options.communityLevel, undefined, 0), 'communityLevel'),
+    communityLevel: requestedLevel === 'leaf'
+      ? requestedLevel
+      : nonNegativeInteger(requestedLevel, 'communityLevel'),
     mapTokenBudget: positiveInteger(chooseSetting(options.mapTokenBudget, defaults.globalMapTokenBudget, 8000), 'mapTokenBudget'),
     reduceTokenBudget: positiveInteger(chooseSetting(options.reduceTokenBudget, defaults.globalReduceTokenBudget, 8000), 'reduceTokenBudget'),
     mapOutputReserve: nonNegativeInteger(chooseSetting(options.mapOutputReserve, defaults.globalMapOutputReserve, 512), 'mapOutputReserve'),
@@ -67,7 +70,7 @@ const resolveSettings = (request: GlobalRetrievalRequest): GlobalSearchSettings 
 
 const noResults = (
   query: string,
-  communityLevel: number,
+  communityLevel: number | 'leaf',
   failedMapBatches = 0,
 ): GlobalRetrievalResult => ({
   query,
@@ -78,15 +81,123 @@ const noResults = (
   failedMapBatches,
 });
 
-const loadSummaries = async (communityLevel: number) => {
+interface CommunitySummaryRow {
+  id: string;
+  level: number;
+  summaryContent: string;
+  parentCommunityId: string | null;
+}
+
+const findLeafSummaries = (summaries: readonly CommunitySummaryRow[]): CommunitySummaryRow[] => {
+  const parentIds = new Set(
+    summaries.flatMap(({ parentCommunityId }) => parentCommunityId ? [parentCommunityId] : []),
+  );
+  return summaries.filter(({ id }) => !parentIds.has(id));
+};
+
+const buildDescendantLeafIds = (
+  summaries: readonly CommunitySummaryRow[],
+  leaves: readonly CommunitySummaryRow[],
+): Map<string, string[]> => {
+  const summariesById = new Map(summaries.map((summary) => [summary.id, summary]));
+  const descendants = new Map<string, string[]>();
+  for (const leaf of leaves) {
+    descendants.set(leaf.id, [leaf.id]);
+    let ancestorId = leaf.parentCommunityId;
+    while (ancestorId) {
+      const leafIds = descendants.get(ancestorId) ?? [];
+      leafIds.push(leaf.id);
+      descendants.set(ancestorId, leafIds);
+      ancestorId = summariesById.get(ancestorId)?.parentCommunityId ?? null;
+    }
+  }
+  return descendants;
+};
+
+const loadClaimsForLeaves = async (namespace: string, leafIds: readonly string[]) => {
+  if (leafIds.length === 0) {
+    return [];
+  }
+  return awaitRetrieval(() => prismaClient.rAGClaim.findMany({
+    where: {
+      namespace,
+      communitySummaryId: { in: [...leafIds] },
+    },
+    select: {
+      communitySummaryId: true,
+      description: true,
+      subjectEntity: { select: { name: true } },
+      objectEntity: { select: { name: true } },
+      sourceChunk: { select: { content: true } },
+    },
+  }));
+};
+
+type CommunityClaim = Awaited<ReturnType<typeof loadClaimsForLeaves>>[number];
+
+const groupClaimsBySummary = (claims: readonly CommunityClaim[]): Map<string, CommunityClaim[]> => {
+  const grouped = new Map<string, CommunityClaim[]>();
+  for (const claim of claims) {
+    if (claim.communitySummaryId) {
+      const summaryClaims = grouped.get(claim.communitySummaryId) ?? [];
+      summaryClaims.push(claim);
+      grouped.set(claim.communitySummaryId, summaryClaims);
+    }
+  }
+  return grouped;
+};
+
+const formatMapSummary = (
+  summary: CommunitySummaryRow,
+  leafIds: readonly string[],
+  claimsBySummary: ReadonlyMap<string, readonly CommunityClaim[]>,
+): string => {
+  const claims = leafIds.flatMap((leafId) => claimsBySummary.get(leafId) ?? []);
+  const factLines = claims.map(({ subjectEntity, objectEntity, description }) =>
+    `- ${subjectEntity.name}${objectEntity ? ` -> ${objectEntity.name}` : ''}: ${description}`,
+  );
+  const sourceExcerpts = [...new Set(
+    claims.flatMap(({ sourceChunk }) => sourceChunk?.content.trim() ? [sourceChunk.content.trim()] : []),
+  )];
+  const parts = [`[Community summary]\n${summary.summaryContent}`];
+  if (factLines.length > 0) {
+    parts.push(`[Supporting claims]\n${factLines.join('\n')}`);
+  }
+  if (sourceExcerpts.length > 0) {
+    parts.push(`[Source excerpts]\n${sourceExcerpts.map((excerpt) => `- ${excerpt}`).join('\n')}`);
+  }
+  return parts.join('\n\n');
+};
+
+const loadSummaries = async (communityLevel: number | 'leaf') => {
+  const namespace = getCurrentNamespace();
   const summaries = await awaitRetrieval(() => prismaClient.rAGCommunitySummary.findMany({
-    where: { namespace: getCurrentNamespace(), level: communityLevel },
-    select: { id: true, summaryContent: true },
+    where: { namespace },
+    select: { id: true, summaryContent: true, parentCommunityId: true, level: true },
     orderBy: { id: 'asc' },
   }));
-  return summaries
-    .filter((summary) => summary.summaryContent.trim().length > 0)
-    .map(({ id, summaryContent }) => ({ id, text: summaryContent }));
+  const leaves = findLeafSummaries(summaries);
+  const leafIds = new Set(leaves.map(({ id }) => id));
+  const descendantLeafIds = buildDescendantLeafIds(summaries, leaves);
+  const selectedSummaries = summaries.filter((summary) =>
+    summary.summaryContent.trim().length > 0 &&
+    (communityLevel === 'leaf'
+      ? leafIds.has(summary.id)
+      : summary.level === communityLevel)
+  );
+  if (selectedSummaries.length === 0) {
+    return [];
+  }
+  const leafIdsBySummary = new Map(
+    selectedSummaries.map(({ id }) => [id, descendantLeafIds.get(id) ?? []]),
+  );
+  const leafSummaryIds = [...new Set([...leafIdsBySummary.values()].flat())];
+  const claims = await loadClaimsForLeaves(namespace, leafSummaryIds);
+  const claimsBySummary = groupClaimsBySummary(claims);
+  return selectedSummaries.map((summary) => ({
+    id: summary.id,
+    text: formatMapSummary(summary, leafIdsBySummary.get(summary.id) ?? [], claimsBySummary),
+  }));
 };
 
 const makeMapBatches = async (
@@ -103,7 +214,7 @@ const makeMapBatches = async (
 
 const generateGlobalResult = async (
   query: string,
-  communityLevel: number,
+  communityLevel: number | 'leaf',
   mapAnswers: Awaited<ReturnType<typeof runGlobalMap>>,
   summariesCount: number,
   batchesCount: number,

@@ -3,6 +3,8 @@ import { DETERMINISTIC_THRESHOLD, MARKDOWN_STRUCTURE_THRESHOLD } from '../../src
 
 import {
   CORPUS_SCOPE_QUERIES,
+  GLOBAL_MAP_REDUCE_QUERIES,
+  INCREMENTAL_UPDATE_QUERY,
   IN_CORPUS_RECALL_QUERIES,
   QUICKSTART_RECALL_QUERIES,
   RECALL_QUERIES,
@@ -75,5 +77,19 @@ describe('QUICKSTART_RECALL_QUERIES', () => {
 
     expect(corpus.length).toBeGreaterThan(DETERMINISTIC_THRESHOLD);
     expect(corpus.length).toBeLessThan(MARKDOWN_STRUCTURE_THRESHOLD);
+  });
+});
+
+describe('workflow benchmark queries', () => {
+  it('includes dedicated Global Map Reduce cases and an incremental-only fact check', () => {
+    expect(GLOBAL_MAP_REDUCE_QUERIES).toHaveLength(2);
+    expect(GLOBAL_MAP_REDUCE_QUERIES.map(({ id }) => id)).toEqual([
+      'global-alice-creature-learning',
+      'global-victor-creation-cost',
+    ]);
+    expect(INCREMENTAL_UPDATE_QUERY.id).toBe('incremental-alice-archive-note');
+    expect(INCREMENTAL_UPDATE_QUERY.expectation.phrases).toContain('west observatory');
+    expect(GLOBAL_MAP_REDUCE_QUERIES[1]?.expectation.phrases).toContain('nervous fever');
+    expect(GLOBAL_MAP_REDUCE_QUERIES[1]?.expectation.phrases).not.toContain('wretchedness and despair');
   });
 });

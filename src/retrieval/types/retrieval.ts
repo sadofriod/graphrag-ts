@@ -70,7 +70,7 @@ export interface RetrievalResult {
 }
 
 export interface GlobalRetrievalOptions {
-  communityLevel?: number;
+  communityLevel?: number | 'leaf';
   mapTokenBudget?: number;
   reduceTokenBudget?: number;
   mapOutputReserve?: number;
@@ -93,7 +93,7 @@ export interface GlobalMapAnswer {
 
 export interface GlobalRetrievalResult {
   query: string;
-  communityLevel: number;
+  communityLevel: number | 'leaf';
   status: 'completed' | 'partial' | 'no_results';
   answer: string;
   selectedMapAnswers: GlobalMapAnswer[];

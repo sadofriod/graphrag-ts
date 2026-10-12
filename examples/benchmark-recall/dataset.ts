@@ -333,4 +333,44 @@ export const QUICKSTART_RECALL_QUERIES: readonly RecallQuery[] = [
   },
 ];
 
+export const GLOBAL_MAP_REDUCE_QUERIES: readonly RecallQuery[] = [
+  {
+    id: 'global-alice-creature-learning',
+    source: 'Alice and Frankenstein',
+    focus: 'Dormouse tea-party story and creature language learning',
+    query: 'What does the Dormouse describe at the tea party, and what does Frankenstein’s creature learn from observing the cottagers?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Dormouse', 'creature', 'cottagers'],
+      phrases: ['three little sisters', 'articulate sounds'],
+    },
+  },
+  {
+    id: 'global-victor-creation-cost',
+    source: 'Frankenstein',
+    focus: 'creature awakening and immediate consequences',
+    query: 'What does Victor see when the creature first awakens, and how does the experience affect him afterward?',
+    topK: 6,
+    sourceCoverage: 'indexed',
+    expectation: {
+      entities: ['Victor', 'creature'],
+      phrases: ['dull yellow eye', 'nervous fever'],
+    },
+  },
+];
+
+export const INCREMENTAL_UPDATE_QUERY: RecallQuery = {
+  id: 'incremental-alice-archive-note',
+  source: "Alice's Adventures in Wonderland",
+  focus: 'fact added by incremental update',
+  query: 'What does Alice keep in the west observatory?',
+  topK: 6,
+  sourceCoverage: 'indexed',
+  expectation: {
+    entities: ['Alice', 'silver compass'],
+    phrases: ['west observatory', 'new archive'],
+  },
+};
+
 export const RECALL_QUERIES = IN_CORPUS_RECALL_QUERIES;

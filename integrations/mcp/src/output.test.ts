@@ -58,7 +58,7 @@ test('formats global search metadata and truncates within the configured respons
   const parsed = JSON.parse(output) as {
     answer: string;
     status: string;
-    community_level: number;
+    community_level: number | 'leaf';
     failed_map_batches: number;
     selected_map_answers: readonly unknown[];
     truncated: boolean;

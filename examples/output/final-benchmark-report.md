@@ -1,10 +1,20 @@
 # GraphRAG MCP Benchmark 报告
 
-日期：2026-10-11\
-运行方式：Docker Compose 启动 PostgreSQL/pgvector 与 MCP HTTP 服务，通过 MCP `query_graph` 工具执行检索。
-模型配置：DeepSeek API `deepseek-v4-flash`（slice / judge）；LM Studio `text-embedding-nomic-embed-text-v1.5`（768 维 embedding）。
+基线运行日期：2026-10-11\
+基线运行方式：Docker Compose 启动 PostgreSQL/pgvector 与 MCP HTTP 服务，通过 MCP `query_graph` 工具执行检索。\
+基线模型：DeepSeek API `deepseek-v4-flash`（slice / judge）；LM Studio `text-embedding-nomic-embed-text-v1.5`（768 维 embedding）。
 
-## 语料范围
+## 核心结果
+
+| 场景 | 覆盖范围 | 结果 |
+|---|---|---|
+| In-corpus 检索 | 5 个章节，12 个问题 | Strict hit 10/12（83.3%）；combined recall 95.8%；平均查询延迟 22.5 秒；索引耗时约 12 分 19 秒 |
+| Global Map Reduce（修复后） | 2 个跨社区问题 | Map 两题 entity/phrase recall 均为 100%；Reduce 最终 combined recall 分别为 80% 和 100% |
+| 增量更新 | 更新 1 篇 Alice 文档并查询新增事实 | combined recall 从 50% 升至 100%；增量构建耗时约 5 分 11 秒 |
+
+**如何解读：** 12 题检索基线与 10 月 12 日工作流复测使用不同模型和运行环境，不构成模型横评。Recall 是基于实体与有序短语的词面评估，不是人工语义评分。Global Map Reduce 的修复前后结果及仍存在的跨批次冲突见下文。
+
+## 语料与基线
 
 本次挂载的语料只包含：
 
@@ -57,6 +67,49 @@
 | Frankenstein Chapter 13 | 88 | 56 | 41 |
 
 章节间 edge 数量不同；数量描述图结构规模，不单独代表图质量或检索质量。评估图质量还需结合实体/关系准确率、证据覆盖和人工核验。
+
+## Global Map Reduce 与增量更新复测
+
+日期：2026-10-12。该复测使用 benchmark 数据库副本和隔离 namespace 执行，没有修改已有活动索引。语料使用当前 benchmark 索引中的 Alice 与 Frankenstein 文档；slice/judge 模型为 LM Studio `google/gemma-4-12b`，embedding 模型为 `text-embedding-nomic-embed-text-v1.5`。此结果与上方 2026-10-11 的 DeepSeek/MCP 基线使用不同模型和执行环境，应分开比较。
+
+### Global Map Reduce
+
+以下为修复前的历史基线：默认只读取 level 0 社区摘要，Map 输入不含叶社区关联的 claim/chunk；其中 `wretchedness and despair` 不在本次索引语料内。
+
+| id | Status | Map answers | Failed batches | Entity recall | Phrase recall | Missing entities | Missing phrases |
+|---|---|:---:|:---:|:---:|:---:|---|---|
+| global-alice-creature-learning | completed | 1 | 0 | 67% | 0% | De Lacey | three little sisters, articulate sounds |
+| global-victor-creation-cost | completed | 1 | 0 | 100% | 0% | - | dull yellow eye, wretchedness and despair |
+
+两条 Global Map Reduce 查询均成功完成 Map/Reduce 流程；实体召回分别为 67% 和 100%，期望短语均未命中。Map 成功仅表示工作流完成，不代表答案达到了预期召回。
+
+#### 叶社区与事实证据修复后
+
+复测使用默认叶社区选择，并将叶社区关联的 claims 和原始 source chunks 一并提供给 Map；MCP `query_graph_global` 支持 `community_level: "leaf"`，也仍支持非负整数精确选择某一层。Global benchmark 期望已移除不在索引内的短语，并分别计算 Map 中间答案与 Reduce 最终答案的词面 recall。
+
+| id | Status | Map answers | Failed batches | Map entity recall | Map phrase recall | Final entity recall | Final phrase recall | Missing final entities | Missing final phrases |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|---|---|
+| global-alice-creature-learning | completed | 5 | 0 | 100% | 100% | 100% | 50% | - | articulate sounds |
+| global-victor-creation-cost | completed | 3 | 0 | 100% | 100% | 100% | 100% | - | - |
+
+叶社区证据让 Map 两题都达到 100% recall；Reduce 后 Victor 题保持 100%，Alice/Creature 题降至 80% combined recall。该题的 Map 答案对 Dormouse 是否讲述“三姐妹”存在冲突，Reduce 将冲突内容都写入最终答案；最终答案保留了 `three little sisters`，但没有 `articulate sounds`。这是当前跨批次综合仍需改进之处。以上结果是词面评估，不等同于语义判分。
+
+### 增量更新
+
+对 `alice-adventures-in-wonderland.md` 追加一条新事实：“Alice keeps a silver compass in the west observatory as part of the new archive.” 然后使用增量构建更新索引，并查询 `What does Alice keep in the west observatory?`。
+
+| 阶段 | Entity recall | Phrase recall | Combined recall | Strict hit | Missing entities | Missing phrases |
+|---|---:|---:|---:|:---:|---|---|
+| 更新前 | 50% | 50% | 50% | no | silver compass | new archive |
+| 增量更新后 | 100% | 100% | 100% | yes | - | - |
+
+| 指标 | 结果 |
+|---|---:|
+| Build mode | incremental |
+| Updated file | alice-adventures-in-wonderland.md |
+| Incremental build duration | 310,667 ms (5m 10.7s) |
+
+更新前已能检索到 Alice 和 `west observatory`，因此基线为 50%；更新后新加入的 `silver compass` 与 `new archive` 均可检索。此处验证的是指定文档更新后的新事实召回，不代表完整 corpus 的增量吞吐性能。
 
 ## 五分钟内启动 Benchmark
 

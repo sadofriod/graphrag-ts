@@ -1,6 +1,6 @@
 import { createBuildRegistry } from '../src/build/buildRegistry';
 import { envModelConfigs, injectModelConfigs } from '../src/build/modelLoader';
-import { startBuild } from '../src/build/startBuild';
+import { startBuild, startIncrementalBuild } from '../src/build/startBuild';
 import { GraphRAGRetrievalService } from '../src/retrieval/service/GraphRAGRetrievalService';
 import {
   DEFAULT_LONG_CORPUS_DIR,
@@ -8,10 +8,20 @@ import {
   prepareLongMarkdownCorpus,
   readMarkdownFiles,
 } from './benchmark-recall/corpus';
-import { RECALL_QUERIES } from './benchmark-recall/dataset';
+import {
+  GLOBAL_MAP_REDUCE_QUERIES,
+  INCREMENTAL_UPDATE_QUERY,
+  RECALL_QUERIES,
+} from './benchmark-recall/dataset';
 import { buildRetrievedContext, evaluateRecall } from './benchmark-recall/evaluation';
 import { aggregateResults, formatMarkdownReport } from './benchmark-recall/report';
-import type { PerQueryResult, RecallQuery, Retrieve } from './benchmark-recall/types';
+import type {
+  GlobalMapReduceBenchmarkResult,
+  IncrementalUpdateBenchmarkResult,
+  PerQueryResult,
+  RecallQuery,
+  Retrieve,
+} from './benchmark-recall/types';
 import type { RetrievalResult } from '../src/retrieval/types/retrieval';
 
 export interface RecallDemoOptions {
@@ -94,6 +104,65 @@ const runRecallQueries = async (options: {
   return results;
 };
 
+const runGlobalMapReduceQueries = async (
+  namespace: string,
+  service: GraphRAGRetrievalService,
+): Promise<GlobalMapReduceBenchmarkResult[]> => {
+  const results: GlobalMapReduceBenchmarkResult[] = [];
+  for (const query of GLOBAL_MAP_REDUCE_QUERIES) {
+    const retrieved = await service.retrieveGlobal({ namespace, query: query.query });
+    const mapContext = retrieved.selectedMapAnswers.map(({ answer }) => answer).join('\n');
+    results.push({
+      query,
+      mapEvaluation: evaluateRecall(mapContext, query.expectation),
+      evaluation: evaluateRecall(retrieved.answer, query.expectation),
+      status: retrieved.status,
+      mapAnswerCount: retrieved.selectedMapAnswers.length,
+      failedMapBatches: retrieved.failedMapBatches,
+    });
+  }
+  return results;
+};
+
+const runIncrementalUpdateBenchmark = async (options: {
+  namespace: string;
+  corpusDir: string;
+  service: GraphRAGRetrievalService;
+}): Promise<IncrementalUpdateBenchmarkResult> => {
+  const aliceFile = readMarkdownFiles(options.corpusDir)
+    .find((file) => file.title === 'alice-adventures-in-wonderland.md');
+  if (!aliceFile) {
+    throw new Error('Alice corpus file is required for the incremental update benchmark.');
+  }
+
+  const updatedFile = {
+    ...aliceFile,
+    content: `${aliceFile.content}\n\n## Benchmark Incremental Update\n\nAlice keeps a silver compass in the west observatory as part of the new archive.\n`,
+  };
+  const registry = createBuildRegistry();
+  const startedAt = Date.now();
+  const buildId = startIncrementalBuild([updatedFile], registry, options.namespace);
+  await waitForBuild(buildId, registry, 15 * 60 * 1000);
+  const durationMs = Date.now() - startedAt;
+  const retrieved = await options.service.retrieve({
+    namespace: options.namespace,
+    query: INCREMENTAL_UPDATE_QUERY.query,
+    topK: INCREMENTAL_UPDATE_QUERY.topK,
+  });
+
+  return {
+    durationMs,
+    updatedFile: updatedFile.title,
+    result: {
+      query: INCREMENTAL_UPDATE_QUERY,
+      evaluation: evaluateRecall(
+        buildRetrievedContext(retrieved, { includeAnswer: true }),
+        INCREMENTAL_UPDATE_QUERY.expectation,
+      ),
+    },
+  };
+};
+
 export const runRecallBenchmarkDemo = async (options: RecallDemoOptions = {}) => {
   const namespace = options.namespace ?? DEFAULT_NAMESPACE;
   const outlinePath = options.outlinePath ?? DEFAULT_LONG_CORPUS_DIR;
@@ -112,15 +181,28 @@ export const runRecallBenchmarkDemo = async (options: RecallDemoOptions = {}) =>
       );
   const service = new GraphRAGRetrievalService();
   const retrieve = options.retrieve ?? ((input) => service.retrieve(input));
-      const results = await runRecallQueries({
-        namespace,
-        dataset,
-        retrieve,
-        ...(options.topK !== undefined ? { topK: options.topK } : {}),
-        ...(options.includeAnswer !== undefined ? { includeAnswer: options.includeAnswer } : {}),
-      });
+  const results = await runRecallQueries({
+    namespace,
+    dataset,
+    retrieve,
+    ...(options.topK !== undefined ? { topK: options.topK } : {}),
+    ...(options.includeAnswer !== undefined ? { includeAnswer: options.includeAnswer } : {}),
+  });
+  const globalMapReduce = await runGlobalMapReduceQueries(namespace, service);
+  const incrementalUpdate = await runIncrementalUpdateBenchmark({
+    namespace,
+    corpusDir,
+    service,
+  });
 
-  return { buildId, namespace, corpusDir, report: aggregateResults(results), results };
+  return {
+    buildId,
+    namespace,
+    corpusDir,
+    report: aggregateResults(results),
+    results,
+    workflows: { globalMapReduce, incrementalUpdate },
+  };
 };
 
 const printSingleQueryDiagnostic = (
@@ -228,7 +310,7 @@ const main = async (): Promise<void> => {
   console.log(`corpus: ${await describeCorpus(demo.corpusDir)}`);
   console.log(`buildId: ${demo.buildId}`);
   console.log(`namespace: ${demo.namespace}`);
-  console.log(formatMarkdownReport(demo.report, demo.results));
+  console.log(formatMarkdownReport(demo.report, demo.results, demo.workflows));
 };
 
 if (import.meta.main) {

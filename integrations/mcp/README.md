@@ -72,7 +72,7 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 - `remember_text(workspace_id, text)`: explicitly enqueue supplied text; chat history is never read automatically.
 - `get_index_job(workspace_id, job_id)`: retrieve a job only when it belongs to the requested workspace.
 - `query_graph(workspace_id, query)`: perform local hybrid retrieval against that workspace's latest published snapshot, optionally filtered by `community_level`.
-- `query_graph_global(workspace_id, query)`: perform corpus-wide Map-Reduce retrieval in that workspace at a community level; the default level is `0`.
+- `query_graph_global(workspace_id, query, community_level)`: perform corpus-wide Map-Reduce retrieval over terminal community summaries by default. Set `community_level` to a non-negative integer to use exactly that hierarchy level, or `"leaf"` to explicitly select all terminal communities across uneven branches.
 
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
 
@@ -82,6 +82,7 @@ Use the same workspace ID when submitting, polling, and querying:
 {"name":"submit_index_job","arguments":{"workspace_id":"product-docs","path":"."}}
 {"name":"get_index_job","arguments":{"workspace_id":"product-docs","job_id":"<job_id>"}}
 {"name":"query_graph","arguments":{"workspace_id":"product-docs","query":"Which products are mentioned?"}}
+{"name":"query_graph_global","arguments":{"workspace_id":"product-docs","query":"Which themes connect the documents?","community_level":"leaf"}}
 ```
 
 Omitting `workspace_id` selects `default`, preserving the original single-workspace behavior. A query in a different, not-yet-indexed workspace returns `INDEX_NOT_READY`; it does not fall back to another workspace's active snapshot.

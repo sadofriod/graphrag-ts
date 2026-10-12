@@ -1,10 +1,20 @@
 # GraphRAG MCP Benchmark Report
 
-Date: 2026-10-11\
-Runtime: Docker Compose with PostgreSQL/pgvector and the MCP HTTP service; queries run through the MCP `query_graph` tool.\
-Models: DeepSeek API `deepseek-v4-flash` for slicing and judging; LM Studio `text-embedding-nomic-embed-text-v1.5` for 768-dimensional embeddings.
+Baseline run date: 2026-10-11\
+Baseline runtime: Docker Compose with PostgreSQL/pgvector and the MCP HTTP service; queries run through the MCP `query_graph` tool.\
+Baseline models: DeepSeek API `deepseek-v4-flash` for slicing and judging; LM Studio `text-embedding-nomic-embed-text-v1.5` for 768-dimensional embeddings.
 
-## Corpus Scope
+## Results at a Glance
+
+| Scenario | Coverage | Result |
+|---|---|---|
+| In-corpus retrieval | 5 chapters, 12 queries | 10/12 strict hits (83.3%); 95.8% combined recall; 22.5s average query latency; about 12m 19s to index |
+| Global Map Reduce (after fixes) | 2 cross-community queries | Map entity/phrase recall was 100% on both; final Reduce combined recall was 80% and 100% |
+| Incremental update | Updated one Alice document, then queried the new fact | Combined recall rose from 50% to 100%; incremental build took about 5m 11s |
+
+**How to read these results:** The 12-query baseline and the October 12 workflow follow-up used different models and runtimes, so they are not a model comparison. Recall uses lexical entity and ordered-phrase matching, not human semantic grading. The Global Map Reduce section below includes both pre-fix and post-fix results, plus the remaining cross-batch conflict.
+
+## Corpus and Baseline Setup
 
 The mounted corpus contains only these sections:
 
@@ -57,6 +67,49 @@ Persisted counts for each indexed section are below. Child chunks include graph-
 | Frankenstein Chapter 13 | 88 | 56 | 41 |
 
 Edge counts differ by section; counts describe graph size, not graph or retrieval quality by themselves. Graph quality also requires entity/relation accuracy, evidence coverage, and manual review.
+
+## Global Map Reduce and Incremental Update Follow-up
+
+Date: 2026-10-12. This follow-up ran against a cloned benchmark database and an isolated namespace, leaving the active index unchanged. The corpus used the indexed Alice and Frankenstein documents. LM Studio `google/gemma-4-12b` was used for slicing/judging, and `text-embedding-nomic-embed-text-v1.5` for embeddings. These results use a different model and runtime from the 2026-10-11 DeepSeek/MCP baseline above and should not be compared as a controlled model comparison.
+
+### Global Map Reduce
+
+The following is the historical pre-fix baseline. It read only level-0 community summaries and did not pass leaf-assigned claims or source chunks to Map. The expected phrase `wretchedness and despair` is not present in this indexed corpus.
+
+| id | Status | Map answers | Failed batches | Entity recall | Phrase recall | Missing entities | Missing phrases |
+|---|---|:---:|:---:|:---:|:---:|---|---|
+| global-alice-creature-learning | completed | 1 | 0 | 67% | 0% | De Lacey | three little sisters, articulate sounds |
+| global-victor-creation-cost | completed | 1 | 0 | 100% | 0% | - | dull yellow eye, wretchedness and despair |
+
+Both queries completed the Map/Reduce workflow, but successful execution alone does not mean the expected facts were recalled.
+
+#### After Leaf and Evidence Changes
+
+The rerun selected terminal leaf communities by default and supplied their assigned claims and original source chunks to Map. MCP `query_graph_global` now accepts `community_level: "leaf"` or a non-negative integer for an exact level. The benchmark expectations no longer include phrases absent from the index, and recall is reported separately for Map intermediate answers and final Reduce answers.
+
+| id | Status | Map answers | Failed batches | Map entity recall | Map phrase recall | Final entity recall | Final phrase recall | Missing final entities | Missing final phrases |
+|---|---|:---:|:---:|:---:|:---:|:---:|:---:|---|---|
+| global-alice-creature-learning | completed | 5 | 0 | 100% | 100% | 100% | 50% | - | articulate sounds |
+| global-victor-creation-cost | completed | 3 | 0 | 100% | 100% | 100% | 100% | - | - |
+
+Leaf evidence brought Map recall to 100% on both cases. Reduce preserved 100% recall for Victor and 80% combined recall for Alice/Creature. Map batches disagreed about whether the Dormouse tells the three-sisters story; Reduce repeated both the claim and the conflicting limitation. The final answer retained “three little sisters” but omitted “articulate sounds.” Cross-batch conflict handling remains a limitation. These are lexical recall results, not semantic grading.
+
+### Incremental Update
+
+The benchmark appended this fact to `alice-adventures-in-wonderland.md`: “Alice keeps a silver compass in the west observatory as part of the new archive.” It then incrementally rebuilt the index and queried, “What does Alice keep in the west observatory?”
+
+| Stage | Entity recall | Phrase recall | Combined recall | Strict hit | Missing entities | Missing phrases |
+|---|---:|---:|---:|:---:|---|---|
+| Before update | 50% | 50% | 50% | no | silver compass | new archive |
+| After incremental update | 100% | 100% | 100% | yes | - | - |
+
+| Metric | Result |
+|---|---:|
+| Build mode | incremental |
+| Updated file | alice-adventures-in-wonderland.md |
+| Incremental build duration | 310,667 ms (5m 10.7s) |
+
+Before the update, retrieval already found Alice and “west observatory,” giving a 50% baseline. Afterward, it also found “silver compass” and “new archive.” This tests recall of a new fact after updating one document; it is not a measurement of full-corpus incremental throughput.
 
 ## Start the Docker Benchmark Within Five Minutes
 

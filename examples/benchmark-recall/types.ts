@@ -49,6 +49,26 @@ export interface RecallReport {
   bySource: Record<string, SourceSummary>;
 }
 
+export interface GlobalMapReduceBenchmarkResult {
+  query: RecallQuery;
+  mapEvaluation: QueryEvaluation;
+  evaluation: QueryEvaluation;
+  status: 'completed' | 'partial' | 'no_results';
+  mapAnswerCount: number;
+  failedMapBatches: number;
+}
+
+export interface IncrementalUpdateBenchmarkResult {
+  durationMs: number;
+  updatedFile: string;
+  result: PerQueryResult;
+}
+
+export interface WorkflowBenchmarkResults {
+  globalMapReduce?: readonly GlobalMapReduceBenchmarkResult[];
+  incrementalUpdate?: IncrementalUpdateBenchmarkResult;
+}
+
 export interface RetrievedContextOptions {
   includeAnswer?: boolean;
 }
