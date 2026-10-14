@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 — 2026-10-14
+
+- **fix**: add i18n for demo page
+
 ## 0.1.13 — 2026-10-14
 
 
