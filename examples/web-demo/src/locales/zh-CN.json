@@ -1,0 +1,89 @@
+{
+  "language": {
+    "label": "界面语言",
+    "english": "EN",
+    "chinese": "中文"
+  },
+  "sidebar": {
+    "section": "工作区",
+    "navigation": "构建与检索",
+    "note": "本地演示 · 数据保存在 Docker PostgreSQL 卷中"
+  },
+  "header": {
+    "eyebrow": "GRAPH RETRIEVAL LAB",
+    "title": "从文档到图谱答案",
+    "connection": {
+      "ready": "服务已连接",
+      "working": "正在处理",
+      "error": "服务未就绪",
+      "checking": "正在检查服务"
+    }
+  },
+  "intro": "索引 Markdown 语料，观察构建任务，再用局部混合检索或全局 Map-Reduce 查询带证据的答案。",
+  "workspace": "Workspace",
+  "build": {
+    "title": "索引语料",
+    "step": "01 / BUILD",
+    "workspaceId": "Workspace ID",
+    "workspaceHelper": "用于隔离语料与索引快照。仅允许小写字母、数字和连字符。",
+    "inputDirectory": "输入目录",
+    "pathHelper": "容器内的只读语料目录，默认索引挂载的示例 Markdown。",
+    "start": "开始构建",
+    "complete": "构建完成",
+    "failed": "构建失败",
+    "inProgress": "构建中 · {{status}}"
+  },
+  "query": {
+    "title": "检索图谱",
+    "step": "02 / RETRIEVE",
+    "modesLabel": "检索模式",
+    "local": "局部检索",
+    "global": "全局 Map-Reduce",
+    "localDescription": "语义 · 关键词 · 图关系",
+    "globalDescription": "跨社区汇总",
+    "input": "输入问题",
+    "placeholder": "例如：哪些主题连接了这些文档？",
+    "submit": "提问"
+  },
+  "results": {
+    "index": "索引 {{id}}",
+    "noAnswer": "未返回答案。",
+    "empty": "索引完成后，答案与证据会显示在这里。",
+    "sources_one": "查看证据来源 ({{count}})",
+    "sources_other": "查看证据来源 ({{count}})",
+    "mapAnswers_one": "Map 中间结果 ({{count}})",
+    "mapAnswers_other": "Map 中间结果 ({{count}})"
+  },
+  "errors": {
+    "indexNotReadyTitle": "此 Workspace 尚未构建索引",
+    "inputTitle": "请检查输入",
+    "serviceTitle": "模型服务尚未就绪",
+    "invalidWorkspace": "Workspace ID 格式无效，请使用小写字母、数字和连字符。",
+    "missingPath": "请输入要索引的语料目录。",
+    "missingQuery": "请输入检索问题。",
+    "missingJobId": "索引任务没有返回 job ID。",
+    "connectionFailed": "服务连接失败",
+    "healthCheckFailed": "服务检查失败 (HTTP {{status}})",
+    "operationFailed": "GraphRAG 操作失败。",
+    "indexNotReadyHelp": "请先在左侧提交该 Workspace 的构建任务。",
+    "inputHelp": "修正上面的输入后重试。",
+    "serviceHelp": "检查 .env 中的 COMPOSE_RAG_SLICE_*、COMPOSE_RAG_JUDGE_* 和 COMPOSE_RAG_EMBED_*，确认模型 endpoint 可从 Docker 访问；Embedding 必须为 768 维。",
+    "dismiss": "知道了"
+  },
+  "job": {
+    "status": {
+      "queued": "排队中",
+      "running": "运行中",
+      "succeeded": "已完成",
+      "failed": "失败"
+    },
+    "phase": {
+      "queued": "排队中",
+      "preparing": "准备中",
+      "building": "构建中",
+      "publishing": "发布中",
+      "failed": "失败",
+      "modelCheck": "请检查模型服务"
+    }
+  }
+}

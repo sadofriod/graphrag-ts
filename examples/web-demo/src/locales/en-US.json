@@ -1,0 +1,89 @@
+{
+  "language": {
+    "label": "Interface language",
+    "english": "EN",
+    "chinese": "中文"
+  },
+  "sidebar": {
+    "section": "WORKSPACE",
+    "navigation": "Build and retrieve",
+    "note": "Local demo · Data is stored in the Docker PostgreSQL volume"
+  },
+  "header": {
+    "eyebrow": "GRAPH RETRIEVAL LAB",
+    "title": "From documents to graph answers",
+    "connection": {
+      "ready": "Service connected",
+      "working": "Working",
+      "error": "Service unavailable",
+      "checking": "Checking service"
+    }
+  },
+  "intro": "Index Markdown corpora, track build jobs, then query evidence-backed answers with local hybrid retrieval or global Map-Reduce.",
+  "workspace": "Workspace",
+  "build": {
+    "title": "Index corpus",
+    "step": "01 / BUILD",
+    "workspaceId": "Workspace ID",
+    "workspaceHelper": "Isolates corpora and index snapshots. Use lowercase letters, numbers, and hyphens only.",
+    "inputDirectory": "Input directory",
+    "pathHelper": "Read-only corpus directory inside the container. Defaults to the mounted sample Markdown corpus.",
+    "start": "Build index",
+    "complete": "Build complete",
+    "failed": "Build failed",
+    "inProgress": "Building · {{status}}"
+  },
+  "query": {
+    "title": "Query graph",
+    "step": "02 / RETRIEVE",
+    "modesLabel": "Retrieval mode",
+    "local": "Local retrieval",
+    "global": "Global Map-Reduce",
+    "localDescription": "Semantic · keyword · graph relations",
+    "globalDescription": "Cross-community synthesis",
+    "input": "Ask a question",
+    "placeholder": "For example: Which themes connect these documents?",
+    "submit": "Ask"
+  },
+  "results": {
+    "index": "Index {{id}}",
+    "noAnswer": "No answer was returned.",
+    "empty": "Answers and evidence will appear here after indexing.",
+    "sources_one": "View evidence source ({{count}})",
+    "sources_other": "View evidence sources ({{count}})",
+    "mapAnswers_one": "Map intermediate result ({{count}})",
+    "mapAnswers_other": "Map intermediate results ({{count}})"
+  },
+  "errors": {
+    "indexNotReadyTitle": "This workspace has not been indexed",
+    "inputTitle": "Check your input",
+    "serviceTitle": "Model service unavailable",
+    "invalidWorkspace": "Invalid Workspace ID. Use lowercase letters, numbers, and hyphens.",
+    "missingPath": "Enter the corpus directory to index.",
+    "missingQuery": "Enter a question to search.",
+    "missingJobId": "The index job did not return a job ID.",
+    "connectionFailed": "Could not connect to the service",
+    "healthCheckFailed": "Service health check failed (HTTP {{status}})",
+    "operationFailed": "GraphRAG operation failed.",
+    "indexNotReadyHelp": "Submit a build job for this workspace in the left panel first.",
+    "inputHelp": "Correct the input above and try again.",
+    "serviceHelp": "Check COMPOSE_RAG_SLICE_*, COMPOSE_RAG_JUDGE_*, and COMPOSE_RAG_EMBED_* in .env, and confirm the model endpoints are reachable from Docker. Embeddings must be 768-dimensional.",
+    "dismiss": "Got it"
+  },
+  "job": {
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "succeeded": "Succeeded",
+      "failed": "Failed"
+    },
+    "phase": {
+      "queued": "Queued",
+      "preparing": "Preparing",
+      "building": "Building",
+      "publishing": "Publishing",
+      "failed": "Failed",
+      "modelCheck": "Check model service"
+    }
+  }
+}

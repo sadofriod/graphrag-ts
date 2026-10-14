@@ -19,6 +19,7 @@ button, input, textarea { font: inherit; }
 .side-note { margin-top: auto !important; padding-top: 16px; border-top: 1px solid #47735f; color: #b5cfc0; font-size: 12px !important; line-height: 1.6 !important; }
 .main-content { width: min(1280px, 100%); padding: 34px clamp(18px, 4vw, 56px) 48px; margin: 0 auto; }
 .topline { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 30px; }
+.topline-actions { flex-wrap: wrap; justify-content: flex-end; }
 .eyebrow { margin: 0 0 6px !important; color: #176b52; font-size: 11px !important; font-weight: 750 !important; letter-spacing: .1em !important; }
 .topline h1 { font-size: 30px; line-height: 1.2; }
 .connection-chip { background: #fffefa !important; border: 1px solid #d9e0d9; color: #64736d !important; }

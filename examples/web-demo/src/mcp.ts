@@ -93,5 +93,5 @@ export const callTool = async (name: string, args: object): Promise<ToolResult> 
 
 export const checkHealth = async (): Promise<void> => {
   const response = await fetch('/healthz');
-  if (!response.ok) throw new Error(`服务检查失败 (HTTP ${response.status})`);
+  if (!response.ok) throw new Error(`SERVICE_HEALTH_CHECK_FAILED:${response.status}`);
 };

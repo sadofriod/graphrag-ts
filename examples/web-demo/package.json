@@ -12,8 +12,10 @@
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^7.3.5",
     "@mui/material": "^7.3.5",
+    "i18next": "^26.4.4",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.16"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",
