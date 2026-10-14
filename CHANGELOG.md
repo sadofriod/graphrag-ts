@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.1.13 — 2026-10-14
+
+
 ## 0.1.12 — 2026-10-12
 
 - **feat**: add React GraphRAG web showcase
