@@ -8,6 +8,7 @@ import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
+import { createActivityLogger } from './queryActivity.ts';
 
 class ToolError extends Error {
   readonly code: string;
@@ -131,6 +132,26 @@ const formatQueryOutcome = (
   return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
 };
 
+const handleQueryFailure = async (
+  error: unknown,
+  mode: 'local' | 'global',
+  startedAt: number,
+  logActivity: ReturnType<typeof createActivityLogger>,
+  logger: Logger,
+) => {
+  const duration = Date.now() - startedAt;
+  if (error instanceof ToolError) {
+    await logActivity('error', 'Retrieval failed.', { mode, code: error.code, duration_ms: duration });
+    return toolErrorResult(error.code, error.message);
+  }
+  await logActivity('error', 'Retrieval failed.', { mode, code: 'UPSTREAM_ERROR', duration_ms: duration });
+  logger.error('MCP tool failed.', {
+    tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
+    error_name: error instanceof Error ? error.name : 'UnknownError',
+  });
+  return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
+};
+
 const executeQuery = async (
   { store, config, logger }: ToolContext,
   workspaceId: string,
@@ -142,24 +163,7 @@ const executeQuery = async (
 ) => {
   const operationId = randomUUID();
   const startedAt = Date.now();
-  const logActivity = async (
-    level: 'info' | 'warn' | 'error',
-    message: string,
-    details: Record<string, unknown> = {},
-  ): Promise<void> => {
-    await store.appendActivityLog({
-      workspaceId,
-      operationId,
-      kind: 'retrieval',
-      level,
-      message,
-      details,
-    }).catch((error: unknown) => {
-      logger.warn('Could not persist retrieval activity.', {
-        error_name: error instanceof Error ? error.name : 'UnknownError',
-      });
-    });
-  };
+  const logActivity = createActivityLogger(store, logger, workspaceId, operationId);
   let lease: QueryLease | null = null;
   let workStarted = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -205,24 +209,7 @@ const executeQuery = async (
     await logActivity('info', 'Retrieval completed.', { mode, duration_ms: Date.now() - startedAt });
     return formatted;
   } catch (error) {
-    if (error instanceof ToolError) {
-      await logActivity('error', 'Retrieval failed.', {
-        mode,
-        code: error.code,
-        duration_ms: Date.now() - startedAt,
-      });
-      return toolErrorResult(error.code, error.message);
-    }
-    await logActivity('error', 'Retrieval failed.', {
-      mode,
-      code: 'UPSTREAM_ERROR',
-      duration_ms: Date.now() - startedAt,
-    });
-    logger.error('MCP tool failed.', {
-      tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
-      error_name: error instanceof Error ? error.name : 'UnknownError',
-    });
-    return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
+    return handleQueryFailure(error, mode, startedAt, logActivity, logger);
   } finally {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);

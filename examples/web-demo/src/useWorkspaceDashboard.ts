@@ -64,7 +64,53 @@ const getJson = async <Value,>(url: string): Promise<Value> => {
 export const useWorkspaceDashboard = (workspaceId: string) => {
   const [selected, setSelected] = useState<SelectedActivity>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const workspaces = useWorkspaces();
+  const data = useDashboardData(workspaceId, selected, refreshKey);
+
+  useEffect(() => setSelected(null), [workspaceId]);
+
+  const selectedLogs = selected?.kind === 'job'
+    ? data.jobLogs
+    : selected ? data.retrievalLogs.filter((log) => log.operationId === selected.id) : [];
+
+  return {
+    ...data,
+    workspaces,
+    selected,
+    selectedLogs,
+    refresh: () => setRefreshKey((current) => current + 1),
+    selectJob: (jobId: string) => setSelected({ kind: 'job', id: jobId }),
+    selectRetrieval: (operationId: string) => setSelected({ kind: 'retrieval', id: operationId }),
+  };
+};
+
+const useWorkspaces = (): readonly string[] => {
   const [workspaces, setWorkspaces] = useState<readonly string[]>(['default']);
+  useEffect(() => {
+    let active = true;
+    const refresh = async (): Promise<void> => {
+      try {
+        const result = await getJson<{ workspaces: readonly string[] }>('/api/workspaces');
+        if (active) setWorkspaces(result.workspaces);
+      } catch {
+        if (active) setWorkspaces(['default']);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 8000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+  return workspaces;
+};
+
+const useDashboardData = (
+  workspaceId: string,
+  selected: SelectedActivity,
+  refreshKey: number,
+): DashboardData => {
   const [data, setData] = useState<DashboardData>({
     graph: emptyGraph,
     jobs: [],
@@ -75,25 +121,6 @@ export const useWorkspaceDashboard = (workspaceId: string) => {
   });
 
   useEffect(() => {
-    let active = true;
-    const refreshWorkspaces = async (): Promise<void> => {
-      try {
-        const result = await getJson<{ workspaces: readonly string[] }>('/api/workspaces');
-        if (active) setWorkspaces(result.workspaces);
-      } catch {
-        if (active) setWorkspaces(['default']);
-      }
-    };
-    void refreshWorkspaces();
-    const interval = window.setInterval(() => void refreshWorkspaces(), 8000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    setSelected(null);
     setData({ graph: emptyGraph, jobs: [], retrievalLogs: [], jobLogs: [], loading: true, error: null });
   }, [workspaceId]);
 
@@ -141,17 +168,5 @@ export const useWorkspaceDashboard = (workspaceId: string) => {
     };
   }, [workspaceId, selected, refreshKey]);
 
-  const selectedLogs = selected?.kind === 'job'
-    ? data.jobLogs
-    : selected ? data.retrievalLogs.filter((log) => log.operationId === selected.id) : [];
-
-  return {
-    ...data,
-    workspaces,
-    selected,
-    selectedLogs,
-    refresh: () => setRefreshKey((current) => current + 1),
-    selectJob: (jobId: string) => setSelected({ kind: 'job', id: jobId }),
-    selectRetrieval: (operationId: string) => setSelected({ kind: 'retrieval', id: operationId }),
-  };
+  return data;
 };

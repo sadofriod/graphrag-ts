@@ -7,7 +7,20 @@ const HORIZONTAL_GAP = 260;
 
 type PositionedGraph = { readonly nodes: Node[]; readonly edges: Edge[] };
 
-export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): PositionedGraph => {
+type Branch = { readonly id: string; readonly side: number; readonly leaves: number };
+type LayoutData = {
+  readonly communities: GraphSnapshot['nodes'][number][];
+  readonly entities: GraphSnapshot['nodes'][number][];
+  readonly children: Map<string, string[]>;
+  readonly members: Map<string, string[]>;
+  readonly entityParents: Map<string, string>;
+  readonly branches: Branch[];
+  readonly orphanEntities: GraphSnapshot['nodes'][number][];
+  readonly sideHeights: Map<number, number>;
+  readonly countLeaves: (communityId: string, ancestors?: Set<string>) => number;
+};
+
+const prepareLayout = (graph: GraphSnapshot): LayoutData => {
   const communities = graph.nodes.filter((node) => node.type === 'community');
   const entities = graph.nodes.filter((node) => node.type === 'entity');
   const communityIds = new Set(communities.map((node) => node.id));
@@ -16,7 +29,6 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
   const members = new Map<string, string[]>();
   const entityParents = new Map<string, string>();
   const childCommunityIds = new Set<string>();
-
   for (const edge of graph.edges) {
     if (edge.kind === 'community-hierarchy' && communityIds.has(edge.source) && communityIds.has(edge.target)) {
       children.set(edge.source, [...(children.get(edge.source) ?? []), edge.target]);
@@ -37,7 +49,6 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
       .filter((entityId) => entityParents.get(entityId) === communityId);
     return Math.max(1, leafMembers.length);
   };
-
   let roots = communities.filter((community) => !childCommunityIds.has(community.id));
   if (roots.length === 0) roots = communities;
   const branches = roots.map((root, index) => ({
@@ -50,6 +61,11 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
     [1, (branches.filter((branch) => branch.side === 1).reduce((sum, branch) => sum + branch.leaves, orphanEntities.length)) * VERTICAL_GAP],
     [-1, branches.filter((branch) => branch.side === -1).reduce((sum, branch) => sum + branch.leaves, 0) * VERTICAL_GAP],
   ]);
+  return { communities, entities, children, members, entityParents, branches, orphanEntities, sideHeights, countLeaves };
+};
+
+const positionNodes = (layout: LayoutData, workspaceId: string): Map<string, { x: number; y: number }> => {
+  const { children, members, entityParents, branches, orphanEntities, sideHeights, countLeaves } = layout;
   const positions = new Map<string, { x: number; y: number }>();
   const rootId = `workspace-root:${workspaceId}`;
   positions.set(rootId, { x: -90, y: -NODE_HEIGHT / 2 });
@@ -103,8 +119,16 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
       }
     }
   }
+  return positions;
+};
 
-  const nodes: Node[] = [
+const createNodes = (
+  graph: GraphSnapshot,
+  workspaceId: string,
+  positions: Map<string, { x: number; y: number }>,
+): Node[] => {
+  const rootId = `workspace-root:${workspaceId}`;
+  return [
     {
       id: rootId,
       position: positions.get(rootId) ?? { x: -90, y: -NODE_HEIGHT / 2 },
@@ -148,6 +172,16 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
       }];
     }),
   ];
+};
+
+const createEdges = (
+  graph: GraphSnapshot,
+  workspaceId: string,
+  layout: LayoutData,
+  nodes: readonly Node[],
+): Edge[] => {
+  const { branches, orphanEntities } = layout;
+  const rootId = `workspace-root:${workspaceId}`;
   const visibleIds = new Set(nodes.map((node) => node.id));
   const directedEdges: Edge[] = graph.edges.flatMap((edge) => {
     if (!visibleIds.has(edge.source) || !visibleIds.has(edge.target)) return [];
@@ -185,6 +219,12 @@ export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): Positi
       style: { stroke: '#6c9c7a', strokeWidth: 1.7 },
     })),
   ];
+  return [...rootEdges, ...directedEdges];
+};
 
-  return { nodes, edges: [...rootEdges, ...directedEdges] };
+export const layoutMindmap = (graph: GraphSnapshot, workspaceId: string): PositionedGraph => {
+  const layout = prepareLayout(graph);
+  const positions = positionNodes(layout, workspaceId);
+  const nodes = createNodes(graph, workspaceId, positions);
+  return { nodes, edges: createEdges(graph, workspaceId, layout, nodes) };
 };

@@ -54,19 +54,11 @@ const jsonResponse = (value: unknown): Response => new Response(JSON.stringify(v
   headers: { 'content-type': 'application/json' },
 });
 
-const dashboardResponse = async (request: Request, store: IndexStore): Promise<Response | undefined> => {
-  const url = new URL(request.url);
-  const pathParts = url.pathname.split('/').filter(Boolean);
-  if (pathParts[0] !== 'api' || pathParts[1] !== 'workspaces') return undefined;
-  if (!isLocalHost(request)) return httpError(403, 'Only localhost dashboard clients are allowed.');
-  if (request.method !== 'GET') return httpError(405, 'Only GET is supported.');
-  if (pathParts.length === 2) {
-    return jsonResponse({ workspaces: await store.listWorkspaces() });
-  }
-
-  const workspace = workspaceIdSchema.safeParse(pathParts[2]);
-  if (!workspace.success) return httpError(400, 'Invalid workspace ID.');
-  const workspaceId = workspace.data;
+const dashboardWorkspaceResponse = async (
+  pathParts: string[],
+  workspaceId: string,
+  store: IndexStore,
+): Promise<Response> => {
   const resource = pathParts[3];
   if (resource === 'graph' && pathParts.length === 4) {
     return jsonResponse(await store.getGraphSnapshot(workspaceId));
@@ -85,6 +77,21 @@ const dashboardResponse = async (request: Request, store: IndexStore): Promise<R
     return jsonResponse({ logs: await store.listRetrievalLogs(workspaceId) });
   }
   return httpError(404, 'Not found.');
+};
+
+const dashboardResponse = async (request: Request, store: IndexStore): Promise<Response | undefined> => {
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split('/').filter(Boolean);
+  if (pathParts[0] !== 'api' || pathParts[1] !== 'workspaces') return undefined;
+  if (!isLocalHost(request)) return httpError(403, 'Only localhost dashboard clients are allowed.');
+  if (request.method !== 'GET') return httpError(405, 'Only GET is supported.');
+  if (pathParts.length === 2) {
+    return jsonResponse({ workspaces: await store.listWorkspaces() });
+  }
+
+  const workspace = workspaceIdSchema.safeParse(pathParts[2]);
+  if (!workspace.success) return httpError(400, 'Invalid workspace ID.');
+  return dashboardWorkspaceResponse(pathParts, workspace.data, store);
 };
 
 const handleExistingSession = async (

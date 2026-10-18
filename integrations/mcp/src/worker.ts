@@ -18,6 +18,43 @@ const errorSummary = (error: unknown): string => {
 const buildInputFiles = (sources: readonly BuildSource[]) =>
   sources.map((source) => ({ title: source.sourceLabel, content: source.content }));
 
+const recordBuildLog = async (
+  store: IndexStore,
+  logger: Logger,
+  workspaceId: WorkspaceId,
+  jobId: string,
+  message: string,
+  details: Record<string, unknown> = {},
+  level: 'info' | 'error' = 'info',
+): Promise<void> => {
+  await store.appendActivityLog({
+    workspaceId,
+    operationId: jobId,
+    jobId,
+    kind: 'build',
+    level,
+    message,
+    details,
+  }).catch((error: unknown) => {
+    logger.warn('Could not persist build activity.', {
+      job_id: jobId,
+      error_name: error instanceof Error ? error.name : 'UnknownError',
+    });
+  });
+};
+
+const recordBuildPhase = async (
+  store: IndexStore,
+  logger: Logger,
+  workspaceId: WorkspaceId,
+  jobId: string,
+  phase: string,
+  details: Record<string, unknown> = {},
+): Promise<void> => {
+  await store.setPhase(jobId, phase);
+  await recordBuildLog(store, logger, workspaceId, jobId, `Build ${phase}.`, details);
+};
+
 const processJob = async (
   jobId: string,
   workspaceId: WorkspaceId,
@@ -26,43 +63,22 @@ const processJob = async (
   logger: Logger,
 ): Promise<void> => {
   let namespace: string | undefined;
-  const recordLog = async (
-    message: string,
-    details: Record<string, unknown> = {},
-    level: 'info' | 'error' = 'info',
-  ): Promise<void> => {
-    await store.appendActivityLog({
-      workspaceId,
-      operationId: jobId,
-      jobId,
-      kind: 'build',
-      level,
-      message,
-      details,
-    }).catch((error: unknown) => {
-      logger.warn('Could not persist build activity.', {
-        job_id: jobId,
-        error_name: error instanceof Error ? error.name : 'UnknownError',
-      });
-    });
-  };
-  const recordPhase = async (phase: string, details: Record<string, unknown> = {}): Promise<void> => {
-    await store.setPhase(jobId, phase);
-    await recordLog(`Build ${phase}.`, details);
-  };
   try {
-    await recordPhase('preparing');
+    await recordBuildPhase(store, logger, workspaceId, jobId, 'preparing');
     const [active, inputs] = await Promise.all([
       store.getActiveSnapshot(workspaceId),
       store.getInputs(jobId),
     ]);
-    await recordLog('Build inputs loaded.', { input_count: inputs.length, existing_source_count: active.sources.length });
+    await recordBuildLog(store, logger, workspaceId, jobId, 'Build inputs loaded.', {
+      input_count: inputs.length,
+      existing_source_count: active.sources.length,
+    });
     namespace = `snapshot-${randomUUID()}`;
     const versionId = randomUUID();
     await store.beginSnapshot(jobId, namespace, workspaceId);
-    await recordPhase('building');
+    await recordBuildPhase(store, logger, workspaceId, jobId, 'building');
     await buildSnapshot(buildInputFiles([...active.sources, ...inputs]), namespace);
-    await recordPhase('publishing');
+    await recordBuildPhase(store, logger, workspaceId, jobId, 'publishing');
     await store.publish(
       jobId,
       versionId,
@@ -80,12 +96,15 @@ const processJob = async (
         error_name: error instanceof Error ? error.name : 'UnknownError',
       });
     }
-    await recordLog('Index published.', { version_id: versionId });
+    await recordBuildLog(store, logger, workspaceId, jobId, 'Index published.', { version_id: versionId });
     logger.info('Index job published.', { job_id: jobId, version_id: versionId });
   } catch (error) {
     const summary = errorSummary(error);
     await store.fail(jobId, 'BUILD_FAILED', summary);
-    await recordLog('Build failed.', { code: 'BUILD_FAILED', summary }, 'error');
+    await recordBuildLog(store, logger, workspaceId, jobId, 'Build failed.', {
+      code: 'BUILD_FAILED',
+      summary,
+    }, 'error');
     if (namespace) {
       await store.discardSnapshot(namespace).catch((cleanupError: unknown) => {
         logger.warn('Failed GraphRAG snapshot cleanup failed.', {
@@ -95,6 +114,25 @@ const processJob = async (
       });
     }
     logger.error('Index job failed.', { job_id: jobId, summary });
+  }
+};
+
+const processQueuedJobs = async (
+  store: IndexStore,
+  config: AppConfig,
+  logger: Logger,
+  signal: AbortSignal,
+): Promise<void> => {
+  await store.recoverInterruptedJobs();
+  logger.info('Index worker started.');
+  while (!signal.aborted) {
+    const job = await store.claimNextJob();
+    if (!job) {
+      await delay(config.QUEUE_POLL_MS, undefined, { signal }).catch(() => undefined);
+      continue;
+    }
+    logger.info('Index job claimed.', { job_id: job.id });
+    await processJob(job.id, job.workspaceId, store, config, logger);
   }
 };
 
@@ -113,18 +151,7 @@ export const runWorker = async (
       throw new Error('Worker lock is already held; refusing concurrent GraphRAG builds.');
     }
 
-    await store.recoverInterruptedJobs();
-    logger.info('Index worker started.');
-    while (!signal.aborted) {
-      const job = await store.claimNextJob();
-      if (!job) {
-        await delay(config.QUEUE_POLL_MS, undefined, { signal }).catch(() => undefined);
-        continue;
-      }
-
-      logger.info('Index job claimed.', { job_id: job.id });
-      await processJob(job.id, job.workspaceId, store, config, logger);
-    }
+    await processQueuedJobs(store, config, logger, signal);
   } finally {
     await lockClient.query('SELECT pg_advisory_unlock(739284729384::bigint)').catch(() => undefined);
     lockClient.release();
