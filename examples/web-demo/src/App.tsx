@@ -4,11 +4,13 @@ import AccountTreeRounded from '@mui/icons-material/AccountTreeRounded';
 import HubRounded from '@mui/icons-material/HubRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import UploadRounded from '@mui/icons-material/UploadRounded';
+import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -18,6 +20,7 @@ import {
   DialogTitle,
   LinearProgress,
   Paper,
+  IconButton,
   Stack,
   TextField,
   ThemeProvider,
@@ -26,8 +29,16 @@ import {
   Typography,
   createTheme,
 } from '@mui/material';
+import {
+  Background,
+  Controls,
+  MiniMap,
+  ReactFlow,
+} from '@xyflow/react';
 import { callTool, checkHealth, connectMcp, type ToolResult } from './mcp';
 import i18n, { languageStorageKey, type SupportedLanguage } from './i18n';
+import { layoutMindmap } from './layoutMindmap';
+import { useWorkspaceDashboard, type ActivityLog, type DashboardJob } from './useWorkspaceDashboard';
 
 type State = {
   workspace: string;
@@ -38,6 +49,7 @@ type State = {
   busy: 'build' | 'query' | null;
   job: ToolResult | null;
   result: ToolResult | null;
+  selectedGraphNode: string | null;
   error: string | null;
 };
 
@@ -50,6 +62,7 @@ type Action =
   | { type: 'busy'; value: State['busy'] }
   | { type: 'job'; value: ToolResult | null }
   | { type: 'result'; value: ToolResult | null }
+  | { type: 'graphNode'; value: string | null }
   | { type: 'error'; value: string | null };
 
 const initialState: State = {
@@ -61,12 +74,13 @@ const initialState: State = {
   busy: null,
   job: null,
   result: null,
+  selectedGraphNode: null,
   error: null,
 };
 
 const reducer = (state: State, action: Action): State => {
   switch (action.type) {
-    case 'workspace': return { ...state, workspace: action.value };
+    case 'workspace': return { ...state, workspace: action.value, selectedGraphNode: null };
     case 'path': return { ...state, path: action.value };
     case 'query': return { ...state, query: action.value };
     case 'mode': return { ...state, mode: action.value };
@@ -74,6 +88,7 @@ const reducer = (state: State, action: Action): State => {
     case 'busy': return { ...state, busy: action.value };
     case 'job': return { ...state, job: action.value };
     case 'result': return { ...state, result: action.value };
+    case 'graphNode': return { ...state, selectedGraphNode: action.value };
     case 'error': return { ...state, error: action.value };
   }
 };
@@ -98,9 +113,56 @@ const theme = createTheme({
 
 const workspacePattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
+const renderActivityRows = (
+  logs: readonly ActivityLog[],
+  selectedId: string | undefined,
+  onSelect: (id: string) => void,
+  emptyLabel: string,
+) => logs.length > 0 ? logs.map((log) => (
+  <button
+    className={`activity-row ${selectedId === log.operationId ? 'selected' : ''}`}
+    key={log.operationId}
+    onClick={() => onSelect(log.operationId)}
+    type="button"
+  >
+    <span className={`activity-dot ${log.level}`} />
+    <span className="activity-copy">
+      <strong>{log.details.mode ? `${String(log.details.mode)} · ` : ''}{log.message}</strong>
+      <small>{new Date(log.createdAt).toLocaleString()}</small>
+    </span>
+  </button>
+)) : <Typography className="activity-empty" variant="body2">{emptyLabel}</Typography>;
+
+const renderJobRows = (
+  jobs: readonly DashboardJob[],
+  selectedId: string | undefined,
+  onSelect: (id: string) => void,
+  t: ReturnType<typeof useTranslation>['t'],
+) => jobs.length > 0 ? jobs.map((job) => (
+  <button
+    className={`activity-row ${selectedId === job.id ? 'selected' : ''}`}
+    key={job.id}
+    onClick={() => onSelect(job.id)}
+    type="button"
+  >
+    <span className={`status-dot ${job.status}`} />
+    <span className="activity-copy">
+      <strong>{t(`job.status.${job.status}`)} · {job.phase ? t(`job.phase.${job.phase}`, { defaultValue: job.phase }) : job.id.slice(0, 8)}</strong>
+      <small>{job.id.slice(0, 8)} · {new Date(job.createdAt).toLocaleString()}</small>
+    </span>
+  </button>
+)) : <Typography className="activity-empty" variant="body2">{t('dashboard.noJobs')}</Typography>;
+
 const App = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { t } = useTranslation();
+  const dashboard = useWorkspaceDashboard(state.workspace);
+  const flow = layoutMindmap(dashboard.graph, state.workspace);
+  const selectedGraphNode = dashboard.graph.nodes.find((node) => node.id === state.selectedGraphNode);
+  const selectedActivityId = dashboard.selected?.id;
+  const retrievalRows = [...new Map(
+    [...dashboard.retrievalLogs].reverse().map((log) => [log.operationId, log]),
+  ).values()].reverse();
 
   const renderSources = (sources: NonNullable<ToolResult['sources']>) => (
     <Accordion disableGutters elevation={0} className="result-accordion">
@@ -251,13 +313,82 @@ const App = () => {
           </Box>
           <Box className="intro-row">
             <Typography color="text.secondary">{t('intro')}</Typography>
-            <Chip className="workspace-chip" label={<>{t('workspace')} <strong>{state.workspace}</strong></>} size="small" />
+            <Autocomplete
+              className="workspace-switcher"
+              freeSolo
+              options={dashboard.workspaces}
+              value={state.workspace}
+              selectOnFocus
+              clearOnBlur
+              handleHomeEndKeys
+              onChange={(_, value) => {
+                if (typeof value === 'string' && value) dispatch({ type: 'workspace', value });
+              }}
+              renderInput={(params) => (
+                <TextField {...params} label={t('workspace')} helperText={t('build.workspaceHelper')} size="small" />
+              )}
+            />
           </Box>
+          <Paper component="section" className="graph-panel" aria-labelledby="graph-title">
+            <Box className="panel-heading">
+              <Box><Typography id="graph-title" variant="h2">{t('dashboard.graphTitle')}</Typography><Typography className="graph-meta">{dashboard.graph.versionId ? t('dashboard.version', { id: dashboard.graph.versionId.slice(0, 8) }) : t('dashboard.noIndex')}</Typography></Box>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Chip size="small" label={t('dashboard.graphCounts', { nodes: flow.nodes.length, edges: flow.edges.length })} />
+                <IconButton aria-label={t('dashboard.refresh')} onClick={dashboard.refresh} size="small"><RefreshRounded fontSize="small" /></IconButton>
+              </Stack>
+            </Box>
+            {dashboard.error && <Alert severity="warning" className="dashboard-alert">{dashboard.error}</Alert>}
+            {flow.nodes.length > 0 ? <Box className="graph-workspace">
+              <ReactFlow
+                nodes={flow.nodes}
+                edges={flow.edges}
+                fitView
+                fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
+                minZoom={0.08}
+                maxZoom={1.6}
+                onNodeClick={(_, node) => dispatch({ type: 'graphNode', value: node.id })}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background color="#dce3dc" gap={22} size={1} />
+                <Controls />
+                <MiniMap nodeColor={(node) => String(node.style?.background ?? '#fffefa')} />
+              </ReactFlow>
+              {selectedGraphNode && <Box className="node-inspector">
+                <Typography variant="caption" color="text.secondary">{selectedGraphNode.type === 'community' ? t('dashboard.community') : t('dashboard.entity')}{selectedGraphNode.level === undefined ? '' : ` · L${selectedGraphNode.level}`}</Typography>
+                <Typography variant="subtitle2" fontWeight={700}>{selectedGraphNode.label}</Typography>
+                <Typography variant="body2">{selectedGraphNode.description || t('dashboard.noDescription')}</Typography>
+              </Box>}
+            </Box> : <Box className="graph-empty"><HubRounded /><Typography variant="body2">{dashboard.loading ? t('dashboard.loading') : t('dashboard.emptyGraph')}</Typography></Box>}
+          </Paper>
+          <Box className="activity-grid">
+            <Paper component="section" className="activity-panel" aria-labelledby="jobs-title">
+              <Box className="panel-heading"><Typography id="jobs-title" variant="h2">{t('dashboard.jobs')}</Typography><Chip size="small" label={dashboard.jobs.filter((job) => job.status === 'running' || job.status === 'queued').length} /></Box>
+              <Box className="activity-list">{renderJobRows(dashboard.jobs, dashboard.selected?.kind === 'job' ? selectedActivityId : undefined, dashboard.selectJob, t)}</Box>
+            </Paper>
+            <Paper component="section" className="activity-panel" aria-labelledby="retrieval-title">
+              <Box className="panel-heading"><Typography id="retrieval-title" variant="h2">{t('dashboard.retrievals')}</Typography><Chip size="small" label={new Set(dashboard.retrievalLogs.map((log) => log.operationId)).size} /></Box>
+              <Box className="activity-list">{renderActivityRows(
+                retrievalRows,
+                dashboard.selected?.kind === 'retrieval' ? selectedActivityId : undefined,
+                dashboard.selectRetrieval,
+                t('dashboard.noRetrievals'),
+              )}</Box>
+            </Paper>
+          </Box>
+          {dashboard.selected && <Paper component="section" className="log-panel" aria-labelledby="logs-title">
+            <Box className="panel-heading"><Box><Typography id="logs-title" variant="h2">{dashboard.selected.kind === 'job' ? t('dashboard.buildLogs') : t('dashboard.retrievalLogs')}</Typography><Typography className="graph-meta">{dashboard.selected.id}</Typography></Box></Box>
+            <Box className="log-list">{dashboard.selectedLogs.length > 0 ? dashboard.selectedLogs.map((log) => (
+              <Box className={`log-entry ${log.level}`} key={log.id}>
+                <time>{new Date(log.createdAt).toLocaleTimeString()}</time>
+                <strong>{log.message}</strong>
+                {Object.keys(log.details).length > 0 && <code>{JSON.stringify(log.details)}</code>}
+              </Box>
+            )) : <Typography className="activity-empty" variant="body2">{t('dashboard.noLogs')}</Typography>}</Box>
+          </Paper>}
           <Box className="work-grid">
             <Paper component="section" className="work-panel" aria-labelledby="build-title">
               <Box className="panel-heading"><Typography id="build-title" variant="h2">{t('build.title')}</Typography><Typography className="step-tag">{t('build.step')}</Typography></Box>
               <Stack className="panel-content" spacing={2}>
-                <TextField label={t('build.workspaceId')} value={state.workspace} onChange={(event) => dispatch({ type: 'workspace', value: event.target.value })} helperText={t('build.workspaceHelper')} size="small" fullWidth />
                 <TextField label={t('build.inputDirectory')} value={state.path} onChange={(event) => dispatch({ type: 'path', value: event.target.value })} helperText={t('build.pathHelper')} size="small" fullWidth />
                 <Button variant="contained" startIcon={<UploadRounded />} onClick={() => void runBuild()} disabled={state.busy !== null}>{t('build.start')}</Button>
                 {state.job && <Box className={`job-state ${state.job.status}`}>

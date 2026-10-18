@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig } from '../config.ts';
@@ -139,6 +140,26 @@ const executeQuery = async (
   communityLevel: number | 'leaf' | undefined,
   releaseQuerySlot: () => void,
 ) => {
+  const operationId = randomUUID();
+  const startedAt = Date.now();
+  const logActivity = async (
+    level: 'info' | 'warn' | 'error',
+    message: string,
+    details: Record<string, unknown> = {},
+  ): Promise<void> => {
+    await store.appendActivityLog({
+      workspaceId,
+      operationId,
+      kind: 'retrieval',
+      level,
+      message,
+      details,
+    }).catch((error: unknown) => {
+      logger.warn('Could not persist retrieval activity.', {
+        error_name: error instanceof Error ? error.name : 'UnknownError',
+      });
+    });
+  };
   let lease: QueryLease | null = null;
   let workStarted = false;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -146,8 +167,14 @@ const executeQuery = async (
   const leaseDurationMs = Math.max(config.QUERY_TIMEOUT_MS * 2, 60_000);
 
   try {
+    await logActivity('info', 'Retrieval started.', {
+      mode,
+      query_length: query.length,
+      community_level: communityLevel ?? null,
+    });
     lease = await store.acquireActiveVersionLease(workspaceId, leaseDurationMs);
     if (!lease) {
+      await logActivity('warn', 'Retrieval unavailable: no index is published.', { mode });
       return toolErrorResult('INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.');
     }
     const activeLease = lease;
@@ -174,11 +201,23 @@ const executeQuery = async (
       }, config.QUERY_TIMEOUT_MS);
     });
     const outcome = await Promise.race([work, timeout]);
-    return formatQueryOutcome(outcome, activeLease, config.MAX_OUTPUT_CHARS);
+    const formatted = formatQueryOutcome(outcome, activeLease, config.MAX_OUTPUT_CHARS);
+    await logActivity('info', 'Retrieval completed.', { mode, duration_ms: Date.now() - startedAt });
+    return formatted;
   } catch (error) {
     if (error instanceof ToolError) {
+      await logActivity('error', 'Retrieval failed.', {
+        mode,
+        code: error.code,
+        duration_ms: Date.now() - startedAt,
+      });
       return toolErrorResult(error.code, error.message);
     }
+    await logActivity('error', 'Retrieval failed.', {
+      mode,
+      code: 'UPSTREAM_ERROR',
+      duration_ms: Date.now() - startedAt,
+    });
     logger.error('MCP tool failed.', {
       tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
       error_name: error instanceof Error ? error.name : 'UnknownError',

@@ -21,6 +21,46 @@ export type JobRecord = {
   readonly publishedVersion: { readonly id: string; readonly workspaceId: WorkspaceId } | null;
 };
 
+export type ActivityLogInput = {
+  readonly workspaceId: WorkspaceId;
+  readonly operationId: string;
+  readonly jobId?: string;
+  readonly kind: 'build' | 'retrieval';
+  readonly level: 'info' | 'warn' | 'error';
+  readonly message: string;
+  readonly details?: Record<string, unknown>;
+};
+
+export type ActivityLogRecord = {
+  readonly id: string;
+  readonly workspaceId: WorkspaceId;
+  readonly operationId: string;
+  readonly jobId: string | null;
+  readonly kind: 'build' | 'retrieval';
+  readonly level: 'info' | 'warn' | 'error';
+  readonly message: string;
+  readonly details: Record<string, unknown>;
+  readonly createdAt: Date;
+};
+
+export type GraphSnapshot = {
+  readonly versionId: string | null;
+  readonly nodes: readonly {
+    readonly id: string;
+    readonly type: 'entity' | 'community';
+    readonly label: string;
+    readonly description: string;
+    readonly level?: number;
+  }[];
+  readonly edges: readonly {
+    readonly id: string;
+    readonly source: string;
+    readonly target: string;
+    readonly label: string;
+    readonly kind: 'relationship' | 'community-hierarchy' | 'community-member';
+  }[];
+};
+
 export type SourceRecord = {
   readonly id: string;
   readonly sourceLabel: string;
@@ -147,6 +187,7 @@ const migrate = async (pool: Pool): Promise<void> => {
     '001_init.sql',
     '002_hierarchical_communities.sql',
     '003_workspace_routing.sql',
+    '004_workspace_activity_logs.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
@@ -163,6 +204,12 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
       await client.query(
         'INSERT INTO index_jobs (id, workspace_id, status, phase) VALUES ($1, $2, $3, $4)',
         [id, workspaceId, 'queued', 'queued'],
+      );
+      await client.query(
+        `INSERT INTO workspace_activity_logs
+           (id, workspace_id, operation_id, job_id, kind, level, message, details)
+         VALUES ($1, $2, $3, $3, 'build', 'info', 'Build queued.', $4::jsonb)`,
+        [randomUUID(), workspaceId, id, JSON.stringify({ input_count: inputs.length })],
       );
       for (const [ordinal, input] of inputs.entries()) {
         await client.query(
@@ -203,6 +250,18 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
 };
 
 const createJobOperations = (pool: Pool, transaction: Transaction) => {
+  const listWorkspaces = async (): Promise<readonly string[]> => {
+    const result = await pool.query<{ workspace_id: string }>(
+      `SELECT workspace_id FROM (
+         SELECT workspace_id FROM index_jobs
+         UNION
+         SELECT workspace_id FROM index_versions
+       ) AS workspaces ORDER BY workspace_id`,
+    );
+    return [...new Set(['default', ...result.rows.map((row) => row.workspace_id)])]
+      .sort((left, right) => left === 'default' ? -1 : right === 'default' ? 1 : left.localeCompare(right));
+  };
+
   const getJob = async (id: string, workspaceId: WorkspaceId): Promise<JobRecord | null> => {
     const result = await pool.query<DatabaseJob>(
       `SELECT j.id, j.workspace_id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
@@ -220,6 +279,55 @@ const createJobOperations = (pool: Pool, transaction: Transaction) => {
       `SELECT source_label AS "sourceLabel", content
        FROM job_inputs WHERE job_id = $1 ORDER BY ordinal`,
       [jobId],
+    );
+    return result.rows;
+  };
+
+  const listJobs = async (workspaceId: WorkspaceId): Promise<readonly JobRecord[]> => {
+    const result = await pool.query<DatabaseJob>(
+      `SELECT j.id, j.workspace_id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
+              j.error_code, j.error_summary, v.id AS version_id
+       FROM index_jobs j LEFT JOIN index_versions v ON v.id = j.published_version_id
+       WHERE j.workspace_id = $1
+       ORDER BY CASE j.status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,
+                j.created_at DESC, j.id DESC
+       LIMIT 50`,
+      [workspaceId],
+    );
+    return result.rows.map(asJobRecord);
+  };
+
+  const appendActivityLog = async (input: ActivityLogInput): Promise<void> => {
+    await pool.query(
+      `INSERT INTO workspace_activity_logs
+         (id, workspace_id, operation_id, job_id, kind, level, message, details)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+      [randomUUID(), input.workspaceId, input.operationId, input.jobId ?? null, input.kind,
+        input.level, input.message, JSON.stringify(input.details ?? {})],
+    );
+  };
+
+  const listJobLogs = async (workspaceId: WorkspaceId, jobId: string): Promise<readonly ActivityLogRecord[]> => {
+    const result = await pool.query<ActivityLogRecord>(
+      `SELECT id, workspace_id AS "workspaceId", operation_id AS "operationId", job_id AS "jobId",
+              kind, level, message, details, created_at AS "createdAt"
+       FROM workspace_activity_logs
+       WHERE workspace_id = $1 AND job_id = $2 AND kind = 'build'
+       ORDER BY created_at, id`,
+      [workspaceId, jobId],
+    );
+    return result.rows;
+  };
+
+  const listRetrievalLogs = async (workspaceId: WorkspaceId): Promise<readonly ActivityLogRecord[]> => {
+    const result = await pool.query<ActivityLogRecord>(
+      `SELECT id, workspace_id AS "workspaceId", operation_id AS "operationId", job_id AS "jobId",
+              kind, level, message, details, created_at AS "createdAt"
+       FROM workspace_activity_logs
+       WHERE workspace_id = $1 AND kind = 'retrieval'
+       ORDER BY created_at DESC, id DESC
+       LIMIT 100`,
+      [workspaceId],
     );
     return result.rows;
   };
@@ -256,7 +364,88 @@ const createJobOperations = (pool: Pool, transaction: Transaction) => {
     );
   };
 
-  return { fail, getInputs, getJob, recoverInterruptedJobs, setPhase };
+  return { appendActivityLog, fail, getInputs, getJob, listJobLogs, listJobs, listRetrievalLogs, listWorkspaces, recoverInterruptedJobs, setPhase };
+};
+
+const getGraphSnapshot = async (pool: Pool, workspaceId: WorkspaceId): Promise<GraphSnapshot> => {
+  const active = await pool.query<{ id: string; namespace: string }>(
+    `SELECT v.id, v.namespace FROM active_index a
+     JOIN index_versions v ON v.id = a.version_id AND v.workspace_id = a.workspace_id
+     WHERE a.workspace_id = $1`,
+    [workspaceId],
+  );
+  const version = active.rows[0];
+  if (!version) return { versionId: null, nodes: [], edges: [] };
+
+  const [entities, communities, relationships] = await Promise.all([
+    pool.query<{ id: string; name: string; description: string | null }>(
+      `SELECT id, name, description FROM rag_entities WHERE namespace = $1 ORDER BY name LIMIT 1000`,
+      [version.namespace],
+    ),
+    pool.query<{ id: string; community_name: string; summary_content: string; level: number; parent_community_id: string | null; members: string[] }>(
+      `SELECT id, community_name, summary_content, level, parent_community_id, members
+       FROM rag_community_summaries WHERE namespace = $1 ORDER BY level, community_name LIMIT 500`,
+      [version.namespace],
+    ),
+    pool.query<{ id: string; source_entity_id: string; target_entity_id: string; relationship_desc: string }>(
+      `SELECT id, source_entity_id, target_entity_id, relationship_desc
+       FROM rag_graph_edges WHERE namespace = $1 ORDER BY id LIMIT 2500`,
+      [version.namespace],
+    ),
+  ]);
+
+  const nodes: GraphSnapshot['nodes'][number][] = [
+    ...communities.rows.map((community) => ({
+      id: `community:${community.id}`,
+      type: 'community' as const,
+      label: community.community_name,
+      description: community.summary_content,
+      level: community.level,
+    })),
+    ...entities.rows.map((entity) => ({
+      id: `entity:${entity.id}`,
+      type: 'entity' as const,
+      label: entity.name,
+      description: entity.description ?? '',
+    })),
+  ];
+  const entityIdsByName = new Map(entities.rows.map((entity) => [entity.name, `entity:${entity.id}`]));
+  const communitiesWithChildren = new Set(
+    communities.rows.flatMap((community) => community.parent_community_id ? [community.parent_community_id] : []),
+  );
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const edges: GraphSnapshot['edges'][number][] = [
+    ...relationships.rows.map((edge) => ({
+      id: `relationship:${edge.id}`,
+      source: `entity:${edge.source_entity_id}`,
+      target: `entity:${edge.target_entity_id}`,
+      label: edge.relationship_desc,
+      kind: 'relationship' as const,
+    })),
+    ...communities.rows.flatMap((community) => [
+      ...(community.parent_community_id ? [{
+        id: `hierarchy:${community.parent_community_id}:${community.id}`,
+        source: `community:${community.parent_community_id}`,
+        target: `community:${community.id}`,
+        label: 'child community',
+        kind: 'community-hierarchy' as const,
+      }] : []),
+      ...(!communitiesWithChildren.has(community.id) ? community.members.flatMap((member) => {
+        const entityId = entityIdsByName.get(member);
+        return entityId ? [{
+          id: `member:${community.id}:${entityId}`,
+          source: `community:${community.id}`,
+          target: entityId,
+          label: 'member',
+          kind: 'community-member' as const,
+        }] : [];
+      }) : []),
+    ]),
+  ].filter((edge) => {
+    return nodeIds.has(edge.source) && nodeIds.has(edge.target);
+  });
+
+  return { versionId: version.id, nodes, edges };
 };
 
 const getActiveSnapshot = async (
@@ -397,6 +586,7 @@ export const createStore = (databaseUrl: string) => {
     ping: async () => pool.query('SELECT 1').then(() => undefined),
     ...queueOperations,
     ...createJobOperations(pool, transaction),
+    getGraphSnapshot: (workspaceId: WorkspaceId) => getGraphSnapshot(pool, workspaceId),
     ...createSnapshotQueries(pool, transaction),
     publish: createPublisher(transaction),
   };
