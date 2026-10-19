@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15 — 2026-10-19
+
+- **feat(workspace)**: add activity dashboard
+- Merge pull request #11 from sadofriod/feat/workspace-activity-dashboard
+- fix CI lint violations in activity dashboard
+
 ## 0.1.14 — 2026-10-14
 
 - **fix**: add i18n for demo page
