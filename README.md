@@ -13,6 +13,7 @@
 - Full and incremental builds, with unchanged community summaries reused
 - Hybrid vector, keyword, and graph retrieval, plus corpus-wide Map-Reduce queries
 - MCP server with isolated workspaces and a local browser showcase
+- Opt-in metered MCP access and licensed dataset delivery foundations (not a payment processor)
 
 See [the architecture guide](docs/architecture.md) for the pipeline and module details.
 
@@ -58,6 +59,9 @@ To run the three-question Docker smoke benchmark, use `pnpm benchmark:docker:qui
 - [docs/zh-CN.md](docs/zh-CN.md): Chinese user guide
 - [docs/comparison.md](docs/comparison.md): comparison notes
 - [CONTRIBUTING.md](CONTRIBUTING.md): contribution guide
+- [Commercial delivery paths](docs/commercialization.md): hosted allowances, dataset bundles and private deployment
+- [Hermes / OpenClaw setup](integrations/mcp/clients/README.md): client configurations and validation boundaries
+- [Web3 security sample](examples/web3-smart-contract-security/README.md): fictional, source-traceable relation dataset
 
 ## Contributing
 
