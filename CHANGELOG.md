@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.16 — 2026-10-19
+
+- **feat(examples)**: add Hermes and OpenClaw MCP scenarios
+- **feat(examples)**: add Web3 dataset delivery
+- **feat(mcp)**: add metered hosted access
+- Merge pull request #12 from sadofriod/feat/mcp-metered-access
+- Merge pull request #13 from sadofriod/feat/web3-dataset-delivery
+- Merge pull request #14 from sadofriod/feat/agent-ecosystem-demos
+- Fix project history probe review feedback
+- Trim content in corpusHash for consistent hashing
+
 ## 0.1.15 — 2026-10-19
 
 - **feat(workspace)**: add activity dashboard
