@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.17 — 2026-10-19
+
+- **fix(examples)**: normalize corpus and clarify MCP onboarding
+- Merge pull request #16 from sadofriod/fix/benchmark-corpus-hermes-onboarding
+
 ## 0.1.16 — 2026-10-19
 
 - **feat(examples)**: add Hermes and OpenClaw MCP scenarios
