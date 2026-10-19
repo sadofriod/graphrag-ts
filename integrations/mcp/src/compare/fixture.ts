@@ -26,7 +26,7 @@ export const loadCorpus = async (): Promise<readonly { sourceLabel: string; cont
 export const corpusHash = (sources: readonly { sourceLabel: string; content: string }[]): string =>
   createHash('sha256').update(JSON.stringify([...sources]
     .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel))
-    .map(({ sourceLabel, content }) => [sourceLabel, content]))).digest('hex');
+    .map(({ sourceLabel, content }) => [sourceLabel, content.trim()]))).digest('hex');
 
 export type SourceExcerpt = { readonly source: string; readonly excerpt: string };
 
