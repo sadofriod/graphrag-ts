@@ -1,0 +1,13 @@
+# Merge into ~/.hermes/config.yaml. This is local mode; do not expose it publicly.
+mcp_servers:
+  graphrag:
+    url: "http://127.0.0.1:3000/mcp"
+    timeout: 120
+    connect_timeout: 30
+    tools:
+      include:
+        - submit_index_job
+        - remember_text
+        - get_index_job
+        - query_graph
+        - query_graph_global
