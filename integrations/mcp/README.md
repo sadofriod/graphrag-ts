@@ -76,7 +76,21 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 - `query_graph(workspace_id, query)`: perform local hybrid retrieval against that workspace's latest published snapshot, optionally filtered by `community_level`.
 - `query_graph_global(workspace_id, query, community_level)`: perform corpus-wide Map-Reduce retrieval over terminal community summaries by default. Set `community_level` to a non-negative integer to use exactly that hierarchy level, or `"leaf"` to explicitly select all terminal communities across uneven branches.
 
-`workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
+`workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential. For mutually untrusted users, enable the [opt-in access policy](../../docs/commercialization.md) and use a trusted TLS gateway; the default remains an unauthenticated local demo.
+
+## Hosted allowances and agent clients
+
+Set `MCP_ACCESS_FILE` to a validated account policy to enable hashed bearer
+credentials, expiry, exclusive workspace ownership and PostgreSQL-backed monthly
+admission limits. HTTP sessions are bound to their account; all workspace
+dashboard endpoints are authorized too. `GET /api/usage` returns only the current
+account's usage. Hosted mode requires HTTP and disables shared-filesystem
+`submit_index_job`; use `remember_text`. Limits count admitted attempts, including
+later failures, not tokens or successful answers. See the [commercial guide](../../docs/commercialization.md)
+for setup, exact accounting semantics and remaining production requirements.
+
+Ready-to-merge [Hermes/OpenClaw configurations](clients/README.md) use the same MCP
+protocol. They are not official plugins or proof of marketplace approval.
 
 Use the same workspace ID when submitting, polling, and querying:
 
