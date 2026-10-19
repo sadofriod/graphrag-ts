@@ -1,0 +1,22 @@
+{
+  "mcp": {
+    "servers": {
+      "graphrag": {
+        "url": "http://127.0.0.1:3000/mcp",
+        "transport": "streamable-http",
+        "enabled": true,
+        "connectionTimeoutMs": 30000,
+        "requestTimeoutMs": 120000,
+        "toolFilter": {
+          "include": [
+            "submit_index_job",
+            "remember_text",
+            "get_index_job",
+            "query_graph",
+            "query_graph_global"
+          ]
+        }
+      }
+    }
+  }
+}

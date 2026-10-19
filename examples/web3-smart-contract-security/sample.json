@@ -1,0 +1,111 @@
+{
+  "id": "fictional-contract-safety",
+  "version": "1.0.0",
+  "title": "Fictional Contract Safety Relationship Sample",
+  "synthetic": true,
+  "license": "MIT",
+  "licenseText": "MIT License\n\nCopyright (c) 2026 GraphRAG TS contributors\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
+  "usageNotice": "Original synthetic research/demo sample. Every named contract, dependency, incident and review status is fictional; no real addresses, transactions, losses, exploit steps or verified security claims are provided. Not a production security intelligence dataset, audit, risk score or investment recommendation. MIT permits commercial reuse; research/demo describes intended use, not an added license restriction.",
+  "sources": [
+    {
+      "id": "s-dependencies",
+      "title": "Fictional dependency and review register",
+      "markdownPath": "dependencies.md",
+      "excerpt": "This invented register concerns three imaginary contracts. Lumen Vault has not undergone the fictional team's review and depends on Loom Ledger. Harbor Pool has undergone that team's review and also depends on Loom Ledger. Kite Reserve has not undergone that review and depends on Reed Rates instead. A review label is not a guarantee of safety. Shared dependency alone does not prove that Lumen has Harbor's weakness.",
+      "license": "MIT",
+      "provenance": {
+        "creator": "GraphRAG TS contributors",
+        "origin": "synthetic-original",
+        "locator": "urn:graphrag-ts:fictional-contract-safety:1.0.0:s-dependencies",
+        "rights": "Original fictional text created for this sample; distributed under the included MIT license."
+      }
+    },
+    {
+      "id": "s-harbor",
+      "title": "Fictional Harbor tabletop incident",
+      "markdownPath": "harbor-tabletop.md",
+      "excerpt": "Harbor Tabletop is an invented incident exercise involving Harbor Pool. The exercise illustrates the abstract weakness Nested State Inconsistency, which the fictional scenario assigns to Harbor Pool. No executable contract, attack sequence, real incident date or monetary loss exists. The purpose is to connect incident, contract and weakness records for retrieval evaluation, not to teach exploitation.",
+      "license": "MIT",
+      "provenance": {
+        "creator": "GraphRAG TS contributors",
+        "origin": "synthetic-original",
+        "locator": "urn:graphrag-ts:fictional-contract-safety:1.0.0:s-harbor",
+        "rights": "Original fictional text created for this sample; distributed under the included MIT license."
+      }
+    },
+    {
+      "id": "s-loom",
+      "title": "Fictional Loom dependency review",
+      "markdownPath": "loom-review.md",
+      "excerpt": "In this fictional review, Loom Ledger is affected by the abstract weakness Nested State Inconsistency. State Transition Review is the proposed mitigation category for that weakness: a defensive review of state invariants and authorized transitions. This is a conceptual recommendation without code or operational instructions. It is not evidence of a deployed fix, and it does not establish that every Loom consumer is vulnerable.",
+      "license": "MIT",
+      "provenance": {
+        "creator": "GraphRAG TS contributors",
+        "origin": "synthetic-original",
+        "locator": "urn:graphrag-ts:fictional-contract-safety:1.0.0:s-loom",
+        "rights": "Original fictional text created for this sample; distributed under the included MIT license."
+      }
+    },
+    {
+      "id": "s-kite",
+      "title": "Fictional Kite tabletop incident",
+      "markdownPath": "kite-tabletop.md",
+      "excerpt": "Kite Tabletop is a separate invented exercise involving Kite Reserve. It illustrates Stale Rate Acceptance, an abstract weakness assigned to Kite Reserve and its Reed Rates dependency in this scenario. This rate-quality concern is distinct from Nested State Inconsistency in the Harbor exercise. No real oracle, deployed system, attack recipe or measured impact is described.",
+      "license": "MIT",
+      "provenance": {
+        "creator": "GraphRAG TS contributors",
+        "origin": "synthetic-original",
+        "locator": "urn:graphrag-ts:fictional-contract-safety:1.0.0:s-kite",
+        "rights": "Original fictional text created for this sample; distributed under the included MIT license."
+      }
+    },
+    {
+      "id": "s-freshness",
+      "title": "Fictional rate-quality mitigation note",
+      "markdownPath": "freshness-review.md",
+      "excerpt": "Freshness Policy Review is a fictional mitigation category for Stale Rate Acceptance. It calls for defensive evaluation of data freshness requirements and documented failure handling. The note offers no production parameters, implementation code or assurance of effectiveness. It is separate from the State Transition Review proposed for Nested State Inconsistency.",
+      "license": "MIT",
+      "provenance": {
+        "creator": "GraphRAG TS contributors",
+        "origin": "synthetic-original",
+        "locator": "urn:graphrag-ts:fictional-contract-safety:1.0.0:s-freshness",
+        "rights": "Original fictional text created for this sample; distributed under the included MIT license."
+      }
+    }
+  ],
+  "entities": [
+    {"id": "c-lumen", "kind": "contract", "name": "Lumen Vault", "summary": "Fictional, unreviewed Loom consumer; no vulnerability inferred from dependency alone.", "evidenceIds": ["s-dependencies"]},
+    {"id": "c-harbor", "kind": "contract", "name": "Harbor Pool", "summary": "Fictional, reviewed Loom consumer in Harbor Tabletop.", "evidenceIds": ["s-dependencies", "s-harbor"]},
+    {"id": "c-kite", "kind": "contract", "name": "Kite Reserve", "summary": "Fictional, unreviewed Reed consumer in Kite Tabletop.", "evidenceIds": ["s-dependencies", "s-kite"]},
+    {"id": "d-loom", "kind": "dependency", "name": "Loom Ledger", "summary": "Fictional shared dependency of Lumen and Harbor.", "evidenceIds": ["s-dependencies", "s-loom"]},
+    {"id": "d-reed", "kind": "dependency", "name": "Reed Rates", "summary": "Fictional dependency of Kite, distinct from Loom.", "evidenceIds": ["s-dependencies", "s-kite"]},
+    {"id": "v-nested", "kind": "vulnerability", "name": "Nested State Inconsistency", "summary": "Abstract fictional state-consistency weakness, not a real advisory.", "evidenceIds": ["s-harbor", "s-loom"]},
+    {"id": "v-stale", "kind": "vulnerability", "name": "Stale Rate Acceptance", "summary": "Abstract fictional rate-quality weakness, not a real advisory.", "evidenceIds": ["s-kite", "s-freshness"]},
+    {"id": "i-harbor", "kind": "incident", "name": "Harbor Tabletop", "summary": "Invented exercise, not an on-chain event.", "evidenceIds": ["s-harbor"]},
+    {"id": "i-kite", "kind": "incident", "name": "Kite Tabletop", "summary": "Invented exercise, not an on-chain event.", "evidenceIds": ["s-kite"]},
+    {"id": "m-state", "kind": "mitigation", "name": "State Transition Review", "summary": "Conceptual defensive review, not a verified deployed fix.", "evidenceIds": ["s-loom"]},
+    {"id": "m-freshness", "kind": "mitigation", "name": "Freshness Policy Review", "summary": "Conceptual defensive rate-quality review, not a verified deployed fix.", "evidenceIds": ["s-freshness"]}
+  ],
+  "relations": [
+    {"id": "r-lumen-dependency", "kind": "depends_on", "from": "c-lumen", "to": "d-loom", "evidenceIds": ["s-dependencies"]},
+    {"id": "r-harbor-dependency", "kind": "depends_on", "from": "c-harbor", "to": "d-loom", "evidenceIds": ["s-dependencies"]},
+    {"id": "r-kite-dependency", "kind": "depends_on", "from": "c-kite", "to": "d-reed", "evidenceIds": ["s-dependencies"]},
+    {"id": "r-harbor-weakness", "kind": "contains", "from": "c-harbor", "to": "v-nested", "evidenceIds": ["s-harbor"]},
+    {"id": "r-kite-weakness", "kind": "contains", "from": "c-kite", "to": "v-stale", "evidenceIds": ["s-kite"]},
+    {"id": "r-harbor-event", "kind": "involves", "from": "i-harbor", "to": "c-harbor", "evidenceIds": ["s-harbor"]},
+    {"id": "r-kite-event", "kind": "involves", "from": "i-kite", "to": "c-kite", "evidenceIds": ["s-kite"]},
+    {"id": "r-harbor-scenario", "kind": "illustrates", "from": "i-harbor", "to": "v-nested", "evidenceIds": ["s-harbor"]},
+    {"id": "r-kite-scenario", "kind": "illustrates", "from": "i-kite", "to": "v-stale", "evidenceIds": ["s-kite"]},
+    {"id": "r-loom-risk", "kind": "affected_by", "from": "d-loom", "to": "v-nested", "evidenceIds": ["s-loom"]},
+    {"id": "r-reed-risk", "kind": "affected_by", "from": "d-reed", "to": "v-stale", "evidenceIds": ["s-kite"]},
+    {"id": "r-state-mitigation", "kind": "mitigates", "from": "m-state", "to": "v-nested", "evidenceIds": ["s-loom"]},
+    {"id": "r-freshness-mitigation", "kind": "mitigates", "from": "m-freshness", "to": "v-stale", "evidenceIds": ["s-freshness"]}
+  ],
+  "questions": [
+    {"id": "q-shared-unreviewed", "question": "Which fictional unreviewed contract shares a dependency with the contract involved in Harbor Tabletop, and what weakness does that exercise illustrate?", "relationIds": ["r-lumen-dependency", "r-harbor-dependency", "r-harbor-event", "r-harbor-scenario"], "expectedEvidenceIds": ["s-dependencies", "s-harbor"]},
+    {"id": "q-state-mitigation", "question": "Which conceptual mitigation is linked to the weakness illustrated by Harbor Tabletop?", "relationIds": ["r-harbor-scenario", "r-state-mitigation"], "expectedEvidenceIds": ["s-harbor", "s-loom"]},
+    {"id": "q-separate-dependencies", "question": "Do Harbor Pool and Kite Reserve share a dependency, and which distinct weakness is illustrated by Kite Tabletop?", "relationIds": ["r-harbor-dependency", "r-kite-dependency", "r-kite-event", "r-kite-scenario"], "expectedEvidenceIds": ["s-dependencies", "s-kite"]},
+    {"id": "q-review-scope", "question": "What dependency-level weakness merits review for Lumen Vault, and why is that not proof that Lumen itself is vulnerable?", "relationIds": ["r-lumen-dependency", "r-loom-risk"], "expectedEvidenceIds": ["s-dependencies", "s-loom"]},
+    {"id": "q-freshness-mitigation", "question": "Which fictional contract participates in Kite Tabletop, and which mitigation category addresses its illustrated weakness?", "relationIds": ["r-kite-event", "r-kite-scenario", "r-freshness-mitigation"], "expectedEvidenceIds": ["s-kite", "s-freshness"]}
+  ]
+}

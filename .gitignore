@@ -20,3 +20,6 @@ model.config.json
 
 .tmp/
 .agents/
+
+# Customer credentials and entitlements
+integrations/mcp/access/*.local.json

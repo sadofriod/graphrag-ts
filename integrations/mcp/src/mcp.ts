@@ -6,13 +6,8 @@ import type { AppConfig } from './config.ts';
 import { createMcpServer, createQueryLimiter } from './mcp/tools.ts';
 import type { Logger } from './log.ts';
 import type { IndexStore } from './store.ts';
-import { workspaceIdSchema } from './workspace.ts';
-
-const httpError = (status: number, message: string): Response =>
-  new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
+import { authenticate, createAccessGuard, loadAccessPolicy, type AccessAccount, type AccessPolicy } from './access.ts';
+import { dashboardResponse, httpError } from './dashboard.ts';
 
 const isLocalHost = (request: Request): boolean => {
   const host = request.headers.get('host');
@@ -27,11 +22,12 @@ const isLocalHost = (request: Request): boolean => {
   }
 };
 
-type McpSession = {
+export type McpSession = {
   readonly server: McpServer;
   readonly transport: WebStandardStreamableHTTPServerTransport;
   lastActivityAt: number;
   activeRequests: number;
+  readonly accountId: string | undefined;
 };
 
 type SessionMap = Map<string, McpSession>;
@@ -50,58 +46,15 @@ const healthResponse = async (request: Request, store: IndexStore): Promise<Resp
   }
 };
 
-const jsonResponse = (value: unknown): Response => new Response(JSON.stringify(value), {
-  headers: { 'content-type': 'application/json' },
-});
-
-const dashboardWorkspaceResponse = async (
-  pathParts: string[],
-  workspaceId: string,
-  store: IndexStore,
-): Promise<Response> => {
-  const resource = pathParts[3];
-  if (resource === 'graph' && pathParts.length === 4) {
-    return jsonResponse(await store.getGraphSnapshot(workspaceId));
-  }
-  if (resource === 'jobs' && pathParts.length === 4) {
-    return jsonResponse({ jobs: await store.listJobs(workspaceId) });
-  }
-  if (resource === 'jobs' && pathParts.length === 6 && pathParts[5] === 'logs') {
-    const jobId = pathParts[4] ?? '';
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
-      return httpError(400, 'Invalid job ID.');
-    }
-    return jsonResponse({ logs: await store.listJobLogs(workspaceId, jobId) });
-  }
-  if (resource === 'retrieval-logs' && pathParts.length === 4) {
-    return jsonResponse({ logs: await store.listRetrievalLogs(workspaceId) });
-  }
-  return httpError(404, 'Not found.');
-};
-
-const dashboardResponse = async (request: Request, store: IndexStore): Promise<Response | undefined> => {
-  const url = new URL(request.url);
-  const pathParts = url.pathname.split('/').filter(Boolean);
-  if (pathParts[0] !== 'api' || pathParts[1] !== 'workspaces') return undefined;
-  if (!isLocalHost(request)) return httpError(403, 'Only localhost dashboard clients are allowed.');
-  if (request.method !== 'GET') return httpError(405, 'Only GET is supported.');
-  if (pathParts.length === 2) {
-    return jsonResponse({ workspaces: await store.listWorkspaces() });
-  }
-
-  const workspace = workspaceIdSchema.safeParse(pathParts[2]);
-  if (!workspace.success) return httpError(400, 'Invalid workspace ID.');
-  return dashboardWorkspaceResponse(pathParts, workspace.data, store);
-};
-
 const handleExistingSession = async (
   request: Request,
   sessionId: string,
   sessions: SessionMap,
   logger: Logger,
+  account?: AccessAccount,
 ): Promise<Response> => {
   const session = sessions.get(sessionId);
-  if (!session) {
+  if (!session || session.accountId !== account?.id) {
     return httpError(404, 'MCP session not found.');
   }
   session.lastActivityAt = Date.now();
@@ -155,12 +108,13 @@ const startSession = async (
   logger: Logger,
   sessions: SessionMap,
   queryLimiter: ReturnType<typeof createQueryLimiter>,
+  account?: AccessAccount,
 ): Promise<Response> => {
   if (request.method !== 'POST') {
     return httpError(400, 'Initialize an MCP session before sending requests.');
   }
 
-  const server = createMcpServer(store, config, logger, queryLimiter);
+  const server = createMcpServer(store, config, logger, queryLimiter, account ? createAccessGuard(account, store) : undefined);
   let newSessionId: string | undefined;
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID,
@@ -177,7 +131,7 @@ const startSession = async (
     const response = await transport.handleRequest(request);
     newSessionId = transport.sessionId;
     if (newSessionId) {
-      sessions.set(newSessionId, { server, transport, lastActivityAt: Date.now(), activeRequests: 0 });
+      sessions.set(newSessionId, { server, transport, lastActivityAt: Date.now(), activeRequests: 0, accountId: account?.id });
     } else {
       await server.close();
     }
@@ -192,12 +146,13 @@ const startSession = async (
   }
 };
 
-const createHttpHandler = (
+export const createHttpHandler = (
   store: IndexStore,
   config: AppConfig,
   logger: Logger,
-  sessions: SessionMap,
-  queryLimiter: ReturnType<typeof createQueryLimiter>,
+  sessions: SessionMap = new Map(),
+  queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
+  policy?: AccessPolicy,
 ) => {
   let pendingSessions = 0;
   return async (request: Request): Promise<Response> => {
@@ -205,28 +160,33 @@ const createHttpHandler = (
     if (health) {
       return health;
     }
-    const dashboard = await dashboardResponse(request, store);
+    if (!isLocalHost(request)) {
+      return httpError(403, 'Only localhost clients are allowed. Use a trusted loopback reverse proxy for remote access.');
+    }
+    const account = policy ? authenticate(request, policy) : undefined;
+    if (policy && !account) {
+      const response = httpError(401, 'A valid, unexpired bearer credential is required.');
+      response.headers.set('www-authenticate', 'Bearer realm="graphrag"');
+      return response;
+    }
+    const dashboard = await dashboardResponse(request, store, account);
     if (dashboard) {
       return dashboard;
     }
     if (new URL(request.url).pathname !== '/mcp') {
       return httpError(404, 'Not found.');
     }
-    if (!isLocalHost(request)) {
-      return httpError(403, 'Only localhost MCP clients are allowed.');
-    }
-
     await closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
     const sessionId = request.headers.get('mcp-session-id');
     if (sessionId) {
-      return handleExistingSession(request, sessionId, sessions, logger);
+      return handleExistingSession(request, sessionId, sessions, logger, account);
     }
     if (sessions.size + pendingSessions >= config.MAX_HTTP_SESSIONS) {
       return httpError(503, 'The server has reached its MCP session limit.');
     }
     pendingSessions += 1;
     try {
-      return await startSession(request, store, config, logger, sessions, queryLimiter);
+      return await startSession(request, store, config, logger, sessions, queryLimiter, account);
     } finally {
       pendingSessions -= 1;
     }
@@ -238,6 +198,10 @@ export const startMcpServer = async (
   config: AppConfig,
   logger: Logger,
 ): Promise<() => Promise<void>> => {
+  if (config.MCP_ACCESS_FILE && config.MCP_TRANSPORT === 'stdio') {
+    throw new Error('MCP_ACCESS_FILE requires HTTP transport; stdio cannot authenticate individual callers.');
+  }
+  const policy = config.MCP_ACCESS_FILE ? await loadAccessPolicy(config.MCP_ACCESS_FILE) : undefined;
   if (config.MCP_TRANSPORT === 'stdio') {
     const server = createMcpServer(store, config, logger, createQueryLimiter(config.MAX_ACTIVE_QUERIES));
     await server.connect(new StdioServerTransport());
@@ -247,6 +211,7 @@ export const startMcpServer = async (
 
   const sessions: SessionMap = new Map();
   const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
+  const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy);
   const closeIdleSessionsHandle = setInterval(() => {
     void closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
   }, Math.min(config.HTTP_SESSION_IDLE_TIMEOUT_MS, 60_000));
@@ -254,7 +219,14 @@ export const startMcpServer = async (
     hostname: config.MCP_HOST,
     port: config.MCP_PORT,
     idleTimeout: Math.min(255, Math.ceil(config.QUERY_TIMEOUT_MS / 1_000) + 5),
-    fetch: createHttpHandler(store, config, logger, sessions, queryLimiter),
+    fetch: async (request) => {
+      try {
+        return await createHandler(request);
+      } catch (error) {
+        logger.error('HTTP request failed.', { error_name: error instanceof Error ? error.name : 'UnknownError' });
+        return httpError(503, 'The operation is unavailable. Check the server logs.');
+      }
+    },
   });
   logger.info('MCP server listening on HTTP.', { host: config.MCP_HOST, port: config.MCP_PORT });
 

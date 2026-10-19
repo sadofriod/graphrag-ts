@@ -26,6 +26,7 @@ services:
       MCP_TRANSPORT: http
       MCP_HOST: 0.0.0.0
       MCP_PORT: 3000
+      MCP_ACCESS_FILE: ${MCP_ACCESS_FILE:-}
       MAX_HTTP_SESSIONS: ${MAX_HTTP_SESSIONS:-100}
       HTTP_SESSION_IDLE_TIMEOUT_MS: ${HTTP_SESSION_IDLE_TIMEOUT_MS:-900000}
       RAG_SLICE_BASE_URL: ${COMPOSE_RAG_SLICE_BASE_URL:-${RAG_SLICE_BASE_URL:-http://host.docker.internal:1234/v1}}
@@ -52,6 +53,7 @@ services:
       - "127.0.0.1:${MCP_PORT:-3000}:3000"
     volumes:
       - ${INPUT_HOST_DIR:-./examples/sample-corpus}:/app/input:ro
+      - ./integrations/mcp/access:/app/access:ro
     depends_on:
       db:
         condition: service_healthy
