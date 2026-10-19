@@ -3,8 +3,13 @@ import { readFile } from 'node:fs/promises';
 import { Pool, type PoolClient } from 'pg';
 import { fileURLToPath } from 'node:url';
 import type { JobInput } from './input.ts';
+import { getGraphSnapshot } from './graphSnapshot.ts';
+import { createActivityOperations, createJobOperations } from './jobOperations.ts';
 import { createPublisher } from './publisher.ts';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
+
+export type { GraphSnapshot } from './graphSnapshot.ts';
+export type { ActivityLogInput, ActivityLogRecord } from './jobOperations.ts';
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
 
@@ -34,35 +39,6 @@ export type ActiveSnapshot = {
   readonly version: { readonly id: string; readonly namespace: string } | null;
   readonly sources: readonly SourceRecord[];
 };
-
-type DatabaseJob = {
-  id: string;
-  workspace_id: string;
-  status: JobStatus;
-  phase: string | null;
-  created_at: Date;
-  started_at: Date | null;
-  finished_at: Date | null;
-  error_code: string | null;
-  error_summary: string | null;
-  version_id: string | null;
-};
-
-const asJobRecord = (row: DatabaseJob): JobRecord => ({
-  id: row.id,
-  workspaceId: row.workspace_id,
-  status: row.status,
-  phase: row.phase,
-  createdAt: row.created_at,
-  startedAt: row.started_at,
-  finishedAt: row.finished_at,
-  errorCode: row.error_code,
-  errorSummary: row.error_summary,
-  publishedVersion:
-    row.version_id
-      ? { id: row.version_id, workspaceId: row.workspace_id }
-      : null,
-});
 
 export type Transaction = <Result>(operation: (client: PoolClient) => Promise<Result>) => Promise<Result>;
 
@@ -147,6 +123,7 @@ const migrate = async (pool: Pool): Promise<void> => {
     '001_init.sql',
     '002_hierarchical_communities.sql',
     '003_workspace_routing.sql',
+    '004_workspace_activity_logs.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
@@ -163,6 +140,12 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
       await client.query(
         'INSERT INTO index_jobs (id, workspace_id, status, phase) VALUES ($1, $2, $3, $4)',
         [id, workspaceId, 'queued', 'queued'],
+      );
+      await client.query(
+        `INSERT INTO workspace_activity_logs
+           (id, workspace_id, operation_id, job_id, kind, level, message, details)
+         VALUES ($1, $2, $3, $3, 'build', 'info', 'Build queued.', $4::jsonb)`,
+        [randomUUID(), workspaceId, id, JSON.stringify({ input_count: inputs.length })],
       );
       for (const [ordinal, input] of inputs.entries()) {
         await client.query(
@@ -200,63 +183,6 @@ const createQueueOperations = (pool: Pool, transaction: Transaction) => {
     });
 
   return { enqueue, claimNextJob };
-};
-
-const createJobOperations = (pool: Pool, transaction: Transaction) => {
-  const getJob = async (id: string, workspaceId: WorkspaceId): Promise<JobRecord | null> => {
-    const result = await pool.query<DatabaseJob>(
-      `SELECT j.id, j.workspace_id, j.status, j.phase, j.created_at, j.started_at, j.finished_at,
-              j.error_code, j.error_summary, v.id AS version_id
-       FROM index_jobs j LEFT JOIN index_versions v ON v.id = j.published_version_id
-       WHERE j.id = $1 AND j.workspace_id = $2`,
-      [id, workspaceId],
-    );
-    const row = result.rows[0];
-    return row ? asJobRecord(row) : null;
-  };
-
-  const getInputs = async (jobId: string): Promise<readonly BuildSource[]> => {
-    const result = await pool.query<BuildSource>(
-      `SELECT source_label AS "sourceLabel", content
-       FROM job_inputs WHERE job_id = $1 ORDER BY ordinal`,
-      [jobId],
-    );
-    return result.rows;
-  };
-
-  const fail = async (jobId: string, errorCode: string, summary: string): Promise<void> => {
-    await pool.query(
-      `UPDATE index_jobs SET status = 'failed', phase = 'failed', finished_at = now(),
-       error_code = $2, error_summary = $3 WHERE id = $1 AND status IN ('queued', 'running')`,
-      [jobId, errorCode, summary.slice(0, 500)],
-    );
-  };
-
-  const recoverInterruptedJobs = async (): Promise<void> => {
-    await transaction(async (client) => {
-      await client.query(
-        `UPDATE index_jobs SET status = 'failed', phase = 'failed', finished_at = now(),
-         error_code = 'WORKER_RESTARTED', error_summary = 'Worker stopped before this job completed.'
-         WHERE status = 'running'`,
-      );
-      const interruptedSnapshots = await client.query<{ namespace: string }>(
-        'SELECT namespace FROM building_snapshots FOR UPDATE',
-      );
-      for (const snapshot of interruptedSnapshots.rows) {
-        await deleteGraphNamespace(client, snapshot.namespace);
-      }
-      await client.query('DELETE FROM building_snapshots');
-    });
-  };
-
-  const setPhase = async (jobId: string, phase: string): Promise<void> => {
-    await pool.query(
-      `UPDATE index_jobs SET phase = $2 WHERE id = $1 AND status = 'running'`,
-      [jobId, phase],
-    );
-  };
-
-  return { fail, getInputs, getJob, recoverInterruptedJobs, setPhase };
 };
 
 const getActiveSnapshot = async (
@@ -396,7 +322,9 @@ export const createStore = (databaseUrl: string) => {
     migrate: () => migrate(pool),
     ping: async () => pool.query('SELECT 1').then(() => undefined),
     ...queueOperations,
-    ...createJobOperations(pool, transaction),
+    ...createActivityOperations(pool),
+    ...createJobOperations(pool, transaction, deleteGraphNamespace),
+    getGraphSnapshot: (workspaceId: WorkspaceId) => getGraphSnapshot(pool, workspaceId),
     ...createSnapshotQueries(pool, transaction),
     publish: createPublisher(transaction),
   };

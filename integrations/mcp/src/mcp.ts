@@ -6,6 +6,7 @@ import type { AppConfig } from './config.ts';
 import { createMcpServer, createQueryLimiter } from './mcp/tools.ts';
 import type { Logger } from './log.ts';
 import type { IndexStore } from './store.ts';
+import { workspaceIdSchema } from './workspace.ts';
 
 const httpError = (status: number, message: string): Response =>
   new Response(JSON.stringify({ error: message }), {
@@ -47,6 +48,50 @@ const healthResponse = async (request: Request, store: IndexStore): Promise<Resp
   } catch {
     return httpError(503, 'Database unavailable.');
   }
+};
+
+const jsonResponse = (value: unknown): Response => new Response(JSON.stringify(value), {
+  headers: { 'content-type': 'application/json' },
+});
+
+const dashboardWorkspaceResponse = async (
+  pathParts: string[],
+  workspaceId: string,
+  store: IndexStore,
+): Promise<Response> => {
+  const resource = pathParts[3];
+  if (resource === 'graph' && pathParts.length === 4) {
+    return jsonResponse(await store.getGraphSnapshot(workspaceId));
+  }
+  if (resource === 'jobs' && pathParts.length === 4) {
+    return jsonResponse({ jobs: await store.listJobs(workspaceId) });
+  }
+  if (resource === 'jobs' && pathParts.length === 6 && pathParts[5] === 'logs') {
+    const jobId = pathParts[4] ?? '';
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(jobId)) {
+      return httpError(400, 'Invalid job ID.');
+    }
+    return jsonResponse({ logs: await store.listJobLogs(workspaceId, jobId) });
+  }
+  if (resource === 'retrieval-logs' && pathParts.length === 4) {
+    return jsonResponse({ logs: await store.listRetrievalLogs(workspaceId) });
+  }
+  return httpError(404, 'Not found.');
+};
+
+const dashboardResponse = async (request: Request, store: IndexStore): Promise<Response | undefined> => {
+  const url = new URL(request.url);
+  const pathParts = url.pathname.split('/').filter(Boolean);
+  if (pathParts[0] !== 'api' || pathParts[1] !== 'workspaces') return undefined;
+  if (!isLocalHost(request)) return httpError(403, 'Only localhost dashboard clients are allowed.');
+  if (request.method !== 'GET') return httpError(405, 'Only GET is supported.');
+  if (pathParts.length === 2) {
+    return jsonResponse({ workspaces: await store.listWorkspaces() });
+  }
+
+  const workspace = workspaceIdSchema.safeParse(pathParts[2]);
+  if (!workspace.success) return httpError(400, 'Invalid workspace ID.');
+  return dashboardWorkspaceResponse(pathParts, workspace.data, store);
 };
 
 const handleExistingSession = async (
@@ -159,6 +204,10 @@ const createHttpHandler = (
     const health = await healthResponse(request, store);
     if (health) {
       return health;
+    }
+    const dashboard = await dashboardResponse(request, store);
+    if (dashboard) {
+      return dashboard;
     }
     if (new URL(request.url).pathname !== '/mcp') {
       return httpError(404, 'Not found.');
