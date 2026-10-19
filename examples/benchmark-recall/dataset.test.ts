@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { DETERMINISTIC_THRESHOLD, MARKDOWN_STRUCTURE_THRESHOLD } from '../../src/build/constants';
+import { toMarkdown } from './corpus';
 
 import {
   CORPUS_SCOPE_QUERIES,
@@ -9,6 +10,30 @@ import {
   QUICKSTART_RECALL_QUERIES,
   RECALL_QUERIES,
 } from './dataset';
+
+describe('benchmark corpus generation', () => {
+  it('normalizes CRLF before selecting Sherlock Holmes chapters', () => {
+    const markdown = toMarkdown({
+      title: 'The Adventures of Sherlock Holmes',
+      fileName: 'adventures-of-sherlock-holmes.md',
+      url: 'https://example.test/sherlock.txt',
+      includeSections: /^## (I\. A SCANDAL IN BOHEMIA|II\. THE RED-HEADED LEAGUE)$/,
+    }, [
+      '*** START OF THE PROJECT GUTENBERG EBOOK THE ADVENTURES OF SHERLOCK HOLMES ***',
+      'I. A SCANDAL IN BOHEMIA',
+      'Sherlock investigates the case in Bohemia.',
+      'II. THE RED-HEADED LEAGUE',
+      'Holmes investigates a red-headed client.',
+      'III. A CASE OF IDENTITY',
+      'This chapter should not be included.',
+      '*** END OF THE PROJECT GUTENBERG EBOOK THE ADVENTURES OF SHERLOCK HOLMES ***',
+    ].join('\r\n'));
+
+    expect(markdown).toContain('Sherlock investigates the case in Bohemia.');
+    expect(markdown).toContain('Holmes investigates a red-headed client.');
+    expect(markdown).not.toContain('This chapter should not be included.');
+  });
+});
 
 describe('RECALL_QUERIES', () => {
   it('keeps the benchmark grounded in the sources indexed in the current GraphRAG namespace', () => {

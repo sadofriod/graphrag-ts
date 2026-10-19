@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 
 import type { BuildInputFile } from '../../src/build/buildRag';
 
-interface PublicTextSource {
+export interface PublicTextSource {
   readonly title: string;
   readonly fileName: string;
   readonly url: string;
@@ -36,11 +36,12 @@ export const DEFAULT_LONG_CORPUS_DIR = new URL('../generated/long-markdown-corpu
   .pathname;
 
 const stripProjectGutenbergMatter = (text: string): string => {
-  const startMatch = /\*\*\* START OF (?:THE )?PROJECT GUTENBERG EBOOK[^\n]*\*\*\*/i.exec(text);
-  const endMatch = /\*\*\* END OF (?:THE )?PROJECT GUTENBERG EBOOK/i.exec(text);
+  const normalizedText = text.replace(/\r\n?/g, '\n');
+  const startMatch = /\*\*\* START OF (?:THE )?PROJECT GUTENBERG EBOOK[^\n]*\*\*\*/i.exec(normalizedText);
+  const endMatch = /\*\*\* END OF (?:THE )?PROJECT GUTENBERG EBOOK/i.exec(normalizedText);
   const start = startMatch ? startMatch.index + startMatch[0].length : 0;
-  const end = endMatch ? endMatch.index : text.length;
-  return text.slice(start, end).trim();
+  const end = endMatch ? endMatch.index : normalizedText.length;
+  return normalizedText.slice(start, end).trim();
 };
 
 const markdownizeChapterHeadings = (text: string): string =>
@@ -62,7 +63,7 @@ const selectSections = (body: string, includeSections: RegExp | undefined): stri
     .trim();
 };
 
-const toMarkdown = (source: PublicTextSource, text: string): string => {
+export const toMarkdown = (source: PublicTextSource, text: string): string => {
   const body = selectSections(
     markdownizeChapterHeadings(stripProjectGutenbergMatter(text)),
     source.includeSections,
