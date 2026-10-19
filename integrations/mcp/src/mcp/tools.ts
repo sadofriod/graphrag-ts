@@ -3,42 +3,21 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig } from '../config.ts';
 import { retrieve, retrieveGlobal } from '../graph-rag.ts';
-import { InputError, normalizeSourceLabel, pathInputs, textInput } from '../input.ts';
+import { normalizeSourceLabel, pathInputs, textInput } from '../input.ts';
 import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
+import { AccessError, type AccessGuard } from '../access.ts';
+import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
+import { queryFailure } from './query-activity.ts';
 import { createActivityLogger } from './queryActivity.ts';
-
-class ToolError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
-
-const toolErrorResult = (code: string, message: string) => ({
-  content: [{ type: 'text' as const, text: JSON.stringify({ error: { code, message } }) }],
-  isError: true,
-});
-
-const inputFailure = (error: unknown, logger: Logger, tool: string) => {
-  if (error instanceof InputError) {
-    return toolErrorResult(error.code, error.message);
-  }
-  logger.error('MCP tool failed.', {
-    tool,
-    error_name: error instanceof Error ? error.name : 'UnknownError',
-  });
-  return toolErrorResult('INTERNAL_ERROR', 'The operation failed. Check the server logs for details.');
-};
 
 type ToolContext = {
   readonly store: IndexStore;
   readonly config: AppConfig;
   readonly logger: Logger;
+  readonly authorize?: AccessGuard;
 };
 
 type QueryResult = Awaited<ReturnType<typeof retrieve>> | Awaited<ReturnType<typeof retrieveGlobal>>;
@@ -132,26 +111,6 @@ const formatQueryOutcome = (
   return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
 };
 
-const handleQueryFailure = async (
-  error: unknown,
-  mode: 'local' | 'global',
-  startedAt: number,
-  logActivity: ReturnType<typeof createActivityLogger>,
-  logger: Logger,
-) => {
-  const duration = Date.now() - startedAt;
-  if (error instanceof ToolError) {
-    await logActivity('error', 'Retrieval failed.', { mode, code: error.code, duration_ms: duration });
-    return toolErrorResult(error.code, error.message);
-  }
-  await logActivity('error', 'Retrieval failed.', { mode, code: 'UPSTREAM_ERROR', duration_ms: duration });
-  logger.error('MCP tool failed.', {
-    tool: mode === 'global' ? 'query_graph_global' : 'query_graph',
-    error_name: error instanceof Error ? error.name : 'UnknownError',
-  });
-  return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
-};
-
 const executeQuery = async (
   { store, config, logger }: ToolContext,
   workspaceId: string,
@@ -209,7 +168,7 @@ const executeQuery = async (
     await logActivity('info', 'Retrieval completed.', { mode, duration_ms: Date.now() - startedAt });
     return formatted;
   } catch (error) {
-    return handleQueryFailure(error, mode, startedAt, logActivity, logger);
+    return queryFailure(error, logger, logActivity, mode, startedAt);
   } finally {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
@@ -234,6 +193,11 @@ const createQuerySnapshot = (
     maxResults: number,
     communityLevel?: number | 'leaf',
   ) => {
+    try {
+      await context.authorize?.(workspaceId, mode === 'global' ? 'global_query' : 'query');
+    } catch (error) {
+      return inputFailure(error, context.logger, 'query_graph');
+    }
     const releaseQuerySlot = queryLimiter.tryAcquire();
     if (!releaseQuerySlot) {
       return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
@@ -242,7 +206,7 @@ const createQuerySnapshot = (
   };
 };
 
-const registerPathInputTool = (server: McpServer, { store, config, logger }: ToolContext): void => {
+const registerPathInputTool = (server: McpServer, { store, config, logger, authorize }: ToolContext): void => {
   server.registerTool(
     'submit_index_job',
     {
@@ -255,6 +219,9 @@ const registerPathInputTool = (server: McpServer, { store, config, logger }: Too
     },
     async ({ workspace_id, path, source }) => {
       try {
+        if (authorize) {
+          throw new AccessError('FORBIDDEN', 'Shared filesystem ingestion is disabled in hosted mode. Use remember_text.');
+        }
         const inputs = await pathInputs(path, config);
         const job = await store.enqueue(
           source
@@ -283,7 +250,7 @@ const registerPathInputTool = (server: McpServer, { store, config, logger }: Too
   );
 };
 
-const registerTextInputTool = (server: McpServer, { store, config, logger }: ToolContext): void => {
+const registerTextInputTool = (server: McpServer, { store, config, logger, authorize }: ToolContext): void => {
   server.registerTool(
     'remember_text',
     {
@@ -296,7 +263,9 @@ const registerTextInputTool = (server: McpServer, { store, config, logger }: Too
     },
     async ({ workspace_id, text, source }) => {
       try {
-        const job = await store.enqueue(textInput(text, source, config), workspace_id);
+        const inputs = textInput(text, source, config);
+        await authorize?.(workspace_id, 'index');
+        const job = await store.enqueue(inputs, workspace_id);
         return {
           content: [{
             type: 'text',
@@ -315,7 +284,7 @@ const registerTextInputTool = (server: McpServer, { store, config, logger }: Too
   );
 };
 
-const registerJobTool = (server: McpServer, { store, logger }: ToolContext): void => {
+const registerJobTool = (server: McpServer, { store, logger, authorize }: ToolContext): void => {
   server.registerTool(
     'get_index_job',
     {
@@ -327,6 +296,7 @@ const registerJobTool = (server: McpServer, { store, logger }: ToolContext): voi
     },
     async ({ workspace_id, job_id }) => {
       try {
+        await authorize?.(workspace_id, 'read');
         const job = await store.getJob(job_id, workspace_id);
         if (!job) {
           return toolErrorResult('JOB_NOT_FOUND', 'No indexing job exists with that ID.');
@@ -395,9 +365,10 @@ export const createMcpServer = (
   config: AppConfig,
   logger: Logger,
   queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
+  authorize?: AccessGuard,
 ): McpServer => {
   const server = new McpServer({ name: 'graphrag-mcp-server', version: '0.1.0' });
-  const context = { store, config, logger };
+  const context = { store, config, logger, ...(authorize ? { authorize } : {}) };
   registerPathInputTool(server, context);
   registerTextInputTool(server, context);
   registerJobTool(server, context);

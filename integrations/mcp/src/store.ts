@@ -6,6 +6,7 @@ import type { JobInput } from './input.ts';
 import { getGraphSnapshot } from './graphSnapshot.ts';
 import { createActivityOperations, createJobOperations } from './jobOperations.ts';
 import { createPublisher } from './publisher.ts';
+import { createUsageStore } from './usage.ts';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
 
 export type { GraphSnapshot } from './graphSnapshot.ts';
@@ -124,6 +125,7 @@ const migrate = async (pool: Pool): Promise<void> => {
     '002_hierarchical_communities.sql',
     '003_workspace_routing.sql',
     '004_workspace_activity_logs.sql',
+    '005_metered_access.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
@@ -323,7 +325,8 @@ export const createStore = (databaseUrl: string) => {
     ping: async () => pool.query('SELECT 1').then(() => undefined),
     ...queueOperations,
     ...createActivityOperations(pool),
-    ...createJobOperations(pool, transaction, deleteGraphNamespace),
+    ...createUsageStore(pool),
+  ...createJobOperations(pool, transaction, deleteGraphNamespace),
     getGraphSnapshot: (workspaceId: WorkspaceId) => getGraphSnapshot(pool, workspaceId),
     ...createSnapshotQueries(pool, transaction),
     publish: createPublisher(transaction),

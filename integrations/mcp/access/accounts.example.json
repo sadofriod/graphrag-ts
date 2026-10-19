@@ -1,0 +1,13 @@
+{
+  "accounts": [
+    {
+      "id": "evaluation-customer",
+      "plan": "evaluation",
+      "api_key_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "workspaces": ["evaluation-docs"],
+      "operations": ["index", "query", "read"],
+      "monthly_limits": { "index": 3, "query": 50, "global_query": 0 },
+      "expires_at": "2026-12-31T00:00:00Z"
+    }
+  ]
+}
