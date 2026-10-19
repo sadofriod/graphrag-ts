@@ -1,0 +1,42 @@
+manifest_version: 1
+name: graphrag-ts
+description: Query a self-hosted TypeScript GraphRAG index over MCP.
+source: https://github.com/sadofriod/graphrag-ts
+
+transport:
+  type: http
+  url: "${GRAPHRAG_MCP_URL}"
+
+auth:
+  type: none
+  env:
+    - name: GRAPHRAG_MCP_URL
+      prompt: Streamable HTTP MCP endpoint reachable from Hermes
+      default: http://127.0.0.1:3000/mcp
+      required: true
+      secret: false
+
+tools:
+  default_enabled:
+    - submit_index_job
+    - remember_text
+    - get_index_job
+    - query_graph
+    - query_graph_global
+
+post_install: |
+  Start the GraphRAG service before connecting. From the graphrag-ts repository,
+  copy .env.example to .env, set a strong PostgreSQL password, and configure
+  reachable chat, slice, judge, and embedding endpoints. The embedding model must
+  return 768-dimensional vectors.
+
+  Run `docker compose up -d --build`, then connect to the Streamable HTTP endpoint
+  shown above. The default host port is 3000; if MCP_PORT is changed, set
+  GRAPHRAG_MCP_URL to the matching URL. If Hermes runs in a container, the URL
+  must be reachable from that container; do not disable the GraphRAG server's
+  localhost Host check or expose an unencrypted endpoint publicly.
+
+  Use the same workspace_id for indexing, job polling, and queries. A workspace
+  ID is not an authentication credential. `submit_index_job` reads only from the
+  server's configured read-only input mount; `remember_text` indexes only the
+  text explicitly passed to that tool and never reads chat history.

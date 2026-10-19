@@ -3,10 +3,14 @@
 GraphRAG is a standard Streamable HTTP MCP server, not an officially approved
 Hermes/OpenClaw plugin. No `hermes plugins install` or `npx skills add` integration
 is claimed. A configured MCP server does not bypass the agent's own tool policies.
+The [Hermes MCP catalog manifest](hermes-manifest.yaml) is a submission candidate,
+not an approved catalog entry.
 
 ## Local connection
 
 1. Configure models and start the [root Compose stack](../../../docker-compose.yml).
+   The client snippets use the default host port `3000`; if `MCP_PORT` is
+   overridden, change the URL in the selected snippet to match it.
 2. Merge [hermes.yaml](hermes.yaml) into `~/.hermes/config.yaml`, or merge
    [openclaw.json](openclaw.json) into `~/.openclaw/openclaw.json`. Do not overwrite
    existing settings.
@@ -28,12 +32,19 @@ For the dataset scenario, use the [Web3 sample](../../../examples/web3-smart-con
 
 ## Hosted credentials
 
-Enable [metered access](../../../docs/commercialization.md) on the server first.
-Use its HTTPS gateway URL, not a publicly exposed unencrypted Bun port. Configure
-the `Authorization: Bearer <credential>` header using your client's supported
-secret mechanism. Hermes documents HTTP `headers`; OpenClaw documents sensitive
-headers through its secret mechanisms. Do not commit a live header or assume
-shell-style `${VAR}` interpolation works in every client/version.
+The local Compose setup does not enable hosted access by itself. To enable
+metered access, create a server-side policy based on the
+[access policy example](../access/accounts.example.json) and set
+`MCP_ACCESS_FILE` to its path inside the container (for example,
+`/app/access/accounts.json`). The Compose stack mounts `integrations/mcp/access`
+read-only at `/app/access`.
+
+For remote clients, use an operator-managed HTTPS gateway URL, not a publicly
+exposed unencrypted Bun port. Configure the `Authorization: Bearer <credential>`
+header using your client's supported secret mechanism. Hermes documents HTTP
+`headers`; OpenClaw documents sensitive headers through its secret mechanisms.
+Do not commit a live header or assume shell-style `${VAR}` interpolation works
+in every client/version. A `workspace_id` is not an authentication credential.
 
 Hosted accounts cannot call `submit_index_job` against the shared server filesystem.
 Use `remember_text` with the account's assigned workspace. `query_graph_global`
