@@ -37,7 +37,7 @@ Confirm the embedding endpoint/model exactly matches the indexed snapshot.
 ```sh
 # DATABASE_URL must reach the SAME database as the MCP server.
 # RAG_EMBED_BASE_URL, RAG_EMBED_MODEL and RAG_EMBED_API_KEY must match its index.
-MCP_COMPARE_EMBEDDING_CONFIRMED=true pnpm demo:project-history
+MCP_COMPARE_EMBEDDING_CONFIRMED=true bun integrations/mcp/src/compare/project-history.ts
 ```
 
 Optional environment: `MCP_COMPARE_URL` (default `http://127.0.0.1:3000/mcp`),

@@ -96,7 +96,12 @@ const runComparison = async (config: Settings, databaseUrl: string) => {
       throw new Error('The active snapshot does not exactly match the four original project-history documents.');
     }
     const titles = await pool.query<{ id: string; title: string }>(
-      'SELECT id, title FROM rag_parents WHERE namespace = $1', [lease.namespace],
+      `SELECT id, title FROM rag_parents WHERE namespace = $1
+       UNION ALL
+       SELECT c.id, p.title FROM rag_children c
+       JOIN rag_parents p ON p.id = c.parent_id AND p.namespace = c.namespace
+       WHERE c.namespace = $1`,
+      [lease.namespace],
     );
     const transport = new StreamableHTTPClientTransport(new URL(config.MCP_COMPARE_URL), {
       requestInit: { headers: config.MCP_COMPARE_API_KEY ? { Authorization: `Bearer ${config.MCP_COMPARE_API_KEY}` } : {} },
