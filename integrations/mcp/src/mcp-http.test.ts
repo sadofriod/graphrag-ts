@@ -113,7 +113,27 @@ describe('hosted HTTP boundary and MCP protocol', () => {
         expect(response.headers.get('www-authenticate')).toContain('Bearer');
         expect((await app.request(path, 'x'.repeat(40))).status).toBe(401);
       }
-      expect((await app.request('/api/workspaces', tokens.alpha, { headers: { host: 'evil.example' } })).status).toBe(403);
+      expect((await app.request('/api/workspaces', tokens.alpha, { headers: { host: 'mcp.example.com' } })).status).toBe(200);
+    } finally { await app.close(); }
+  });
+
+  test('accepts an authenticated MCP initialize request with a public Host header', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/mcp', tokens.alpha, {
+        method: 'POST',
+        headers: {
+          host: 'mcp.example.com',
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('mcp-session-id')).toBeTruthy();
     } finally { await app.close(); }
   });
 
@@ -186,6 +206,7 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     const app = fixture(false);
     try {
       expect(await (await app.request('/api/workspaces')).json()).toEqual({ workspaces: ['alpha', 'beta'] });
+      expect((await app.request('/api/workspaces', undefined, { headers: { host: 'mcp.example.com' } })).status).toBe(403);
       expect((await app.request('/api/usage')).status).toBe(404);
       await expect(startMcpServer(app.store, { ...config, MCP_TRANSPORT: 'stdio', MCP_ACCESS_FILE: 'missing.json' }, logger))
         .rejects.toThrow('requires HTTP');
