@@ -11,9 +11,7 @@ import { dashboardResponse, httpError } from './dashboard.ts';
 
 const isLocalHost = (request: Request): boolean => {
   const host = request.headers.get('host');
-  if (!host) {
-    return false;
-  }
+  if (!host) return false;
   try {
     const hostname = new URL(`http://${host}`).hostname;
     return ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
@@ -160,8 +158,8 @@ export const createHttpHandler = (
     if (health) {
       return health;
     }
-    if (!isLocalHost(request)) {
-      return httpError(403, 'Only localhost clients are allowed. Use a trusted loopback reverse proxy for remote access.');
+    if (!policy && !isLocalHost(request)) {
+      return httpError(403, 'Only localhost clients are allowed without MCP_ACCESS_FILE.');
     }
     const account = policy ? authenticate(request, policy) : undefined;
     if (policy && !account) {

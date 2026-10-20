@@ -56,8 +56,9 @@ permission grant. `FORBIDDEN` is not a transient model error, and
 
 The examples assume the agent runs on the host. Inside a container, loopback
 refers to that container. Use an operator-managed reverse proxy reachable by the
-agent; the GraphRAG server keeps its localhost Host allowlist. Do not disable it
-or map the unprotected demo port publicly just to make a client connect.
+agent. The MCP handler accepts non-local Host headers, so keep the origin bound
+to loopback behind the proxy and configure `MCP_ACCESS_FILE` for internet-facing
+access; do not expose an unauthenticated MCP endpoint publicly.
 
 Sources checked on 2026-10-18:
 
