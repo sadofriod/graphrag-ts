@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.18 — 2026-10-20
+
+- **fix(mcp)**: allow authenticated proxy hosts
+- Merge pull request #17 from sadofriod/fix/mcp-authenticated-proxy-hosts
+
 ## 0.1.17 — 2026-10-19
 
 - **fix(examples)**: normalize corpus and clarify MCP onboarding
