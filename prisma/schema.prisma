@@ -16,6 +16,7 @@ model RAGParent {
   updatedAt DateTime @updatedAt @map("updated_at")
   children  RAGChild[]
   edges     RAGGraphEdge[]
+  edgeContributions RAGEdgeContribution[]
   claims    RAGClaim[]
 
   @@index([namespace])
@@ -59,7 +60,7 @@ model RAGGraphEdge {
   id               String             @id @default(uuid())
   namespace        String             @map("namespace")
   parentId         String?            @map("parent_id")
-  parent           RAGParent?         @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  parent           RAGParent?         @relation(fields: [parentId], references: [id], onDelete: SetNull)
   sourceEntityId   String             @map("source_entity_id")
   targetEntityId   String             @map("target_entity_id")
   sourceEntity     RAGEntity          @relation("SourceEntity", fields: [sourceEntityId], references: [id], onDelete: Cascade)
@@ -69,6 +70,7 @@ model RAGGraphEdge {
   communitySummaryId String?          @map("community_summary_id")
   communitySummary RAGCommunitySummary? @relation(fields: [communitySummaryId], references: [id], onDelete: SetNull)
   createdAt        DateTime           @default(now()) @map("created_at")
+  contributions    RAGEdgeContribution[]
 
   @@index([namespace])
   @@index([parentId])
@@ -77,6 +79,20 @@ model RAGGraphEdge {
   @@index([communitySummaryId])
   @@unique([namespace, sourceEntityId, targetEntityId], map: "unique_namespace_source_target")
   @@map("rag_graph_edges")
+}
+
+model RAGEdgeContribution {
+  namespace        String
+  edgeId           String       @map("edge_id")
+  parentId         String       @map("parent_id")
+  weight           Int
+  relationshipDesc String       @map("relationship_desc") @db.Text
+  edge             RAGGraphEdge @relation(fields: [edgeId], references: [id], onDelete: Cascade)
+  parent           RAGParent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@id([edgeId, parentId])
+  @@index([namespace, parentId])
+  @@map("rag_edge_contributions")
 }
 
 model RAGCommunitySummary {
@@ -144,4 +160,14 @@ model GenerationJob {
   @@index([kind])
   @@index([state])
   @@map("generation_jobs")
+}
+
+model RAGGlobalQueryCache {
+  namespace String
+  cacheKey  String   @map("cache_key") @db.Char(64)
+  result    Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([namespace, cacheKey])
+  @@map("rag_global_query_cache")
 }

@@ -12,9 +12,10 @@ const retrievalService = new GraphRAGRetrievalService();
 export const buildSnapshot = async (
   files: readonly BuildInputFile[],
   namespace: string,
+  incremental = false,
 ): Promise<void> => {
   const registry = createBuildRegistry();
-  const buildId = startBuild(files, registry, namespace);
+  const buildId = startBuild(files, registry, namespace, { incremental });
 
   while (true) {
     const job = registry.get(buildId);
@@ -56,5 +57,5 @@ export const retrieveGlobal = async (
     namespace,
     query,
     ...(signal ? { signal } : {}),
-    ...(communityLevel === undefined ? {} : { options: { communityLevel } }),
+    options: { responseCache: true, ...(communityLevel === undefined ? {} : { communityLevel }) },
   }));

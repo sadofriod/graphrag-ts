@@ -1,5 +1,6 @@
 import { prismaClient } from '../helper/prismaClient';
 import { withNamespace } from '../../namespace/namespaceContext';
+import { removeParentEdgeContributions, withGraphWrite } from '../helper/edgeContributions';
 
 export interface PruneDocumentResult {
   readonly deletedParents: number;
@@ -32,22 +33,32 @@ export const pruneStaleDocuments = async (
   parentIds: readonly string[],
   namespace: string,
 ): Promise<PruneDocumentResult> =>
-  withNamespace(namespace, async () => {
-    if (parentIds.length === 0) {
-      return { deletedParents: 0, deletedClaims: 0 };
-    }
+  mutateDocumentGraph({ parentIds, namespace, deleteParents: true });
 
-    await prismaClient.rAGClaim.updateMany({
+export const excludeDocumentsFromGraph = async (
+  parentIds: readonly string[],
+  namespace: string,
+): Promise<void> => {
+  await mutateDocumentGraph({ parentIds, namespace, deleteParents: false });
+};
+
+const mutateDocumentGraph = async ({ parentIds, namespace, deleteParents }: {
+  readonly parentIds: readonly string[];
+  readonly namespace: string;
+  readonly deleteParents: boolean;
+}): Promise<PruneDocumentResult> => {
+  if (parentIds.length === 0) {
+    return { deletedParents: 0, deletedClaims: 0 };
+  }
+  return withGraphWrite(namespace, async (transaction) => {
+    await transaction.rAGClaim.updateMany({
       where: { sourceParentId: { in: [...parentIds] }, namespace },
       data: { sourceParentId: null },
     });
 
-    await prismaClient.rAGGraphEdge.updateMany({
-      where: { parentId: { in: [...parentIds] }, namespace },
-      data: { parentId: null },
-    });
-
-    const parentDeleteResult = await prismaClient.rAGParent.deleteMany({
+    await removeParentEdgeContributions(transaction, parentIds, namespace);
+    if (!deleteParents) return { deletedParents: 0, deletedClaims: 0 };
+    const parentDeleteResult = await transaction.rAGParent.deleteMany({
       where: { id: { in: [...parentIds] }, namespace },
     });
 
@@ -56,3 +67,4 @@ export const pruneStaleDocuments = async (
       deletedClaims: 0,
     };
   });
+};

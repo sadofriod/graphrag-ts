@@ -4,6 +4,17 @@ import { CustomModelConfigType, type CustomModelConfig } from './custom.model.co
 import type { AgentInvocation } from './agents.md/agentRegistry';
 import { logger } from '../logger';
 import { resolveChatAdapter, resolveEmbeddingAdapter } from './adapter';
+import { createHash, randomUUID } from 'node:crypto';
+
+const modelFingerprints = new WeakMap<object, string>();
+
+export const getSliceModelFingerprint = (): string => {
+  const model = modelLoaderSingleton.models?.slice;
+  if (!model) throw new Error('Slice model is not loaded.');
+  const fingerprint = modelFingerprints.get(model) ?? randomUUID();
+  modelFingerprints.set(model, fingerprint);
+  return fingerprint;
+};
 
 export interface ModelLoader {
   slice: BaseChatModel;
@@ -87,6 +98,8 @@ export const createModelLoaderFromConfig = async (
     }
     const adapter = resolveChatAdapter(conf.provider);
     acc[conf.type] = adapter({ config: conf });
+    const cacheConfig = { type: conf.type, provider: conf.provider, baseURL: conf.baseURL, model: conf.model, options: conf.options };
+    modelFingerprints.set(acc[conf.type], createHash('sha256').update(JSON.stringify(cacheConfig)).digest('hex'));
     return acc;
   }, {} as ModelLoader);
 };

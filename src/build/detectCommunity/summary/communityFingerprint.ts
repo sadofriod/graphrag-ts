@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 
 import type { CommunityContextInput } from './buildCommunityContext';
 
+export const computeCommunityIdentity = (members: readonly string[], level: number): string =>
+  createHash('sha256').update(JSON.stringify([level, [...new Set(members)].sort()])).digest('hex');
+
 export const computeCommunityFingerprint = (
   input: CommunityContextInput,
   summaryContext?: string,

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { Transaction } from './store.ts';
+import type { SourceRecord, Transaction } from './store.ts';
+import { resolveSnapshotSources } from './snapshotSources.ts';
 import type { WorkspaceId } from './workspace.ts';
 
 export const createPublisher = (transaction: Transaction) => async (
@@ -31,17 +32,23 @@ export const createPublisher = (transaction: Transaction) => async (
        WHERE job_id = $1 ORDER BY ordinal`,
       [jobId],
     );
-    const newSourceIds: string[] = [];
-    for (const input of inputs.rows) {
-      const sourceId = randomUUID();
-      newSourceIds.push(sourceId);
-      await client.query(
-        `INSERT INTO knowledge_sources (id, created_by_job_id, source_label, content, content_hash)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [sourceId, jobId, input.source_label, input.content, input.content_hash],
-      );
-    }
-    for (const sourceId of [...previousSourceIds, ...newSourceIds]) {
+    const previous = await client.query<SourceRecord>(
+      `SELECT id, source_label AS "sourceLabel", content, content_hash AS "contentHash"
+       FROM knowledge_sources WHERE id = ANY($1::text[]) ORDER BY created_at, id`,
+      [previousSourceIds],
+    );
+    const { sources } = resolveSnapshotSources(previous.rows, inputs.rows.map((input) => ({
+      sourceLabel: input.source_label, content: input.content, contentHash: input.content_hash,
+    })));
+    for (const source of sources) {
+      const sourceId = source.id ?? randomUUID();
+      if (!source.id) {
+        await client.query(
+          `INSERT INTO knowledge_sources (id, created_by_job_id, source_label, content, content_hash)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [sourceId, jobId, source.sourceLabel, source.content, source.contentHash],
+        );
+      }
       await client.query(
         'INSERT INTO index_version_sources (version_id, source_id) VALUES ($1, $2)',
         [versionId, sourceId],

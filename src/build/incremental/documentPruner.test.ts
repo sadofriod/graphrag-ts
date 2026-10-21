@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { prismaClient } from '../helper/prismaClient';
 import {
@@ -8,12 +8,29 @@ import {
 } from './documentPruner';
 
 describe('documentPruner', () => {
+  const transaction = prismaClient.$transaction;
+  const queryRaw = prismaClient.$queryRaw;
+  const findContributions = prismaClient.rAGEdgeContribution.findMany;
+  const deleteContributions = prismaClient.rAGEdgeContribution.deleteMany;
+  beforeEach(() => {
+    prismaClient.$transaction = (async (
+      operation: (client: typeof prismaClient) => Promise<unknown>,
+    ) => operation(prismaClient)) as never;
+    prismaClient.$queryRaw = (async () => []) as never;
+    prismaClient.rAGEdgeContribution.findMany = (async () => []) as never;
+    prismaClient.rAGEdgeContribution.deleteMany = (async () => ({ count: 0 })) as never;
+  });
+  afterEach(() => {
+    prismaClient.$transaction = transaction;
+    prismaClient.$queryRaw = queryRaw;
+    prismaClient.rAGEdgeContribution.findMany = findContributions;
+    prismaClient.rAGEdgeContribution.deleteMany = deleteContributions;
+  });
   const originalParentFindMany = prismaClient.rAGParent.findMany;
   const originalParentDeleteMany = prismaClient.rAGParent.deleteMany;
   const originalClaimUpdateMany = prismaClient.rAGClaim.updateMany;
-  const originalEdgeUpdateMany = prismaClient.rAGGraphEdge.updateMany;
 
-  it('detaches graph rows before deleting by parentId', async () => {
+  it('removes only the deleted parent contributions and detaches its claims', async () => {
     let parentWhere: unknown;
     let claimWhere: unknown;
     let edgeWhere: unknown;
@@ -23,10 +40,10 @@ describe('documentPruner', () => {
       return Promise.resolve({ count: 3 });
     }) as unknown) as typeof prismaClient.rAGClaim.updateMany;
 
-    prismaClient.rAGGraphEdge.updateMany = (((args: { where: object }) => {
+    prismaClient.rAGEdgeContribution.deleteMany = (((args: { where: object }) => {
       edgeWhere = args.where;
       return Promise.resolve({ count: 2 });
-    }) as unknown) as typeof prismaClient.rAGGraphEdge.updateMany;
+    }) as unknown) as typeof prismaClient.rAGEdgeContribution.deleteMany;
 
     prismaClient.rAGParent.deleteMany = (((args: { where: object }) => {
       parentWhere = args.where;
@@ -43,7 +60,6 @@ describe('documentPruner', () => {
     } finally {
       prismaClient.rAGParent.deleteMany = originalParentDeleteMany;
       prismaClient.rAGClaim.updateMany = originalClaimUpdateMany;
-      prismaClient.rAGGraphEdge.updateMany = originalEdgeUpdateMany;
     }
   });
 
@@ -60,10 +76,10 @@ describe('documentPruner', () => {
       return Promise.resolve({ count: 5 });
     }) as unknown) as typeof prismaClient.rAGClaim.updateMany;
 
-    prismaClient.rAGGraphEdge.updateMany = (((args: { where: object }) => {
+    prismaClient.rAGEdgeContribution.deleteMany = (((args: { where: object }) => {
       edgeWhere = args.where;
       return Promise.resolve({ count: 4 });
-    }) as unknown) as typeof prismaClient.rAGGraphEdge.updateMany;
+    }) as unknown) as typeof prismaClient.rAGEdgeContribution.deleteMany;
 
     prismaClient.rAGParent.deleteMany = (((args: { where: object }) => {
       parentWhere = args.where;
@@ -81,15 +97,12 @@ describe('documentPruner', () => {
       prismaClient.rAGParent.findMany = originalParentFindMany;
       prismaClient.rAGParent.deleteMany = originalParentDeleteMany;
       prismaClient.rAGClaim.updateMany = originalClaimUpdateMany;
-      prismaClient.rAGGraphEdge.updateMany = originalEdgeUpdateMany;
     }
   });
 
   it('prunes multiple parent IDs', async () => {
     prismaClient.rAGClaim.updateMany = (() =>
       Promise.resolve({ count: 2 })) as typeof prismaClient.rAGClaim.updateMany;
-    prismaClient.rAGGraphEdge.updateMany = (() =>
-      Promise.resolve({ count: 2 })) as typeof prismaClient.rAGGraphEdge.updateMany;
     prismaClient.rAGParent.deleteMany = (() =>
       Promise.resolve({ count: 2 })) as typeof prismaClient.rAGParent.deleteMany;
 
@@ -102,7 +115,6 @@ describe('documentPruner', () => {
     } finally {
       prismaClient.rAGParent.deleteMany = originalParentDeleteMany;
       prismaClient.rAGClaim.updateMany = originalClaimUpdateMany;
-      prismaClient.rAGGraphEdge.updateMany = originalEdgeUpdateMany;
     }
   });
 });

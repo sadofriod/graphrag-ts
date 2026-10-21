@@ -4,6 +4,7 @@ import type { AppConfig } from './config.ts';
 import { buildSnapshot } from './graph-rag.ts';
 import type { Logger } from './log.ts';
 import type { BuildSource, IndexStore } from './store.ts';
+import { resolveSnapshotSources } from './snapshotSources.ts';
 import type { WorkspaceId } from './workspace.ts';
 
 const errorSummary = (error: unknown): string => {
@@ -76,8 +77,10 @@ const processJob = async (
     namespace = `snapshot-${randomUUID()}`;
     const versionId = randomUUID();
     await store.beginSnapshot(jobId, namespace, workspaceId);
+    await store.cloneSnapshot(active.version?.namespace ?? null, namespace);
     await recordBuildPhase(store, logger, workspaceId, jobId, 'building');
-    await buildSnapshot(buildInputFiles([...active.sources, ...inputs]), namespace);
+    const { changed } = resolveSnapshotSources(active.sources, inputs);
+    await buildSnapshot(buildInputFiles(changed), namespace, true);
     await recordBuildPhase(store, logger, workspaceId, jobId, 'publishing');
     await store.publish(
       jobId,

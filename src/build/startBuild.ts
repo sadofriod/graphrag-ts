@@ -15,10 +15,10 @@ import {
   deleteDocumentByParentId,
   deleteDocumentByTitle,
   pruneStaleDocuments,
+  excludeDocumentsFromGraph,
   type PruneDocumentResult,
 } from './incremental/documentPruner';
 import { withNamespace } from '../namespace/namespaceContext';
-import { prismaClient } from './helper/prismaClient';
 import { textSplit } from './textSplit/textSplit';
 
 export interface StartBuildOptions extends BuildRagOptions {
@@ -44,19 +44,7 @@ export const startBuild = (
     buildEntities,
     detectCommunity,
     diffDocuments,
-    excludeFromCommunityDetection: async (parentIds, namespace) => {
-      await prismaClient.$transaction(async (tx) => {
-        await tx.rAGClaim.updateMany({
-          where: { sourceParentId: { in: [...parentIds] }, namespace },
-          data: { sourceParentId: null },
-        });
-
-        await tx.rAGGraphEdge.updateMany({
-          where: { parentId: { in: [...parentIds] }, namespace },
-          data: { parentId: null },
-        });
-      });
-    },
+    excludeFromCommunityDetection: excludeDocumentsFromGraph,
     pruneDocuments: pruneStaleDocuments,
   };
 

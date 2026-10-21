@@ -70,6 +70,7 @@ export interface RetrievalResult {
 }
 
 export interface GlobalRetrievalOptions {
+  responseCache?: boolean;
   communityLevel?: number | 'leaf';
   mapTokenBudget?: number;
   reduceTokenBudget?: number;

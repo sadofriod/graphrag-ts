@@ -392,7 +392,9 @@ describe('persistCommunitySummaries', () => {
 
     prismaClient.rAGCommunitySummary.findMany = (() =>
       Promise.resolve([
-        { id: 'existing-sum-1', communityName: 'Community AB', contentFingerprint: unchangedFingerprint },
+        { id: 'existing-sum-1', communityName: 'Community AB',
+          contentFingerprint: unchangedFingerprint, members: ['A', 'B'], level: 0,
+        },
         { id: 'stale-sum-99', communityName: 'Obsolete Community' },
       ]) as never) as typeof prismaClient.rAGCommunitySummary.findMany;
 

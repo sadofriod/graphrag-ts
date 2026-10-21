@@ -18,6 +18,39 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
     queryArgs.length = 0;
   });
 
+  it('keeps Map prompts stable across row ordering and snapshot row-ID changes', async () => {
+    let prefix = 'original';
+    let reversed = false;
+    prismaClient.rAGCommunitySummary.findMany = (async () => {
+      const rows = ['A', 'B'].map((member) => ({
+        id: `${prefix}-${member}`, members: [member], level: 0,
+        parentCommunityId: null, summaryContent: `${member} summary`,
+      }));
+      return reversed ? rows.toReversed() : rows;
+    }) as never;
+    prismaClient.rAGClaim.findMany = (async () => {
+      const rows = ['first', 'second'].map((description) => ({
+        communitySummaryId: `${prefix}-A`, description,
+        subjectEntity: { name: 'A' }, objectEntity: null, sourceChunk: { content: description },
+      }));
+      return reversed ? rows.toReversed() : rows;
+    }) as never;
+    const prompts: string[] = [];
+    modelLoaderSingleton.models = { slice: { invoke: async (prompt: string) => {
+      prompts.push(prompt);
+      return JSON.stringify({ answer: '', usefulness: 0 });
+    } } } as never;
+    const service = new GraphRAGRetrievalService();
+    await service.retrieveGlobal({ namespace: 'original', query: 'same question' });
+    reversed = true;
+    await service.retrieveGlobal({ namespace: 'original', query: 'same question' });
+    prefix = 'clone';
+    await service.retrieveGlobal({ namespace: 'clone', query: 'same question' });
+    expect(prompts).toHaveLength(3);
+    expect(prompts[1]).toBe(prompts[0]);
+    expect(prompts[2]).toBe(prompts[0]);
+  });
+
   it('maps all summaries at the requested level and reduces the selected answers', async () => {
     prismaClient.rAGCommunitySummary.findMany = ((args: unknown) => {
       queryArgs.push(args);

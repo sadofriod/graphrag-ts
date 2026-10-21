@@ -41,7 +41,7 @@ describe('buildEdges', () => {
     try {
       await buildEdges(
         [{ source: 'Zulu', target: 'Alpha', relation: 'logs metrics', weight: 2 }],
-        'parent-1',
+        null,
         'ns-a',
       );
 
@@ -59,18 +59,16 @@ describe('buildEdges', () => {
           },
         },
         update: {
-          parentId: 'parent-1',
+          parentId: null,
           relationshipDesc: 'logs_metrics',
-          weight: {
-            increment: 2,
-          },
+          weight: 2,
         },
         create: {
           namespace: 'ns-a',
           sourceEntityId: 'entity-alpha',
           targetEntityId: 'entity-zulu',
           relationshipDesc: 'logs_metrics',
-          parentId: 'parent-1',
+          parentId: null,
           weight: 2,
         },
       });
@@ -105,7 +103,7 @@ describe('buildEdges', () => {
     prismaClient.rAGGraphEdge.upsert = (() => Promise.resolve({ id: 'edge-1' })) as never;
 
     try {
-      await buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], 'parent-1', 'ns-a');
+      await buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], null, 'ns-a');
 
       expect(entityFinds).toEqual([{
         where: { namespace_name: { namespace: 'ns-a', name: 'Alpha' } },

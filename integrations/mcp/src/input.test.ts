@@ -25,6 +25,15 @@ const configFor = (inputRoot: string): AppConfig => ({
 });
 
 describe('input snapshots', () => {
+  test('gives unnamed memories content-addressed source labels', () => {
+    const config = configFor('/unused');
+    const first = textInput('first', undefined, config)[0]!;
+    const second = textInput('second', undefined, config)[0]!;
+    expect(second.sourceLabel).not.toBe(first.sourceLabel);
+    expect(textInput('first', undefined, config)[0]?.sourceLabel).toBe(first.sourceLabel);
+    expect(textInput('second', 'notes.md', config)[0]?.sourceLabel).toBe('notes.md');
+    expect(first.sourceLabel).toContain(first.contentHash);
+  });
   test('rejects traversal before touching the filesystem', async () => {
     const config = configFor('/does/not/exist');
     await expect(pathInputs('../secret.md', config)).rejects.toMatchObject({ code: 'INVALID_PATH' });

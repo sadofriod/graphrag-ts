@@ -6,11 +6,7 @@ import { buildHierarchySummaryContext, type ChildCommunitySummary } from './buil
 import { computeCommunityFingerprint } from './communityFingerprint';
 import { saveCommunitySummary } from './saveCommunitySummary';
 import type { Community, CommunityClaimRow, CommunityEdgeRow } from '../types';
-import type {
-  ExistingSummaryRecord,
-  SummaryAssignedItems,
-  SummaryPersistenceState,
-} from './communitySummaryTypes';
+import type { ExistingSummaryRecord, SummaryPersistenceState } from './communitySummaryTypes';
 
 export const buildMemberToCommunityMap = (communities: readonly Community[]): ReadonlyMap<string, number> => {
   const members = new Map<string, number>();
@@ -23,30 +19,6 @@ export const buildMemberToCommunityMap = (communities: readonly Community[]): Re
 
   return members;
 };
-
-const countBySummaryId = <T extends { communitySummaryId?: string | null }>(
-  rows: readonly T[],
-): ReadonlyMap<string, number> => {
-  const counts = new Map<string, number>();
-
-  for (const row of rows) {
-    if (!row.communitySummaryId) {
-      continue;
-    }
-
-    counts.set(row.communitySummaryId, (counts.get(row.communitySummaryId) ?? 0) + 1);
-  }
-
-  return counts;
-};
-
-export const computeSummaryAssignedCounts = (
-  edgeRows: readonly CommunityEdgeRow[],
-  claimRows: readonly CommunityClaimRow[],
-): SummaryAssignedItems => ({
-  edgeCountBySummaryId: countBySummaryId(edgeRows),
-  claimCountBySummaryId: countBySummaryId(claimRows),
-});
 
 const buildSummaryContext = (
   input: ReturnType<typeof buildCommunityContextInput>,
@@ -73,52 +45,28 @@ const buildSummaryContext = (
 const findMatchingSummary = (
   community: Community,
   level: number,
-  edgeRows: readonly CommunityEdgeRow[],
-  claimRows: readonly CommunityClaimRow[],
   existingSummaries: readonly ExistingSummaryRecord[],
-  assignedCounts: SummaryAssignedItems,
   contentFingerprint: string,
-): ExistingSummaryRecord | undefined => {
+  usedSummaryIds: ReadonlySet<string>,
+): { summary: ExistingSummaryRecord; unchanged: boolean } | undefined => {
   const members = [...community.members].sort();
-  const matchingHierarchySummary = existingSummaries.find((summary) =>
-    summary.contentFingerprint === contentFingerprint &&
+  const hasSameIdentity = (summary: ExistingSummaryRecord) =>
+    !usedSummaryIds.has(summary.id) &&
     (summary.level ?? 0) === level &&
     summary.members?.length === members.length &&
-    [...(summary.members ?? [])].sort().every((member, index) => member === members[index])
-  );
+    [...(summary.members ?? [])].sort().every((member, index) => member === members[index]);
+  const matchingCommunity = existingSummaries.find((summary) =>
+    hasSameIdentity(summary) && summary.contentFingerprint === contentFingerprint
+  ) ?? existingSummaries.find(hasSameIdentity);
 
-  if (matchingHierarchySummary) {
-    return matchingHierarchySummary;
-  }
-
-  if (level > 0) {
+  if (!matchingCommunity) {
     return undefined;
   }
 
-  const memberSet = new Set(community.members);
-  const communityEdges = edgeRows.filter(
-    (edge) => memberSet.has(edge.sourceEntity.name) || memberSet.has(edge.targetEntity.name),
-  );
-  const communityClaims = claimRows.filter(
-    (claim) => memberSet.has(claim.subjectEntity.name) ||
-      (claim.objectEntity ? memberSet.has(claim.objectEntity.name) : false),
-  );
-
-  if (communityEdges.length === 0 && communityClaims.length === 0) {
-    return undefined;
-  }
-
-  return existingSummaries.find((summary) => {
-    const edgesMatch =
-      communityEdges.length === (assignedCounts.edgeCountBySummaryId.get(summary.id) ?? 0) &&
-      communityEdges.every((edge) => edge.communitySummaryId === summary.id);
-    const claimsMatch =
-      communityClaims.length === (assignedCounts.claimCountBySummaryId.get(summary.id) ?? 0) &&
-      communityClaims.every((claim) => claim.communitySummaryId === summary.id);
-
-    return edgesMatch && claimsMatch && summary.contentFingerprint === contentFingerprint &&
-      (summary.level ?? 0) === 0;
-  });
+  return {
+    summary: matchingCommunity,
+    unchanged: matchingCommunity.contentFingerprint === contentFingerprint,
+  };
 };
 
 export const persistCommunity = async (
@@ -128,7 +76,6 @@ export const persistCommunity = async (
   claimRows: readonly CommunityClaimRow[],
   entityDescriptions: ReadonlyMap<string, string | null>,
   existingSummaries: readonly ExistingSummaryRecord[],
-  assignedCounts: SummaryAssignedItems,
   namespace: string,
   embeddingModel: Embeddings,
   level = 0,
@@ -143,22 +90,20 @@ export const persistCommunity = async (
   const matched = findMatchingSummary(
     community,
     level,
-    edgeRows,
-    claimRows,
     existingSummaries,
-    assignedCounts,
     contentFingerprint,
+    state.usedSummaryIds,
   );
 
-  if (matched) {
+  if (matched?.unchanged) {
     const communitySummaries = new Map(state.communitySummaries);
     communitySummaries.set(community.id, {
-      id: matched.id,
-      name: matched.communityName,
-      content: matched.summaryContent ?? '',
+      id: matched.summary.id,
+      name: matched.summary.communityName,
+      content: matched.summary.summaryContent ?? '',
     });
     const usedSummaryIds = new Set(state.usedSummaryIds);
-    usedSummaryIds.add(matched.id);
+    usedSummaryIds.add(matched.summary.id);
 
     return {
       ...state,
@@ -175,6 +120,7 @@ export const persistCommunity = async (
     namespace,
     embeddingModel,
     level,
+    matched?.summary.id,
   );
 
   const communitySummaries = new Map(state.communitySummaries);
