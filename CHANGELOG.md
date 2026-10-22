@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.19 — 2026-10-22
+
+- **feat(graph)**: preserve edge contributions and cache global answers
+- **fix(incremental)**: address PR review feedback
+- Merge pull request #18 from sadofriod/feat/edge-contributions-global-cache
+
 ## Unreleased
 
 - **fix(mcp)**: reuse stored file fingerprints, replace source versions by label, and incrementally build isolated clones of the active snapshot.
