@@ -8,6 +8,10 @@ import type { Logger } from './log.ts';
 import type { IndexStore } from './store.ts';
 import { authenticate, createAccessGuard, loadAccessPolicy, type AccessAccount, type AccessPolicy } from './access.ts';
 import { dashboardResponse, httpError } from './dashboard.ts';
+import type { createPaidQueryRoute } from './x402/gateway.ts';
+import { x402Settings } from './x402/settings.ts';
+import { loadDatasetRegistry } from './x402/datasets.ts';
+import { createFacilitatorClient } from './x402/facilitator.ts';
 
 const isLocalHost = (request: Request): boolean => {
   const host = request.headers.get('host');
@@ -43,6 +47,24 @@ const healthResponse = async (request: Request, store: IndexStore): Promise<Resp
     return httpError(503, 'Database unavailable.');
   }
 };
+
+const returnAuthError = (request: Request, policy: AccessPolicy | undefined): { response?: Response; account?: AccessAccount } => {
+  if (!policy && !isLocalHost(request)) {
+    return { response: httpError(403, 'Only localhost clients are allowed without MCP_ACCESS_FILE.') };
+  }
+  const account = policy ? authenticate(request, policy) : undefined;
+  if (policy && !account) {
+    const response = httpError(401, 'A valid, unexpired bearer credential is required.');
+    response.headers.set('www-authenticate', 'Bearer realm="graphrag"');
+    return { response };
+  }
+  return { ...(account ? { account } : {}) };
+};
+
+const paidRouteResponse = async (
+  request: Request,
+  paidRoute: ReturnType<typeof createPaidQueryRoute> | undefined,
+): Promise<Response | undefined> => paidRoute ? paidRoute(request) : undefined;
 
 const handleExistingSession = async (
   request: Request,
@@ -151,6 +173,7 @@ export const createHttpHandler = (
   sessions: SessionMap = new Map(),
   queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
   policy?: AccessPolicy,
+  paidRoute?: ReturnType<typeof createPaidQueryRoute>,
 ) => {
   let pendingSessions = 0;
   return async (request: Request): Promise<Response> => {
@@ -158,15 +181,11 @@ export const createHttpHandler = (
     if (health) {
       return health;
     }
-    if (!policy && !isLocalHost(request)) {
-      return httpError(403, 'Only localhost clients are allowed without MCP_ACCESS_FILE.');
-    }
-    const account = policy ? authenticate(request, policy) : undefined;
-    if (policy && !account) {
-      const response = httpError(401, 'A valid, unexpired bearer credential is required.');
-      response.headers.set('www-authenticate', 'Bearer realm="graphrag"');
-      return response;
-    }
+    const paidResponse = await paidRouteResponse(request, paidRoute);
+    if (paidResponse) return paidResponse;
+    const auth = returnAuthError(request, policy);
+    if (auth.response) return auth.response;
+    const account = auth.account;
     const dashboard = await dashboardResponse(request, store, account);
     if (dashboard) {
       return dashboard;
@@ -196,20 +215,33 @@ export const startMcpServer = async (
   config: AppConfig,
   logger: Logger,
 ): Promise<() => Promise<void>> => {
+  const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
   if (config.MCP_ACCESS_FILE && config.MCP_TRANSPORT === 'stdio') {
     throw new Error('MCP_ACCESS_FILE requires HTTP transport; stdio cannot authenticate individual callers.');
   }
   const policy = config.MCP_ACCESS_FILE ? await loadAccessPolicy(config.MCP_ACCESS_FILE) : undefined;
   if (config.MCP_TRANSPORT === 'stdio') {
-    const server = createMcpServer(store, config, logger, createQueryLimiter(config.MAX_ACTIVE_QUERIES));
+    const server = createMcpServer(store, config, logger, queryLimiter);
     await server.connect(new StdioServerTransport());
     logger.info('MCP server listening on stdio.');
     return async () => server.close();
   }
 
+  const settings = x402Settings(config);
+  const paidRoute = settings
+    ? (await import('./x402/gateway.ts')).createPaidQueryRoute({
+        store,
+        config,
+        logger,
+        registry: await loadDatasetRegistry(config.X402_DATASETS_FILE as string),
+        payments: store.paymentStore,
+        facilitator: createFacilitatorClient({ url: settings.facilitatorUrl }),
+        limiter: queryLimiter,
+        settings,
+      })
+    : undefined;
   const sessions: SessionMap = new Map();
-  const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
-  const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy);
+  const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute);
   const closeIdleSessionsHandle = setInterval(() => {
     void closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
   }, Math.min(config.HTTP_SESSION_IDLE_TIMEOUT_MS, 60_000));

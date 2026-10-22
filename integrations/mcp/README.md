@@ -21,6 +21,12 @@ For the optional browser showcase, configure reachable slice, judge, and embeddi
 
 PostgreSQL is not exposed on a host port, and MCP is bound to host loopback only. `docker compose down` stops the services but retains the named database volume; `docker compose down -v` deletes the indexed data.
 
+## Paid query API (optional)
+
+The service can also expose `POST /api/v1/query`, an x402 (v2) paid HTTP endpoint for agents, next to the free `/api/v1/datasets` and `/api/v1/pricing` catalogue. It is disabled unless `X402_ENABLED=true`, prices come from a dataset registry file (`integrations/mcp/datasets.example.json`), and `dataset_id` — never `workspace_id` — selects the corpus. Local retrieval is charged with the `exact` scheme, global Map-Reduce with `upto`, and settlement happens only after an answer was produced.
+
+Extension points are the facilitator URL, network/asset and `X402_PAY_TO`; see [docs/x402-paid-api.md](docs/x402-paid-api.md) for the wire format, failure table, idempotency rules, testnet runbook and the dataset bundle exporter (`bun scripts/export-dataset.ts`). Pilot operation is covered in [docs/hosted-beta.md](docs/hosted-beta.md): Cloudflare Access for the private MCP hostname, a separate paid hostname for `/api/v1/*`, credential issuance and rotation, weekly metrics (`bun scripts/beta-report.ts`) and the committed-credential check (`bun scripts/check-credentials.ts`).
+
 ## VS Code with Docker and Environment Injection
 
 This configuration launches the MCP server as a Docker Compose stdio process. First copy the root `.env.example` to `.env` and set the database password there. Start only the database service; do not also run the `mcp-server` Compose service while using this configuration, because the application permits only one indexing worker at a time.
@@ -148,7 +154,7 @@ Set `MCP_BENCHMARK_PROFILE=quick` to run the three questions bundled with `examp
 
 On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version/lease tables and indexes, add the community hierarchy and summary fingerprint columns required by the current GraphRAG schema, and migrate the active-index pointer from the legacy single workspace to per-workspace rows. Existing jobs and versions are assigned to `default`. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
 
-MCP startup also applies `006_edge_contributions.sql` and `007_global_query_cache.sql`. Library-only installations using Prisma migration history should apply `0004_edge_contributions` and `0005_global_query_cache` with `pnpm exec prisma migrate deploy`, then run `pnpm exec prisma generate`. Use the deployment's existing migration mechanism; do not mix Prisma migration history and MCP-owned schema initialization on the same database without baselining it first.
+MCP startup also applies `006_edge_contributions.sql`, `007_global_query_cache.sql` and, when the paid API is enabled, `008_x402_payments.sql`. Library-only installations using Prisma migration history should apply `0004_edge_contributions` and `0005_global_query_cache` with `pnpm exec prisma migrate deploy`, then run `pnpm exec prisma generate`. Use the deployment's existing migration mechanism; do not mix Prisma migration history and MCP-owned schema initialization on the same database without baselining it first.
 
 The edge migration preserves each legacy edge's currently recorded weight under its representative parent. The old schema did not retain every contributing parent, so migrations cannot reconstruct lost contributions or undo previously inflated totals. For historically correct weights, rebuild the full corpus into a fresh namespace/workspace after upgrading; merely re-submitting unchanged files will be skipped by their fingerprints. Existing snapshots are not silently rebuilt.
 
