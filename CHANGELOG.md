@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.20 — 2026-10-22
+
+- update npmignore
+
 ## 0.1.19 — 2026-10-22
 
 - **feat(graph)**: preserve edge contributions and cache global answers
