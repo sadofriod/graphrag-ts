@@ -12,4 +12,9 @@ _rag-builds/
 *.db
 examples/generated/
 model.config.json
+**/*.test.ts
+**/*.spec.ts
+src/build/model.config.json.examples
 .DS_Store
+.agents/
+examples/

@@ -3,10 +3,17 @@
   "version": "0.1.19",
   "type": "module",
   "packageManager": "pnpm@10.22.0",
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.spec.ts",
+    "!src/build/model.config.json.examples",
+    "prisma/schema.prisma",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
   "main": "./src/index.ts",
-  "bin": {
-    "graphrag-ts": "./examples/local-demo.ts"
-  },
   "exports": {
     ".": "./src/index.ts",
     "./build/*": [
@@ -47,8 +54,7 @@
     "db:push": "prisma db push",
     "demo": "bun run examples/demo.ts",
     "demo:benchmark": "bun run examples/benchmark-recall-demo.ts",
-    "benchmark:docker:quick": "INPUT_HOST_DIR=./examples/quickstart-corpus docker compose up -d --build --wait && INPUT_HOST_DIR=./examples/quickstart-corpus docker compose exec -T mcp-server env MCP_BENCHMARK_URL=http://127.0.0.1:3000/mcp MCP_BENCHMARK_PROFILE=quick bun scripts/benchmark.ts",
-    "graphrag-ts": "bun run examples/local-demo.ts"
+    "benchmark:docker:quick": "INPUT_HOST_DIR=./examples/quickstart-corpus docker compose up -d --build --wait && INPUT_HOST_DIR=./examples/quickstart-corpus docker compose exec -T mcp-server env MCP_BENCHMARK_URL=http://127.0.0.1:3000/mcp MCP_BENCHMARK_PROFILE=quick bun scripts/benchmark.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
