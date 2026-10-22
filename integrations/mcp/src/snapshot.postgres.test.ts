@@ -1,14 +1,20 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, test } from 'bun:test';
 import { PrismaClient } from '@prisma/client';
+import { buildClaims } from '@ashes_born/graph-rag-ts/build/helper/buildClaims';
 import { buildEdges } from '@ashes_born/graph-rag-ts/build/helper/buildEdges';
+import { detectCommunity } from '@ashes_born/graph-rag-ts/build/detectCommunity/index';
 import { getPrismaClient, injectPrismaClient } from '@ashes_born/graph-rag-ts/prisma-client';
-import { pruneStaleDocuments } from '@ashes_born/graph-rag-ts/incremental';
+import {
+  diffDocuments,
+  excludeDocumentsFromGraph,
+  pruneStaleDocuments,
+} from '@ashes_born/graph-rag-ts/incremental';
 import { withNamespace } from '@ashes_born/graph-rag-ts/namespace/namespaceContext';
 import { createStore } from './store.ts';
 import { modelLoaderSingleton } from '@ashes_born/graph-rag-ts/model-loader';
 import { GraphRAGRetrievalService } from '@ashes_born/graph-rag-ts';
-import { resolveSnapshotSources } from './snapshotSources.ts';
+import { encodeSourceTitle, resolveSnapshotSources } from './snapshotSources.ts';
 
 const databaseUrl = process.env.MCP_TEST_DATABASE_URL;
 
@@ -30,6 +36,10 @@ test.skipIf(!databaseUrl)('shared edges retain other documents contributions on 
       await write(second.id, 3);
       expect((await client.rAGGraphEdge.findFirstOrThrow({ where: { namespace } })).weight).toBe(5);
       await Promise.all([write(first.id, 2), write(second.id, 3)]);
+      expect((await client.rAGGraphEdge.findFirstOrThrow({ where: { namespace } })).weight).toBe(5);
+      await expect(
+        buildEdges([{ source: 'A', target: 'B', relation: 'supports', weight: 1 }], null, namespace),
+      ).rejects.toThrow('Cannot overwrite contribution-backed edge');
       expect((await client.rAGGraphEdge.findFirstOrThrow({ where: { namespace } })).weight).toBe(5);
       await pruneStaleDocuments([first.id], namespace);
       expect((await client.rAGGraphEdge.findFirstOrThrow({ where: { namespace } })).weight).toBe(3);
@@ -205,6 +215,74 @@ test.skipIf(!databaseUrl)('publishes file replacements and skips matching stored
     await client.$executeRaw`DELETE FROM knowledge_sources WHERE created_by_job_id IN (SELECT id FROM index_jobs WHERE workspace_id = ${workspace})`;
     await client.$executeRaw`DELETE FROM index_jobs WHERE workspace_id = ${workspace}`;
     await store.close();
+    await client.$disconnect();
+  }
+});
+
+test.skipIf(!databaseUrl)('reconciles retained claims, clears empty-graph summaries, and preserves # source labels on replacement', async () => {
+  const client = new PrismaClient({ datasourceUrl: databaseUrl! });
+  const original = getPrismaClient();
+  const originalModels = modelLoaderSingleton.models;
+  const namespace = `replace-regression-${randomUUID()}`;
+  const vector = Array<number>(768).fill(0.1);
+  injectPrismaClient(client);
+  modelLoaderSingleton.models = {
+    embedding: { embedQuery: async () => vector },
+    slice: { invoke: async () => JSON.stringify({ communityName: 'AB', summaryContent: 'Updated AB summary' }) },
+  } as never;
+  try {
+    await withNamespace(namespace, async () => {
+      const insertParent = async (title: string, content: string) => {
+        const parent = await client.rAGParent.create({ data: { namespace, title, content } });
+        const childId = randomUUID();
+        await client.$executeRaw`INSERT INTO rag_children (id, namespace, parent_id, content, updated_at, embedding, fts_tokens)
+          VALUES (${childId}, ${namespace}, ${parent.id}, ${content}, now(), ${JSON.stringify(vector)}::vector, to_tsvector(${content}))`;
+        return { parent, childId };
+      };
+      const baseV1 = await insertParent(encodeSourceTitle('a.md'), 'Retained fact. Old fact.');
+      const hashDoc = await insertParent(encodeSourceTitle('a.md#notes.md'), 'Hash label fact.');
+      await buildEdges([{ source: 'A', target: 'B', relation: 'supports', weight: 2 }], baseV1.parent.id, namespace);
+      await buildClaims([
+        { subject: 'A', object: 'B', description: 'Retained fact', childIndex: 0 },
+        { subject: 'A', object: 'B', description: 'Old fact', childIndex: 0 },
+      ], { parentId: baseV1.parent.id, childIds: [baseV1.childId], namespace });
+      await detectCommunity({ persistCommunitySummaries: true, namespace });
+
+      const diff = await diffDocuments([{ title: encodeSourceTitle('a.md'), content: 'Retained fact. New fact.' }], namespace);
+      expect(diff.toUpdate[0]?.existingParentIds).toEqual([baseV1.parent.id]);
+      await excludeDocumentsFromGraph([baseV1.parent.id], namespace);
+      const baseV2 = await insertParent(encodeSourceTitle('a.md'), 'Retained fact. New fact.');
+      await buildEdges([{ source: 'A', target: 'B', relation: 'supports', weight: 2 }], baseV2.parent.id, namespace);
+      await buildClaims([
+        { subject: 'A', object: 'B', description: 'Retained fact', childIndex: 0 },
+        { subject: 'A', object: 'B', description: 'New fact', childIndex: 0 },
+      ], { parentId: baseV2.parent.id, childIds: [baseV2.childId], namespace });
+      await detectCommunity({ persistCommunitySummaries: true, namespace });
+      await pruneStaleDocuments([baseV1.parent.id], namespace);
+
+      expect(await client.rAGParent.findUnique({ where: { id: hashDoc.parent.id } })).not.toBeNull();
+      const activeClaims = await client.rAGClaim.findMany({ where: { namespace, sourceParentId: { not: null } } });
+      expect(activeClaims.map(({ description }) => description).sort()).toEqual(['New fact', 'Retained fact']);
+      expect(activeClaims.every(({ sourceParentId, sourceChunkId }) =>
+        sourceParentId === baseV2.parent.id && sourceChunkId === baseV2.childId
+      )).toBe(true);
+      const summary = await client.rAGCommunitySummary.findFirstOrThrow({ where: { namespace } });
+      const details = await new GraphRAGRetrievalService().getCommunityDetails(summary.id, namespace);
+      expect(details.claims.map(({ text }) => text).sort()).toEqual(['New fact', 'Retained fact']);
+
+      await excludeDocumentsFromGraph([baseV2.parent.id], namespace);
+      await detectCommunity({ persistCommunitySummaries: true, namespace });
+      await pruneStaleDocuments([baseV2.parent.id], namespace);
+      expect(await client.rAGCommunitySummary.count({ where: { namespace } })).toBe(0);
+    });
+  } finally {
+    injectPrismaClient(original);
+    modelLoaderSingleton.models = originalModels;
+    await client.rAGClaim.deleteMany({ where: { namespace } });
+    await client.rAGGraphEdge.deleteMany({ where: { namespace } });
+    await client.rAGCommunitySummary.deleteMany({ where: { namespace } });
+    await client.rAGParent.deleteMany({ where: { namespace } });
+    await client.rAGEntity.deleteMany({ where: { namespace } });
     await client.$disconnect();
   }
 });

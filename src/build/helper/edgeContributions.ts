@@ -2,13 +2,41 @@ import type { Prisma } from '@prisma/client';
 import { withNamespace } from '../../namespace/namespaceContext';
 import { prismaClient } from './prismaClient';
 
+const GRAPH_WRITE_TRANSACTION_OPTIONS = {
+  maxWait: 30_000,
+  timeout: 120_000,
+} as const;
+
+const namespaceQueues = new Map<string, Promise<unknown>>();
+
+const enqueueNamespaceWrite = <Result>(
+  namespace: string,
+  operation: () => Promise<Result>,
+): Promise<Result> => {
+  const previous = namespaceQueues.get(namespace) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(operation);
+  const cleanup = () => {
+    if (namespaceQueues.get(namespace) === tracked) {
+      namespaceQueues.delete(namespace);
+    }
+  };
+  const tracked = next.then(cleanup, cleanup);
+  namespaceQueues.set(namespace, tracked);
+  return next;
+};
+
 export const withGraphWrite = <Result>(
   namespace: string,
   operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
-): Promise<Result> => withNamespace(namespace, () => prismaClient.$transaction(async (transaction) => {
-  await transaction.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${namespace}, 0))`;
-  return operation(transaction);
-}));
+): Promise<Result> =>
+  enqueueNamespaceWrite(namespace, () =>
+    withNamespace(namespace, () =>
+      prismaClient.$transaction(async (transaction) => {
+        await transaction.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${namespace}, 0))`;
+        return operation(transaction);
+      }, GRAPH_WRITE_TRANSACTION_OPTIONS),
+    ),
+  );
 
 export const refreshEdgeContributions = async (
   transaction: Prisma.TransactionClient,

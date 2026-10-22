@@ -4,7 +4,7 @@ import type { AppConfig } from './config.ts';
 import { buildSnapshot } from './graph-rag.ts';
 import type { Logger } from './log.ts';
 import type { BuildSource, IndexStore } from './store.ts';
-import { resolveSnapshotSources } from './snapshotSources.ts';
+import { encodeSourceTitle, resolveSnapshotSources } from './snapshotSources.ts';
 import type { WorkspaceId } from './workspace.ts';
 
 const errorSummary = (error: unknown): string => {
@@ -17,7 +17,10 @@ const errorSummary = (error: unknown): string => {
 };
 
 const buildInputFiles = (sources: readonly BuildSource[]) =>
-  sources.map((source) => ({ title: source.sourceLabel, content: source.content }));
+  sources.map((source) => ({
+    title: encodeSourceTitle(source.sourceLabel),
+    content: source.content,
+  }));
 
 const recordBuildLog = async (
   store: IndexStore,

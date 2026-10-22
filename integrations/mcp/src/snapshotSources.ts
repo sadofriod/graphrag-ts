@@ -2,6 +2,9 @@ import type { BuildSource, SourceRecord } from './store.ts';
 
 type SnapshotSource = BuildSource & { readonly id?: string };
 
+export const encodeSourceTitle = (sourceLabel: string): string =>
+  sourceLabel.replaceAll('%', '%25').replaceAll('#', '%23');
+
 export const resolveSnapshotSources = (
   previous: readonly SourceRecord[],
   inputs: readonly BuildSource[],

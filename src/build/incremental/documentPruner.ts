@@ -53,7 +53,7 @@ const mutateDocumentGraph = async ({ parentIds, namespace, deleteParents }: {
   return withGraphWrite(namespace, async (transaction) => {
     await transaction.rAGClaim.updateMany({
       where: { sourceParentId: { in: [...parentIds] }, namespace },
-      data: { sourceParentId: null },
+      data: { sourceParentId: null, sourceChunkId: null, communitySummaryId: null },
     });
 
     await removeParentEdgeContributions(transaction, parentIds, namespace);

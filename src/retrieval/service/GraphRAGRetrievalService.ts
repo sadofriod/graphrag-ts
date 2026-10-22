@@ -118,6 +118,9 @@ const toCommunityEdges = (edges: readonly LoadedEdge[]): CommunityEdge[] =>
 
 const loadClaims = async (): Promise<ClaimRecord[]> => {
   const rows = await prismaClient.rAGClaim.findMany({
+    where: {
+      sourceParentId: { not: null },
+    },
     include: {
       subjectEntity: { select: { name: true } },
       objectEntity: { select: { name: true } },

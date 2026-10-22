@@ -10,6 +10,7 @@ export {
 export {
   deleteDocumentByTitle,
   deleteDocumentByParentId,
+  excludeDocumentsFromGraph,
   pruneStaleDocuments,
   type PruneDocumentResult,
 } from './documentPruner';

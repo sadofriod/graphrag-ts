@@ -303,6 +303,29 @@ describe('detectCommunity', () => {
     expect(result.membership).toEqual([]);
     expect(result.score).toBeUndefined();
   });
+
+  it('clears stale community summaries when persisting an empty graph', async () => {
+    const originalSummaryDeleteMany = prismaClient.rAGCommunitySummary.deleteMany;
+    const deleteCalls: unknown[] = [];
+
+    prismaClient.rAGCommunitySummary.deleteMany = ((args: unknown) => {
+      deleteCalls.push(args);
+      return Promise.resolve({ count: 1 }) as never;
+    }) as typeof prismaClient.rAGCommunitySummary.deleteMany;
+
+    try {
+      const result = await detectCommunity({
+        edges: [],
+        persistCommunitySummaries: true,
+        namespace: 'ns-empty',
+      });
+
+      expect(result.communities).toEqual([]);
+      expect(deleteCalls).toEqual([{ where: { namespace: 'ns-empty' } }]);
+    } finally {
+      prismaClient.rAGCommunitySummary.deleteMany = originalSummaryDeleteMany;
+    }
+  });
 });
 
 describe('loadCommunityGraph', () => {

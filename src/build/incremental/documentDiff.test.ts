@@ -57,6 +57,20 @@ describe('documentDiff', () => {
     expect(diff.toSkip[0]?.existingParentIds).toEqual(['p1', 'p2']);
   });
 
+  it('retains a standalone # document title when updating the base document title', () => {
+    const diff = diffDocumentsWithExisting(
+      [{ title: 'a.md', content: 'updated a' }],
+      [
+        { id: 'p-base', title: 'a.md', content: 'original a' },
+        { id: 'p-hash', title: 'a.md#notes.md', content: 'unrelated notes' },
+      ],
+    );
+
+    expect(diff.toUpdate).toHaveLength(1);
+    expect(diff.toUpdate[0]?.file.title).toBe('a.md');
+    expect(diff.toUpdate[0]?.existingParentIds).toEqual(['p-base']);
+  });
+
   it('handles empty input files gracefully', async () => {
     const diff = await diffDocuments([], 'ns-test');
     expect(diff).toEqual({ toInsert: [], toUpdate: [], toSkip: [], all: [] });

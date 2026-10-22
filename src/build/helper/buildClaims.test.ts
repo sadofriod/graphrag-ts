@@ -15,6 +15,7 @@ describe('descriptionHash', () => {
 describe('buildClaims', () => {
   const originalEntityUpsert = prismaClient.rAGEntity.upsert;
   const originalCreateMany = prismaClient.rAGClaim.createMany;
+  const originalUpdateMany = prismaClient.rAGClaim.updateMany;
 
   const stubEntityUpsert = () => {
     const calls: Array<{ where: { namespace_name: { namespace: string; name: string } } }> = [];
@@ -39,6 +40,7 @@ describe('buildClaims', () => {
   const restore = () => {
     prismaClient.rAGEntity.upsert = originalEntityUpsert;
     prismaClient.rAGClaim.createMany = originalCreateMany;
+    prismaClient.rAGClaim.updateMany = originalUpdateMany;
   };
 
   it('returns 0 without touching the db when there are no claims', async () => {
@@ -122,6 +124,48 @@ describe('buildClaims', () => {
       const hashes = new Set(data.map((row) => row.descriptionHash));
       expect(hashes.size).toBe(1);
       expect(createCalls[0]?.skipDuplicates).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it('reattaches detached claims skipped by createMany during incremental replacement', async () => {
+    stubEntityUpsert();
+    prismaClient.rAGClaim.createMany = (() => Promise.resolve({ count: 1 }) as never) as typeof prismaClient.rAGClaim.createMany;
+    const updateCalls: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = [];
+    prismaClient.rAGClaim.updateMany = ((args: unknown) => {
+      const typed = args as { where: Record<string, unknown>; data: Record<string, unknown> };
+      updateCalls.push(typed);
+      return Promise.resolve({
+        count: typed.where.descriptionHash === descriptionHash('Retained fact') ? 1 : 0,
+      }) as never;
+    }) as typeof prismaClient.rAGClaim.updateMany;
+
+    try {
+      const count = await buildClaims(
+        [
+          { subject: 'Alpha', object: 'Beta', description: 'Retained fact', childIndex: 0 },
+          { subject: 'Alpha', object: 'Beta', description: 'Updated fact', childIndex: 0 },
+        ],
+        { parentId: 'parent-new', childIds: ['child-new-0'], namespace: 'ns-a' },
+      );
+
+      expect(count).toBe(2);
+      expect(updateCalls).toHaveLength(2);
+      expect(updateCalls[0]).toEqual({
+        where: {
+          namespace: 'ns-a',
+          subjectEntityId: 'entity-Alpha',
+          descriptionHash: descriptionHash('Retained fact'),
+          sourceParentId: null,
+        },
+        data: {
+          objectEntityId: 'entity-Beta',
+          description: 'Retained fact',
+          sourceParentId: 'parent-new',
+          sourceChunkId: 'child-new-0',
+        },
+      });
     } finally {
       restore();
     }
