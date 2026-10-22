@@ -93,6 +93,20 @@ The input handler rejects absolute paths, `..`, and symlinks. Defaults limit eac
 
 The server retains the active snapshot and the most recent versions up to `MAX_RETAINED_VERSIONS`. In-flight queries hold renewable leases on their snapshot; failed or interrupted builds have their unpublished namespace removed. `MAX_ACTIVE_QUERIES` bounds retrieval work that remains in progress after a client receives a timeout, across all HTTP sessions. HTTP sessions expire after `HTTP_SESSION_IDLE_TIMEOUT_MS` of inactivity, and at most `MAX_HTTP_SESSIONS` sessions can be open at once.
 
+## Incremental Snapshots and Global Answers
+
+Within a workspace, a source label (normally the Markdown path) identifies a document. Re-submitting that label replaces its previous content; the existing `content_hash` determines whether it changed. Identical content reuses the source record and skips extraction. Each job clones the active graph into an isolated namespace and builds only changed sources. Old snapshots remain available to leased queries. A submission does not delete other source labels that were omitted from the input.
+
+`remember_text` without an explicit source uses `remembered-<content_hash>.md`: different text creates independent memories, and identical text is deduplicated. Supply the same explicit source label to update an existing memory.
+
+Edges store separate contributions per parent document. Replaying a parent replaces only its contribution; deleting it removes only its contribution. Contributions are summed transactionally, including concurrent writes, and are copied with the snapshot. Use the library's document-deletion APIs rather than deleting parent rows directly, so aggregated edge weights are refreshed.
+
+Community summary rows are reused when the member set and hierarchy level are unchanged, with changed content regenerated in place. Snapshot rows still receive new physical IDs. Global Map prompts use member/level-derived logical IDs and sorted evidence, so copied UUIDs and database row order do not shuffle unchanged input. Legacy summaries without members fall back to their physical IDs. Adding a community preserves the relative ordering of existing communities, but token packing can still change batch boundaries. Changed builds still run full-graph community detection; this is not a partial-subgraph Leiden implementation.
+
+MCP enables persistent global-answer caching. The core library keeps it opt-in through `options: { responseCache: true }`. Cache keys include the namespace, query, actual evidence batches, prompt templates, retrieval settings, and configured model identity (excluding API keys). Concurrent identical requests share one successful generation across processes. Only `completed` results are stored; empty, partial, failed, and aborted generations are not. Evidence/configuration changes invalidate the key; externally changing a model behind an unchanged endpoint/name requires changing its configured identity or clearing the cache. Injected model objects use a process-local identity.
+
+Cache rows are not cloned and are deleted with their snapshot. There is no per-query TTL or size quota within a retained snapshot. A cache miss holds a database transaction/connection during generation (up to five minutes); size the pool for the configured query concurrency. Stable input and cached success do not guarantee identical fresh LLM responses across different snapshots or cache misses.
+
 ## Development and Validation
 
 Install dependencies from the repository root and start the service locally:
@@ -110,6 +124,14 @@ pnpm --filter graphrag-mcp-server test
 docker compose --env-file .env.example config --quiet
 ```
 
+The snapshot regression suite can use an isolated PostgreSQL+pgvector database with the current Prisma schema. It exercises contribution replay/deletion/concurrency, snapshot references and rollback, source-version publication, and answer-cache invalidation. Never point it at a production database:
+
+```sh
+DATABASE_URL="$TEST_DATABASE_URL" MCP_TEST_DATABASE_URL="$TEST_DATABASE_URL" \
+  RAG_SLICE_API_KEY= RAG_JUDGE_API_KEY= RAG_EMBED_API_KEY= NODE_ENV=test \
+  pnpm exec bun test integrations/mcp/src/snapshot.postgres.test.ts
+```
+
 To run the recall benchmark through a running Docker MCP server, mount the generated benchmark corpus as `INPUT_HOST_DIR` and run:
 
 ```sh
@@ -125,6 +147,10 @@ Set `MCP_BENCHMARK_PROFILE=quick` to run the three questions bundled with `examp
 ## Database Initialization
 
 On first startup, the service enables pgvector and runs `prisma db push` against the bundled GraphRAG Prisma schema only when none of the required GraphRAG tables exist. Existing schemas are checked for completeness without repeatedly syncing or deleting MCP-owned tables. Idempotent SQL migrations create the MCP queue/version/lease tables and indexes, add the community hierarchy and summary fingerprint columns required by the current GraphRAG schema, and migrate the active-index pointer from the legacy single workspace to per-workspace rows. Existing jobs and versions are assigned to `default`. Do not run raw `prisma db push` or `--accept-data-loss` against a database containing data. The named `postgres_data` volume survives container restarts and rebuilds.
+
+MCP startup also applies `006_edge_contributions.sql` and `007_global_query_cache.sql`. Library-only installations using Prisma migration history should apply `0004_edge_contributions` and `0005_global_query_cache` with `pnpm exec prisma migrate deploy`, then run `pnpm exec prisma generate`. Use the deployment's existing migration mechanism; do not mix Prisma migration history and MCP-owned schema initialization on the same database without baselining it first.
+
+The edge migration preserves each legacy edge's currently recorded weight under its representative parent. The old schema did not retain every contributing parent, so migrations cannot reconstruct lost contributions or undo previously inflated totals. For historically correct weights, rebuild the full corpus into a fresh namespace/workspace after upgrading; merely re-submitting unchanged files will be skipped by their fingerprints. Existing snapshots are not silently rebuilt.
 
 ## Configuration
 

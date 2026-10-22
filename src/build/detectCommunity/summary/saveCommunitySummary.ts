@@ -12,18 +12,25 @@ export const saveCommunitySummary = async (
   namespace: string,
   embeddingModel: Embeddings,
   level: number,
+  existingSummaryId?: string,
 ): Promise<{ id: string; name: string; content: string }> => {
   const { communityName, summaryContent } = await generateCommunitySummary(community, inputContent);
-  const summary = await prismaClient.rAGCommunitySummary.create({
-    data: {
-      namespace,
-      communityName,
-      summaryContent,
-      contentFingerprint,
-      members: community.members,
-      level,
-    },
-  });
+  const data = {
+    communityName,
+    summaryContent,
+    contentFingerprint,
+    members: community.members,
+    level,
+    parentCommunityId: null,
+  };
+  const summary = existingSummaryId
+    ? await prismaClient.rAGCommunitySummary.update({
+      where: { id: existingSummaryId },
+      data,
+    })
+    : await prismaClient.rAGCommunitySummary.create({
+      data: { namespace, ...data },
+    });
   const summaryEmbedding = await embeddingModel.embedQuery(summaryContent);
 
   await prismaClient.$executeRaw(Prisma.sql`

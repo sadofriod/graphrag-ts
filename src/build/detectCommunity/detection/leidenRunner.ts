@@ -1,5 +1,6 @@
 import { groupByCommunity } from './groupByCommunity';
 import { createCommunityHierarchyBuilder } from './communityHierarchy';
+import { prismaClient } from '../../helper/prismaClient';
 import { loadIgraph } from '../graph/igraphLoader';
 import { loadCommunityGraph } from '../graph/loadCommunityGraph';
 import { persistCommunitySummaries } from '../summary/persistCommunitySummaries';
@@ -41,6 +42,9 @@ export const detectCommunity = async ({
     const graphEdges = edges ?? (await loadCommunityGraph(namespace)).edges;
 
     if (graphEdges.length === 0) {
+      if (shouldPersistCommunitySummaries && prismaClient.rAGCommunitySummary.deleteMany) {
+        await prismaClient.rAGCommunitySummary.deleteMany({ where: { namespace } });
+      }
       return { algorithm: 'leiden', communities: [], membership: [] };
     }
 

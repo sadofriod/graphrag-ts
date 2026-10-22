@@ -332,4 +332,36 @@ describe('GraphRAGRetrievalService', () => {
       restoreMocks();
     }
   });
+
+  it('excludes detached claims when loading local retrieval evidence', async () => {
+    installMocks([]);
+    let claimFindManyArgs: unknown;
+    prismaClient.rAGClaim.findMany = ((args: unknown) => {
+      claimFindManyArgs = args;
+      const allClaims = [
+        ...claimRows,
+        {
+          id: 'claim-detached',
+          subjectEntity: { name: 'A' },
+          objectEntity: { name: 'B' },
+          description: 'Superseded claim',
+          sourceParentId: null,
+          sourceChunkId: null,
+        },
+      ];
+      return Promise.resolve(allClaims.filter((claim) => claim.sourceParentId !== null));
+    }) as never;
+
+    const service = new GraphRAGRetrievalService();
+    try {
+      const details = await service.getCommunityDetails('c1', 'service-test');
+
+      expect(claimFindManyArgs).toMatchObject({
+        where: { sourceParentId: { not: null } },
+      });
+      expect(details.claims.map((claim) => claim.id)).toEqual(['claim-1']);
+    } finally {
+      restoreMocks();
+    }
+  });
 });

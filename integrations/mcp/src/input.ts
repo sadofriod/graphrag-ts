@@ -61,7 +61,8 @@ export const textInput = (text: string, source: string | undefined, config: AppC
   if (!content) {
     throw new InputError('EMPTY_INPUT', 'Text must not be empty.');
   }
-  const inputs = [makeInput(source?.trim() || 'remembered-text.md', content)];
+  const input = makeInput(source?.trim() ?? '', content);
+  const inputs = [{ ...input, sourceLabel: input.sourceLabel || `remembered-${input.contentHash}.md` }];
   validateBatch(inputs, config);
   return inputs;
 };

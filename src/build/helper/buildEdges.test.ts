@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { buildEdges, normalizeEdgeEntities } from './buildEdges';
 import { prismaClient } from './prismaClient';
@@ -20,6 +20,24 @@ describe('normalizeEdgeEntities', () => {
 });
 
 describe('buildEdges', () => {
+  const originalTransaction = prismaClient.$transaction;
+  const originalQueryRaw = prismaClient.$queryRaw;
+  const originalFindContributions = prismaClient.rAGEdgeContribution.findMany;
+
+  beforeEach(() => {
+    prismaClient.$transaction = (async (
+      operation: (client: typeof prismaClient) => Promise<unknown>,
+    ) => operation(prismaClient)) as never;
+    prismaClient.$queryRaw = (async () => []) as never;
+    prismaClient.rAGEdgeContribution.findMany = (async () => []) as never;
+  });
+
+  afterEach(() => {
+    prismaClient.$transaction = originalTransaction;
+    prismaClient.$queryRaw = originalQueryRaw;
+    prismaClient.rAGEdgeContribution.findMany = originalFindContributions;
+  });
+
   it('upserts entity rows and then writes the canonical edge pair by entity ids', async () => {
     const originalEntityUpsert = prismaClient.rAGEntity.upsert;
     const originalEdgeUpsert = prismaClient.rAGGraphEdge.upsert;
@@ -41,7 +59,7 @@ describe('buildEdges', () => {
     try {
       await buildEdges(
         [{ source: 'Zulu', target: 'Alpha', relation: 'logs metrics', weight: 2 }],
-        'parent-1',
+        null,
         'ns-a',
       );
 
@@ -59,18 +77,16 @@ describe('buildEdges', () => {
           },
         },
         update: {
-          parentId: 'parent-1',
+          parentId: null,
           relationshipDesc: 'logs_metrics',
-          weight: {
-            increment: 2,
-          },
+          weight: 2,
         },
         create: {
           namespace: 'ns-a',
           sourceEntityId: 'entity-alpha',
           targetEntityId: 'entity-zulu',
           relationshipDesc: 'logs_metrics',
-          parentId: 'parent-1',
+          parentId: null,
           weight: 2,
         },
       });
@@ -105,7 +121,7 @@ describe('buildEdges', () => {
     prismaClient.rAGGraphEdge.upsert = (() => Promise.resolve({ id: 'edge-1' })) as never;
 
     try {
-      await buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], 'parent-1', 'ns-a');
+      await buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], null, 'ns-a');
 
       expect(entityFinds).toEqual([{
         where: { namespace_name: { namespace: 'ns-a', name: 'Alpha' } },
@@ -114,6 +130,78 @@ describe('buildEdges', () => {
     } finally {
       prismaClient.rAGEntity.upsert = originalEntityUpsert;
       prismaClient.rAGEntity.findUnique = originalEntityFindUnique;
+      prismaClient.rAGGraphEdge.upsert = originalEdgeUpsert;
+    }
+  });
+
+  it('rejects parentless writes that collide with a contribution-backed edge', async () => {
+    const originalEntityUpsert = prismaClient.rAGEntity.upsert;
+    const originalEdgeUpsert = prismaClient.rAGGraphEdge.upsert;
+    let edgeUpserted = false;
+
+    prismaClient.rAGEntity.upsert = ((args: unknown) => {
+      const { where } = args as { where: { namespace_name: { namespace: string; name: string } } };
+      const name = where.namespace_name.name;
+      return Promise.resolve({ id: `entity-${name.toLowerCase()}`, name }) as never;
+    }) as unknown as typeof prismaClient.rAGEntity.upsert;
+    prismaClient.rAGEdgeContribution.findMany = (async () => [{ edgeId: 'edge-1' }]) as never;
+    prismaClient.rAGGraphEdge.upsert = (() => {
+      edgeUpserted = true;
+      return Promise.resolve({ id: 'edge-1' }) as never;
+    }) as typeof prismaClient.rAGGraphEdge.upsert;
+
+    try {
+      await expect(
+        buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to', weight: 1 }], null, 'ns-a'),
+      ).rejects.toThrow('Cannot overwrite contribution-backed edge Alpha->Zulu without a parentId');
+      expect(edgeUpserted).toBe(false);
+    } finally {
+      prismaClient.rAGEntity.upsert = originalEntityUpsert;
+      prismaClient.rAGGraphEdge.upsert = originalEdgeUpsert;
+    }
+  });
+
+  it('serializes same-namespace graph writes before opening transactions and passes transaction limits', async () => {
+    const originalEntityUpsert = prismaClient.rAGEntity.upsert;
+    const originalEdgeUpsert = prismaClient.rAGGraphEdge.upsert;
+    let activeTransactions = 0;
+    let maxConcurrentTransactions = 0;
+    const transactionOptions: unknown[] = [];
+
+    prismaClient.rAGEntity.upsert = ((args: unknown) => {
+      const { where } = args as { where: { namespace_name: { namespace: string; name: string } } };
+      const name = where.namespace_name.name;
+      return Promise.resolve({ id: `entity-${name.toLowerCase()}`, name }) as never;
+    }) as unknown as typeof prismaClient.rAGEntity.upsert;
+    prismaClient.rAGGraphEdge.upsert = (() => Promise.resolve({ id: 'edge-1' }) as never) as typeof prismaClient.rAGGraphEdge.upsert;
+    prismaClient.$transaction = (async (
+      operation: (client: typeof prismaClient) => Promise<unknown>,
+      options?: unknown,
+    ) => {
+      activeTransactions += 1;
+      maxConcurrentTransactions = Math.max(maxConcurrentTransactions, activeTransactions);
+      transactionOptions.push(options);
+      await Bun.sleep(5);
+      try {
+        return await operation(prismaClient);
+      } finally {
+        activeTransactions -= 1;
+      }
+    }) as never;
+
+    try {
+      await Promise.all([
+        buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], null, 'ns-serial'),
+        buildEdges([{ source: 'Alpha', target: 'Zulu', relation: 'related_to' }], null, 'ns-serial'),
+      ]);
+
+      expect(maxConcurrentTransactions).toBe(1);
+      expect(transactionOptions).toEqual([
+        { maxWait: 30_000, timeout: 120_000 },
+        { maxWait: 30_000, timeout: 120_000 },
+      ]);
+    } finally {
+      prismaClient.rAGEntity.upsert = originalEntityUpsert;
       prismaClient.rAGGraphEdge.upsert = originalEdgeUpsert;
     }
   });

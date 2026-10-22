@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **fix(mcp)**: reuse stored file fingerprints, replace source versions by label, and incrementally build isolated clones of the active snapshot.
+- **fix(build)**: persist per-parent edge contributions so replay, concurrent writes, replacement, and deletion preserve other documents' weights.
+- **fix(community)**: reuse summary rows for unchanged member/level identities and stabilize global Map input independently of cloned UUIDs and database row order.
+- **feat(global-search)**: add opt-in persistent caching of completed answers with concurrent request deduplication; enabled by MCP.
+- **migration**: add edge-contribution and global-query-cache tables. Legacy contribution provenance requires a fresh rebuild for historical correction; see the [MCP upgrade notes](integrations/mcp/README.md#database-initialization).
+
 ## 0.1.18 — 2026-10-20
 
 - **fix(mcp)**: allow authenticated proxy hosts

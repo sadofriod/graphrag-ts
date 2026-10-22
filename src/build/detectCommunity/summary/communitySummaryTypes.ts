@@ -16,11 +16,6 @@ export interface LoadedGraphData {
   existingSummaries: readonly ExistingSummaryRecord[];
 }
 
-export interface SummaryAssignedItems {
-  edgeCountBySummaryId: ReadonlyMap<string, number>;
-  claimCountBySummaryId: ReadonlyMap<string, number>;
-}
-
 export interface SummaryPersistenceState {
   communitySummaries: ReadonlyMap<number, { id: string; name: string; content: string }>;
   usedSummaryIds: ReadonlySet<string>;

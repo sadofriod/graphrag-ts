@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { BuildRegistry } from './buildRegistry';
 import { createBuildRegistry } from './buildRegistry';
@@ -16,6 +16,24 @@ const waitForFinish = async (registry: BuildRegistry, id: string) => {
 };
 
 describe('startBuild', () => {
+  const transaction = prismaClient.$transaction;
+  const queryRaw = prismaClient.$queryRaw;
+  const findContributions = prismaClient.rAGEdgeContribution.findMany;
+  const deleteContributions = prismaClient.rAGEdgeContribution.deleteMany;
+  beforeEach(() => {
+    prismaClient.$transaction = (async (
+      operation: (client: typeof prismaClient) => Promise<unknown>,
+    ) => operation(prismaClient)) as never;
+    prismaClient.$queryRaw = (async () => []) as never;
+    prismaClient.rAGEdgeContribution.findMany = (async () => []) as never;
+    prismaClient.rAGEdgeContribution.deleteMany = (async () => ({ count: 0 })) as never;
+  });
+  afterEach(() => {
+    prismaClient.$transaction = transaction;
+    prismaClient.$queryRaw = queryRaw;
+    prismaClient.rAGEdgeContribution.findMany = findContributions;
+    prismaClient.rAGEdgeContribution.deleteMany = deleteContributions;
+  });
   it('creates a running job and succeeds when the runner resolves', async () => {
     const registry = createBuildRegistry();
     let runnerFiles: unknown;

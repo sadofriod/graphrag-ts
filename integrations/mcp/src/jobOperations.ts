@@ -121,7 +121,7 @@ export const createJobOperations = (
 
   const getInputs = async (jobId: string): Promise<readonly BuildSource[]> => {
     const result = await pool.query<BuildSource>(
-      `SELECT source_label AS "sourceLabel", content
+      `SELECT source_label AS "sourceLabel", content, content_hash AS "contentHash"
        FROM job_inputs WHERE job_id = $1 ORDER BY ordinal`,
       [jobId],
     );

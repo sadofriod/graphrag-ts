@@ -37,13 +37,22 @@ interface ExistingDocumentRecord {
 const resolveDocumentTitle = (
   title: string,
   fileTitles: ReadonlySet<string>,
+  exactParentTitles: ReadonlySet<string>,
 ): string => {
+  if (fileTitles.has(title)) {
+    return title;
+  }
+
   const sectionIndex = title.indexOf('#');
   if (sectionIndex === -1) {
     return title;
   }
 
   const baseTitle = title.slice(0, sectionIndex);
+  if (exactParentTitles.has(baseTitle)) {
+    return title;
+  }
+
   return fileTitles.has(baseTitle) ? baseTitle : title;
 };
 
@@ -52,10 +61,13 @@ export const diffDocumentsWithExisting = (
   existingParents: readonly ExistingParentRecord[],
 ): DocumentDiffSummary => {
   const fileTitles = new Set(files.map((file) => file.title).filter((title): title is string => title.length > 0));
+  const exactParentTitles = new Set(
+    existingParents.flatMap((parent) => (parent.title ? [parent.title] : [])),
+  );
   const existingByTitle = new Map<string, ExistingDocumentRecord>();
   for (const parent of existingParents) {
     if (parent.title) {
-      const title = resolveDocumentTitle(parent.title, fileTitles);
+      const title = resolveDocumentTitle(parent.title, fileTitles, exactParentTitles);
       const current = existingByTitle.get(title);
       existingByTitle.set(title, {
         parentIds: [...(current?.parentIds ?? []), parent.id],

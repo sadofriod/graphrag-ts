@@ -98,6 +98,39 @@ const toClaimRows = (
   return rows;
 };
 
+const deduplicateClaimRows = (rows: readonly ClaimRow[]): ClaimRow[] => {
+  const uniqueRows = new Map<string, ClaimRow>();
+  for (const row of rows) {
+    const key = `${row.subjectEntityId}:${row.descriptionHash}`;
+    if (!uniqueRows.has(key)) {
+      uniqueRows.set(key, row);
+    }
+  }
+  return [...uniqueRows.values()];
+};
+
+const reattachDetachedClaims = async (rows: readonly ClaimRow[]): Promise<number> => {
+  let reattached = 0;
+  for (const row of rows) {
+    const updated = await prismaClient.rAGClaim.updateMany({
+      where: {
+        namespace: row.namespace,
+        subjectEntityId: row.subjectEntityId,
+        descriptionHash: row.descriptionHash,
+        sourceParentId: null,
+      },
+      data: {
+        objectEntityId: row.objectEntityId ?? null,
+        description: row.description,
+        sourceParentId: row.sourceParentId,
+        sourceChunkId: row.sourceChunkId ?? null,
+      },
+    });
+    reattached += updated.count;
+  }
+  return reattached;
+};
+
 export const buildClaims = async (
   claims: readonly ChunkClaim[],
   opts: BuildClaimsOptions,
@@ -118,6 +151,12 @@ export const buildClaims = async (
     skipDuplicates: true,
   });
 
-  return result.count;
+  const uniqueRows = deduplicateClaimRows(rows);
+  if (result.count >= uniqueRows.length) {
+    return result.count;
+  }
+
+  const reattached = await reattachDetachedClaims(uniqueRows);
+  return result.count + reattached;
 };
 

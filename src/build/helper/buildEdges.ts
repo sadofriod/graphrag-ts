@@ -1,5 +1,6 @@
-import { prismaClient } from './prismaClient';
 import { upsertRagEntity } from './upsertRagEntity';
+import { refreshEdgeContributions, withGraphWrite } from './edgeContributions';
+import type { Prisma } from '@prisma/client';
 
 export interface GraphEdge {
   source: string;
@@ -82,16 +83,16 @@ const resolveEntities = async (
 const upsertEdge = (
   edge: AggregatedEdge,
   entityRecords: ReadonlyMap<string, { id: string }>,
-  parentId: string | null,
-  namespace: string,
+  context: { namespace: string; transaction: Prisma.TransactionClient },
 ) => {
+  const { namespace, transaction } = context;
   const sourceRecord = entityRecords.get(edge.sourceEntity);
   const targetRecord = entityRecords.get(edge.targetEntity);
   if (!sourceRecord || !targetRecord) {
     throw new Error(`Entity record not found for edge ${edge.sourceEntity}->${edge.targetEntity}`);
   }
 
-  return prismaClient.rAGGraphEdge.upsert({
+  return transaction.rAGGraphEdge.upsert({
     where: {
       namespace_sourceEntityId_targetEntityId: {
         namespace,
@@ -99,19 +100,17 @@ const upsertEdge = (
         targetEntityId: targetRecord.id,
       },
     },
-    update: {
-      parentId,
+    update: edge.parentId ? {} : {
+      parentId: null,
       relationshipDesc: edge.relationshipDesc,
-      weight: {
-        increment: edge.weight,
-      },
+      weight: edge.weight,
     },
     create: {
       namespace,
       sourceEntityId: sourceRecord.id,
       targetEntityId: targetRecord.id,
       relationshipDesc: edge.relationshipDesc,
-      parentId,
+      parentId: edge.parentId,
       weight: edge.weight,
     },
   });
@@ -122,11 +121,50 @@ export const buildEdges = async (
   parentId: string | null,
   namespace: string,
 ) => {
-  if (chunks.length === 0) {
-    return [];
-  }
-
   const edges = aggregateEdges(chunks, parentId);
   const entityRecords = await resolveEntities(edges, namespace);
-  return Promise.all(edges.map((edge) => upsertEdge(edge, entityRecords, parentId, namespace)));
+  if (!parentId) {
+    return withGraphWrite(namespace, async (transaction) => {
+      const savedEdges = [];
+      for (const edge of edges) {
+        const sourceRecord = entityRecords.get(edge.sourceEntity);
+        const targetRecord = entityRecords.get(edge.targetEntity);
+        if (!sourceRecord || !targetRecord) {
+          throw new Error(`Entity record not found for edge ${edge.sourceEntity}->${edge.targetEntity}`);
+        }
+        const existingContributions = await transaction.rAGEdgeContribution.findMany({
+          where: {
+            namespace,
+            edge: { sourceEntityId: sourceRecord.id, targetEntityId: targetRecord.id },
+          },
+          select: { edgeId: true },
+        });
+        if (existingContributions.length > 0) {
+          throw new Error(
+            `Cannot overwrite contribution-backed edge ${edge.sourceEntity}->${edge.targetEntity} without a parentId`,
+          );
+        }
+        savedEdges.push(await upsertEdge(edge, entityRecords, { namespace, transaction }));
+      }
+      return savedEdges;
+    });
+  }
+  return withGraphWrite(namespace, async (transaction) => {
+    const previous = await transaction.rAGEdgeContribution.findMany({
+      where: { namespace, parentId }, select: { edgeId: true },
+    });
+    await transaction.rAGEdgeContribution.deleteMany({ where: { namespace, parentId } });
+    const currentIds = new Set<string>();
+    for (const edge of edges) {
+      const saved = await upsertEdge(edge, entityRecords, { namespace, transaction });
+      currentIds.add(saved.id);
+      await transaction.rAGEdgeContribution.create({
+        data: { namespace, parentId, edgeId: saved.id, weight: edge.weight, relationshipDesc: edge.relationshipDesc },
+      });
+    }
+    const refreshed = await refreshEdgeContributions(
+      transaction, [...previous.map(({ edgeId }) => edgeId), ...currentIds], namespace,
+    );
+    return refreshed.filter(({ id }) => currentIds.has(id));
+  });
 };

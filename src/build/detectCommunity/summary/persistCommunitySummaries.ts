@@ -5,7 +5,6 @@ import { modelLoaderSingleton } from '../../modelLoader';
 import { backfillCommunityAssignments } from './backfillCommunityAssignments';
 import {
   buildMemberToCommunityMap,
-  computeSummaryAssignedCounts,
   persistCommunity,
 } from './communitySummaryState';
 import { loadCommunitySummaryData } from './loadCommunitySummaryData';
@@ -29,7 +28,6 @@ export const persistCommunitySummaries = async (
 
   const { edgeRows, claimRows, entityDescriptions, existingSummaries } =
     await loadCommunitySummaryData(namespace);
-  const assignedCounts = computeSummaryAssignedCounts(edgeRows, claimRows);
   const hierarchy = result.hierarchy ?? result.communities.map((community) => ({
     ...community,
     level: 0,
@@ -56,7 +54,6 @@ export const persistCommunitySummaries = async (
         claimRows,
         entityDescriptions,
         existingSummaries,
-        assignedCounts,
         namespace,
         embeddingModel,
       );
@@ -108,7 +105,6 @@ const persistHierarchyNode = async (
   claimRows: Parameters<typeof persistCommunity>[3],
   entityDescriptions: Parameters<typeof persistCommunity>[4],
   existingSummaries: Parameters<typeof persistCommunity>[5],
-  assignedCounts: Parameters<typeof persistCommunity>[6],
   namespace: string,
   embeddingModel: Embeddings,
 ): Promise<{
@@ -129,7 +125,6 @@ const persistHierarchyNode = async (
         claimRows,
         entityDescriptions,
         existingSummaries,
-        assignedCounts,
         namespace,
         embeddingModel,
       );
@@ -146,7 +141,6 @@ const persistHierarchyNode = async (
     claimRows,
     entityDescriptions,
     existingSummaries,
-    assignedCounts,
     namespace,
     embeddingModel,
     community.level,

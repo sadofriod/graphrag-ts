@@ -7,6 +7,7 @@ import { getGraphSnapshot } from './graphSnapshot.ts';
 import { createActivityOperations, createJobOperations } from './jobOperations.ts';
 import { createPublisher } from './publisher.ts';
 import { createUsageStore } from './usage.ts';
+import { cloneGraphNamespace } from './snapshotCopy.ts';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
 
 export type { GraphSnapshot } from './graphSnapshot.ts';
@@ -31,9 +32,10 @@ export type SourceRecord = {
   readonly id: string;
   readonly sourceLabel: string;
   readonly content: string;
+  readonly contentHash: string;
 };
 
-export type BuildSource = Pick<SourceRecord, 'sourceLabel' | 'content'>;
+export type BuildSource = Pick<SourceRecord, 'sourceLabel' | 'content' | 'contentHash'>;
 
 export type ActiveSnapshot = {
   readonly workspaceId: WorkspaceId;
@@ -44,6 +46,7 @@ export type ActiveSnapshot = {
 export type Transaction = <Result>(operation: (client: PoolClient) => Promise<Result>) => Promise<Result>;
 
 const deleteGraphNamespace = async (client: PoolClient, namespace: string): Promise<void> => {
+  await client.query('DELETE FROM rag_global_query_cache WHERE namespace = $1', [namespace]);
   await client.query('DELETE FROM rag_claims WHERE namespace = $1', [namespace]);
   await client.query('DELETE FROM rag_graph_edges WHERE namespace = $1', [namespace]);
   await client.query('DELETE FROM rag_community_summaries WHERE namespace = $1', [namespace]);
@@ -126,6 +129,8 @@ const migrate = async (pool: Pool): Promise<void> => {
     '003_workspace_routing.sql',
     '004_workspace_activity_logs.sql',
     '005_metered_access.sql',
+    '006_edge_contributions.sql',
+    '007_global_query_cache.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
@@ -202,7 +207,7 @@ const getActiveSnapshot = async (
     return { workspaceId, version: null, sources: [] };
   }
   const sources = await pool.query<SourceRecord>(
-    `SELECT s.id, s.source_label AS "sourceLabel", s.content
+    `SELECT s.id, s.source_label AS "sourceLabel", s.content, s.content_hash AS "contentHash"
      FROM index_version_sources vs JOIN knowledge_sources s ON s.id = vs.source_id
      WHERE vs.version_id = $1 ORDER BY s.created_at, s.id`,
     [version.id],
@@ -261,6 +266,15 @@ const createSnapshotBuildOperations = (pool: Pool, transaction: Transaction) => 
       'INSERT INTO building_snapshots (namespace, job_id, workspace_id) VALUES ($1, $2, $3)',
       [namespace, jobId, workspaceId],
     );
+  },
+  cloneSnapshot: async (
+    sourceNamespace: string | null,
+    targetNamespace: string,
+  ): Promise<void> => {
+    if (!sourceNamespace) {
+      return;
+    }
+    await transaction((client) => cloneGraphNamespace(client, sourceNamespace, targetNamespace));
   },
   discardSnapshot: async (namespace: string): Promise<void> =>
     transaction(async (client) => {

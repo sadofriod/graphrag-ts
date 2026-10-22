@@ -12,6 +12,9 @@ import type {
 import { runGlobalMap } from './globalMap';
 import { generateGlobalReduceAnswer, selectGlobalReduceAnswers } from './globalReduce';
 import { buildSummaryBatches } from './summaryBatcher';
+import { computeCommunityIdentity } from '../../build/detectCommunity/summary/communityFingerprint';
+import { getSliceModelFingerprint } from '../../build/modelLoader';
+import { withCachedGlobalResult } from './globalResultCache';
 
 const NO_RESULTS_ANSWER = 'No relevant community summaries were found for this query.';
 
@@ -83,6 +86,7 @@ const noResults = (
 
 interface CommunitySummaryRow {
   id: string;
+  members?: string[];
   level: number;
   summaryContent: string;
   parentCommunityId: string | null;
@@ -122,6 +126,7 @@ const loadClaimsForLeaves = async (namespace: string, leafIds: readonly string[]
     where: {
       namespace,
       communitySummaryId: { in: [...leafIds] },
+      sourceParentId: { not: null },
     },
     select: {
       communitySummaryId: true,
@@ -155,10 +160,10 @@ const formatMapSummary = (
   const claims = leafIds.flatMap((leafId) => claimsBySummary.get(leafId) ?? []);
   const factLines = claims.map(({ subjectEntity, objectEntity, description }) =>
     `- ${subjectEntity.name}${objectEntity ? ` -> ${objectEntity.name}` : ''}: ${description}`,
-  );
+  ).sort();
   const sourceExcerpts = [...new Set(
     claims.flatMap(({ sourceChunk }) => sourceChunk?.content.trim() ? [sourceChunk.content.trim()] : []),
-  )];
+  )].sort();
   const parts = [`[Community summary]\n${summary.summaryContent}`];
   if (factLines.length > 0) {
     parts.push(`[Supporting claims]\n${factLines.join('\n')}`);
@@ -173,7 +178,7 @@ const loadSummaries = async (communityLevel: number | 'leaf') => {
   const namespace = getCurrentNamespace();
   const summaries = await awaitRetrieval(() => prismaClient.rAGCommunitySummary.findMany({
     where: { namespace },
-    select: { id: true, summaryContent: true, parentCommunityId: true, level: true },
+    select: { id: true, summaryContent: true, parentCommunityId: true, level: true, members: true },
     orderBy: { id: 'asc' },
   }));
   const leaves = findLeafSummaries(summaries);
@@ -196,6 +201,7 @@ const loadSummaries = async (communityLevel: number | 'leaf') => {
   const claimsBySummary = groupClaimsBySummary(claims);
   return selectedSummaries.map((summary) => ({
     id: summary.id,
+    stableId: summary.members?.length ? computeCommunityIdentity(summary.members, summary.level) : summary.id,
     text: formatMapSummary(summary, leafIdsBySummary.get(summary.id) ?? [], claimsBySummary),
   }));
 };
@@ -209,7 +215,10 @@ const makeMapBatches = async (
     { query, content: '' },
     agentRegistry.globalMap,
   ));
-  return buildSummaryBatches(summaries, mapPromptSkeleton.prompt, promptBudget);
+  return {
+    batches: buildSummaryBatches(summaries, mapPromptSkeleton.prompt, promptBudget),
+    mapPrompt: mapPromptSkeleton.prompt,
+  };
 };
 
 const generateGlobalResult = async (
@@ -282,14 +291,17 @@ export const retrieveGlobal = async (
     return noResults(query, settings.communityLevel);
   }
 
-  const batches = await makeMapBatches(query, summaries, mapPromptBudget);
-  const mapAnswers = await runGlobalMap(query, batches, settings.mapConcurrency);
-  return awaitRetrieval(() => generateGlobalResult(
-    query,
-    settings.communityLevel,
-    mapAnswers,
-    summaries.length,
-    batches.length,
-    reducePromptBudget,
-  ));
+  const { batches, mapPrompt } = await makeMapBatches(query, summaries, mapPromptBudget);
+  const generate = async () => {
+    const mapAnswers = await runGlobalMap(query, batches, settings.mapConcurrency);
+    return awaitRetrieval(() => generateGlobalResult(
+      query, settings.communityLevel, mapAnswers, summaries.length, batches.length, reducePromptBudget,
+    ));
+  };
+  if (!request.options?.responseCache) return generate();
+  const reducePrompt = await awaitRetrieval(() => assmblyAgent({ query, content: '' }, agentRegistry.globalReduce));
+  return withCachedGlobalResult({
+    namespace: getCurrentNamespace(),
+    fingerprint: { version: 1, query, settings, batches, mapPrompt, reducePrompt: reducePrompt.prompt, model: getSliceModelFingerprint() },
+  }, generate);
 };
