@@ -193,6 +193,14 @@ Anything else — a Tron `T...` address, a truncated value, a Solana key on an E
 rejected at startup with a message naming `X402_PAY_TO`, instead of serving a 402 challenge that no
 client can pay. `X402_ASSET` is checked the same way against the network family.
 
+An EVM address is chain-agnostic: the same `0x…` wallet receives on Base and on Ethereum, and its
+EIP-55 checksum can be verified independently (a wrong checksum usually means a typo). What is *not*
+chain-agnostic is the **asset** and the **facilitator support**: Base USDC
+(`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) is a different contract from Ethereum USDC
+(`0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48`), and PayAI's `/supported` currently lists Base,
+Base Sepolia and other EVM chains plus Solana but **no `eip155:1`**. Check the facilitator's
+`/supported` for the exact `network` you intend to sell on before pointing a payee at it.
+
 ## Testnet runbook
 
 1. Create a throwaway EVM wallet for `X402_PAY_TO`; never commit its key, and
