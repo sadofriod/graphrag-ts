@@ -14,7 +14,12 @@ export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', sett
       scheme: dataset.pricing.global.scheme, network: settings.network, amount: dataset.pricing.global.upto.atomic, asset: settings.asset,
       payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
       extra: dataset.pricing.global.scheme === 'upto'
-        ? { name: settings.assetName, version: settings.assetVersion, paymentFlow: 'authorization' }
+        ? {
+            name: settings.assetName,
+            version: settings.assetVersion,
+            paymentFlow: 'authorization',
+            ...(settings.uptoFacilitatorAddress ? { facilitatorAddress: settings.uptoFacilitatorAddress } : {}),
+          }
         : { name: settings.assetName, version: settings.assetVersion },
     };
 

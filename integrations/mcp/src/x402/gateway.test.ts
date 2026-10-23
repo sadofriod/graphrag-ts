@@ -15,6 +15,7 @@ const logger = createLogger('error');
 const settings: X402Settings = {
   facilitatorUrl: 'https://facilitator.invalid', network: 'eip155:84532', asset: '0xasset', assetName: 'USDC',
   assetVersion: '2', payTo: '0xreceiver', maxTimeoutSeconds: 60, publicBaseUrl: 'https://api.example.test/',
+  uptoFacilitatorAddress: '0x68EFaFE862d89cE66dd3D7B07d5A3747A0871164',
 };
 const registry: DatasetRegistry = { datasets: [{
   id: 'demo', workspaceId: 'workspace-demo', title: 'Demo dataset', description: 'Synthetic demo.', synthetic: true,
@@ -147,6 +148,7 @@ describe('x402 paid query gateway', () => {
       resource: { url: string; serviceName?: string; tags?: string[] };
     };
     expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
+    expect(required.accepts[0]?.extra).not.toHaveProperty('facilitatorAddress');
     const bazaar = required.extensions.bazaar as { info: { input: { type: string; method: string; bodyType: string; body: { dataset_id: string } }; output: { type: string } }; schema: { $ref?: string; required: string[] } };
     expect(bazaar.info.input).toMatchObject({ type: 'http', method: 'POST', bodyType: 'json', body: { dataset_id: 'demo' } });
     expect(bazaar.info.output.type).toBe('json');
@@ -160,6 +162,18 @@ describe('x402 paid query gateway', () => {
       expect(response?.status).toBe(200);
       expect((await response?.json()) as { datasets: unknown[] }).toHaveProperty('datasets');
     }
+  });
+
+  test('includes the facilitator address in global upto requirements', async () => {
+    const app = setup();
+    const challenge = await app.route(new Request('https://internal.test/api/v1/query', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataset_id: 'demo', query: 'test', mode: 'global' }),
+    }));
+    const required = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as { accepts: PaymentRequirements[] };
+    expect(required.accepts[0]?.extra).toMatchObject({
+      paymentFlow: 'authorization', facilitatorAddress: settings.uptoFacilitatorAddress,
+    });
   });
 
   test('serves cached resource-server and dataset discovery without payment', async () => {

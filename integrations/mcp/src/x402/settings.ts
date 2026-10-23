@@ -10,6 +10,7 @@ export type X402Settings = {
   readonly payTo: string;
   readonly maxTimeoutSeconds: number;
   readonly publicBaseUrl?: string;
+  readonly uptoFacilitatorAddress?: string;
 };
 
 export const x402Settings = (config: AppConfig): X402Settings | undefined => {

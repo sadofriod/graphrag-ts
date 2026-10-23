@@ -27,10 +27,12 @@ export const paymentRequiredSchema = z.object({
 }).passthrough();
 
 const authorizationSchema = z.object({ value: atomicAmountSchema.optional() }).passthrough();
+const permit2AuthorizationSchema = z.object({ nonce: z.unknown().optional() }).passthrough();
 const paymentSchemePayloadSchema = z.object({
   amount: atomicAmountSchema.optional(),
   value: atomicAmountSchema.optional(),
   authorization: authorizationSchema.optional(),
+  permit2Authorization: permit2AuthorizationSchema.optional(),
 }).passthrough();
 
 export const paymentPayloadSchema = z.object({

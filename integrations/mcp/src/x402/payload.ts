@@ -51,17 +51,20 @@ export const parsePaymentPayload = (signature: string): { payload?: PaymentPaylo
     const parsed = paymentPayloadSchema.safeParse(decodePaymentHeader(signature));
     if (!parsed.success) throw new X402FormatError('PAYMENT_PAYLOAD_INVALID', 'Payment payload is invalid.');
     const payload = parsed.data;
-    const nonce = payload.payload.authorization?.nonce;
-    if (typeof nonce !== 'string' || nonce.length < 1 || nonce.length > 256) {
-      throw new X402FormatError('PAYMENT_PAYLOAD_INVALID', 'Payment payload authorization is invalid.');
-    }
+    nonceFromPayload(payload);
     return { payload };
   } catch (error) {
     return { error: error instanceof X402FormatError ? error.message : 'Payment payload is invalid.' };
   }
 };
 
-export const nonceFromPayload = (payload: PaymentPayload): string => payload.payload.authorization?.nonce as string;
+export const nonceFromPayload = (payload: PaymentPayload): string => {
+  const nonce = payload.payload.authorization?.nonce ?? payload.payload.permit2Authorization?.nonce;
+  if (typeof nonce !== 'string' || nonce.length < 1 || nonce.length > 256) {
+    throw new X402FormatError('PAYMENT_PAYLOAD_INVALID', 'Payment payload authorization is invalid.');
+  }
+  return nonce;
+};
 
 export const validIdempotencyKey = (key: string | null): boolean => key === null || /^[A-Za-z0-9._:-]{8,200}$/.test(key);
 

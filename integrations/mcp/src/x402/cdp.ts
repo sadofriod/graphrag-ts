@@ -207,8 +207,30 @@ export const createCdpFacilitatorClient = ({
   readonly fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
 }): FacilitatorClient => {
   const options = { apiKeyId, apiKeySecret, baseUrl, fetchImpl };
+  const request = async (path: string): Promise<{ readonly status: number; readonly json: unknown }> => {
+    try {
+      const url = new URL(baseUrl);
+      url.pathname = `${url.pathname.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+      const jwt = await signCdpJwt({
+        apiKeyId,
+        apiKeySecret,
+        method: 'GET',
+        host: url.host,
+        path: url.pathname,
+      });
+      const response = await fetchImpl(url.toString(), {
+        method: 'GET',
+        headers: { authorization: `Bearer ${jwt}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      return { status: response.status, json: await response.json() as unknown };
+    } catch {
+      throw new X402FacilitatorError('FACILITATOR_REQUEST_FAILED', 'Facilitator supported request failed.');
+    }
+  };
   return {
     verify: (request: VerifyRequest): Promise<VerifyResponse> => post('verify', request, verifyResponseSchema, options),
     settle: (request: SettleRequest): Promise<SettleResponse> => post('settle', request, settleResponseSchema, options),
+    request,
   };
 };

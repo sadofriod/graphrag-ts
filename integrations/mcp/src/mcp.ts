@@ -13,6 +13,7 @@ import { x402Settings } from './x402/settings.ts';
 import { loadDatasetRegistry } from './x402/datasets.ts';
 import { createFacilitatorClient } from './x402/facilitator.ts';
 import { createCdpFacilitatorClient } from './x402/cdp.ts';
+import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supported.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -248,18 +249,28 @@ export const startMcpServer = async (
   }
 
   const settings = x402Settings(config);
-  const paidRoute = settings
-    ? (await import('./x402/gateway.ts')).createPaidQueryRoute({
+  let paidRoute: ReturnType<typeof createPaidQueryRoute> | undefined;
+  if (settings) {
+    const registry = await loadDatasetRegistry(config.X402_DATASETS_FILE as string);
+    const facilitator = paidFacilitator(config, settings.facilitatorUrl);
+    const usesUpto = registry.datasets.some((dataset) => dataset.pricing.global.scheme === 'upto');
+    const uptoFacilitatorAddress = usesUpto
+      ? findUptoFacilitatorAddress((await fetchSupportedKinds({ facilitatorUrl: settings.facilitatorUrl, facilitator })).kinds, settings.network)
+      : undefined;
+    if (usesUpto && !uptoFacilitatorAddress) {
+      throw new Error(`X402 upto pricing requires a facilitator that advertises extra.facilitatorAddress for ${settings.network}; switch the dataset to pricing.global.scheme "exact" or use a facilitator that supports upto.`);
+    }
+    paidRoute = (await import('./x402/gateway.ts')).createPaidQueryRoute({
         store,
         config,
         logger,
-        registry: await loadDatasetRegistry(config.X402_DATASETS_FILE as string),
+        registry,
         payments: store.paymentStore,
-         facilitator: paidFacilitator(config, settings.facilitatorUrl),
+        facilitator,
         limiter: queryLimiter,
-        settings,
-      })
-    : undefined;
+        settings: { ...settings, ...(uptoFacilitatorAddress ? { uptoFacilitatorAddress } : {}) },
+      });
+  }
   const sessions: SessionMap = new Map();
   const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute);
   const closeIdleSessionsHandle = setInterval(() => {

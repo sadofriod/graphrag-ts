@@ -58,6 +58,10 @@ The default `pricing.global.scheme` is `"upto"`. PayAI implements `exact` (Base,
 query is sold at a flat price. See
 [x402-discovery.md](x402-discovery.md) for how the endpoint gets catalogued.
 
+An `upto` challenge also needs the facilitator's `extra.facilitatorAddress`; the service resolves it
+from the facilitator's `/supported` response at startup. PayAI does not support `upto`, so configure
+`pricing.global.scheme: "exact"` when using PayAI.
+
 Startup fails with the names of any missing variable and never prints values.
 `X402_PUBLIC_BASE_URL` matters: without it the challenge advertises whatever
 `Host` / `X-Forwarded-*` headers arrive, which is wrong behind a tunnel.
@@ -182,6 +186,7 @@ answer the buyer did not receive.
 - `Idempotency-Key` (8–200 chars of `A-Za-z0-9._:-`) is optional. When it is
   absent the signed authorization nonce is the key, so an agent that retries the
   same signed payload after a network timeout gets the stored answer back.
+- For `upto`, the replay key is the Permit2 authorization nonce.
 - A replay of a settled request returns the stored response body and the original
   settlement, with **no** facilitator call and **no** second charge.
 - Reusing an `Idempotency-Key` with different request content, or replaying a

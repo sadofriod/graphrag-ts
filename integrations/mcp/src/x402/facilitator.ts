@@ -10,6 +10,7 @@ import {
 export interface FacilitatorClient {
   verify(request: VerifyRequest): Promise<VerifyResponse>;
   settle(request: SettleRequest): Promise<SettleResponse>;
+  request?(path: string): Promise<{ readonly status: number; readonly json: unknown }>;
 }
 
 export class X402FacilitatorError extends Error {
