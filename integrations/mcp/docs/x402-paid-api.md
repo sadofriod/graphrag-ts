@@ -53,9 +53,9 @@ X402_DATASETS_FILE=./datasets.json
 X402_PUBLIC_BASE_URL=https://pay.example.com            # used in resource.url and /.well-known/x402
 ```
 
-PayAI implements `exact` (Base, Solana, …) and the `bazaar` discovery extension, but **not**
-`upto`. Keep `pricing.global.scheme: "upto"` only with a facilitator that supports it; with PayAI
-set it to `"exact"` so a global query is sold at a flat price. See
+The default `pricing.global.scheme` is `"upto"`. PayAI implements `exact` (Base, Solana, …) and the
+`bazaar` discovery extension, but **not** `upto`; PayAI specifically needs `"exact"` so a global
+query is sold at a flat price. See
 [x402-discovery.md](x402-discovery.md) for how the endpoint gets catalogued.
 
 Startup fails with the names of any missing variable and never prints values.

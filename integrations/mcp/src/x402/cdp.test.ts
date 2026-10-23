@@ -74,4 +74,46 @@ describe('Coinbase CDP facilitator', () => {
     expect(errorMessage).not.toContain(credentials.apiKeySecret);
     expect(errorMessage).not.toContain(authorization.slice('Bearer '.length));
   });
+
+  test('returns shaped invalid verify responses from HTTP 400', async () => {
+    const client = createCdpFacilitatorClient({
+      ...makeEd25519Credentials(),
+      fetchImpl: async () => new Response(JSON.stringify({ isValid: false, invalidReason: 'invalid_exact_evm_payload_signature' }), { status: 400 }),
+    });
+
+    await expect(client.verify(request)).resolves.toMatchObject({ isValid: false, invalidReason: 'invalid_exact_evm_payload_signature' });
+  });
+
+  test('returns shaped failed settle responses from HTTP 400', async () => {
+    const client = createCdpFacilitatorClient({
+      ...makeEd25519Credentials(),
+      fetchImpl: async () => new Response(JSON.stringify({
+        success: false,
+        errorReason: 'invalid_exact_evm_payload_signature',
+        network: 'eip155:84532',
+        payer: '0xbuyer',
+        errorMessage: 'Signature is invalid.',
+      }), { status: 400 }),
+    });
+
+    await expect(client.settle(request)).resolves.toMatchObject({ success: false, errorReason: 'invalid_exact_evm_payload_signature', network: 'eip155:84532' });
+  });
+
+  test('keeps HTTP 500 errors as FACILITATOR_HTTP', async () => {
+    const client = createCdpFacilitatorClient({
+      ...makeEd25519Credentials(),
+      fetchImpl: async () => new Response('{}', { status: 500 }),
+    });
+
+    await expect(client.verify(request)).rejects.toMatchObject({ code: 'FACILITATOR_HTTP', status: 500 });
+  });
+
+  test('keeps unshaped HTTP 400 verify responses as FACILITATOR_HTTP', async () => {
+    const client = createCdpFacilitatorClient({
+      ...makeEd25519Credentials(),
+      fetchImpl: async () => new Response(JSON.stringify({ success: false, errorReason: 'invalid signature' }), { status: 400 }),
+    });
+
+    await expect(client.verify(request)).rejects.toMatchObject({ code: 'FACILITATOR_HTTP', status: 400 });
+  });
 });

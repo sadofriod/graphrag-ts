@@ -125,19 +125,46 @@ const requestUrl = (baseUrl: string, endpoint: 'verify' | 'settle'): URL => {
   return url;
 };
 
-const parseResponse = async <T>(response: Response, endpoint: string, schema: { parse(value: unknown): T }): Promise<T> => {
-  if (!response.ok) throw new X402FacilitatorError('FACILITATOR_HTTP', `Facilitator returned HTTP ${response.status}.`, response.status);
-  let body: unknown;
+const isPaymentRejection = (endpoint: 'verify' | 'settle', value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null) return false;
+  return endpoint === 'verify'
+    ? 'isValid' in value && value.isValid === false
+    : 'success' in value && value.success === false;
+};
+
+const httpError = (status: number): X402FacilitatorError =>
+  new X402FacilitatorError('FACILITATOR_HTTP', `Facilitator returned HTTP ${status}.`, status);
+
+const readResponseBody = async (response: Response): Promise<unknown> => {
   try {
-    body = await response.json() as unknown;
+    return await response.json() as unknown;
   } catch {
+    if (!response.ok) throw httpError(response.status);
     throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', 'Facilitator returned malformed JSON.');
   }
+};
+
+const normalizeSettleRejection = (body: unknown, endpoint: 'verify' | 'settle', response: Response): unknown => {
+  if (endpoint !== 'settle' || response.ok || !isPaymentRejection(endpoint, body)
+    || typeof body !== 'object' || body === null || 'transaction' in body) return body;
+  return { ...body, transaction: '' };
+};
+
+const parseResponseBody = <T>(body: unknown, response: Response, endpoint: 'verify' | 'settle', schema: { parse(value: unknown): T }): T => {
   try {
     return schema.parse(body);
   } catch {
+    if (!response.ok) throw httpError(response.status);
     throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', `Facilitator returned an invalid ${endpoint} response.`);
   }
+};
+
+const parseResponse = async <T>(response: Response, endpoint: 'verify' | 'settle', schema: { parse(value: unknown): T }): Promise<T> => {
+  if (!response.ok && ![400, 402, 403].includes(response.status)) throw httpError(response.status);
+  const body = normalizeSettleRejection(await readResponseBody(response), endpoint, response);
+  const parsed = parseResponseBody(body, response, endpoint, schema);
+  if (!response.ok && !isPaymentRejection(endpoint, parsed)) throw httpError(response.status);
+  return parsed;
 };
 
 const post = async <T>(
