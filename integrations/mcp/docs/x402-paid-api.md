@@ -180,6 +180,19 @@ answer the buyer did not receive.
   id + request hash, nonce, dataset, scheme, authorized and settled amounts,
   payer, transaction, dataset version, latency and the stored response.
 
+## Receiving wallet
+
+`X402_PAY_TO` must be an address the chosen facilitator can settle to on `X402_NETWORK`:
+
+- `eip155:*` networks: an EVM address (`0x` + 40 hex characters). An empty wallet is fine — the
+  `exact` EVM scheme settles an ERC-3009 `transferWithAuthorization`, so the payer signs and the
+  facilitator pays gas; the recipient needs no balance and no gas.
+- `solana:*` networks: a base58 public key (32 bytes).
+
+Anything else — a Tron `T...` address, a truncated value, a Solana key on an EVM network — is
+rejected at startup with a message naming `X402_PAY_TO`, instead of serving a 402 challenge that no
+client can pay. `X402_ASSET` is checked the same way against the network family.
+
 ## Testnet runbook
 
 1. Create a throwaway EVM wallet for `X402_PAY_TO`; never commit its key, and
