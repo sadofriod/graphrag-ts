@@ -12,6 +12,25 @@ import type { createPaidQueryRoute } from './x402/gateway.ts';
 import { x402Settings } from './x402/settings.ts';
 import { loadDatasetRegistry } from './x402/datasets.ts';
 import { createFacilitatorClient } from './x402/facilitator.ts';
+import { createCdpFacilitatorClient } from './x402/cdp.ts';
+
+const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
+  const hasKeyId = Boolean(config.CDP_API_KEY_ID);
+  const hasKeySecret = Boolean(config.CDP_API_KEY_SECRET);
+  assertCdpCredentialsPaired(config);
+  if (hasKeyId && hasKeySecret && new URL(facilitatorUrl).hostname === 'api.cdp.coinbase.com') {
+    return createCdpFacilitatorClient({ apiKeyId: config.CDP_API_KEY_ID as string, apiKeySecret: config.CDP_API_KEY_SECRET as string, baseUrl: facilitatorUrl });
+  }
+  return createFacilitatorClient({ url: facilitatorUrl });
+};
+
+const assertCdpCredentialsPaired = (config: AppConfig): void => {
+  const hasKeyId = Boolean(config.CDP_API_KEY_ID);
+  const hasKeySecret = Boolean(config.CDP_API_KEY_SECRET);
+  if (hasKeyId !== hasKeySecret) {
+    throw new Error(`Missing required CDP setting: ${hasKeyId ? 'CDP_API_KEY_SECRET' : 'CDP_API_KEY_ID'}.`);
+  }
+};
 
 const isLocalHost = (request: Request): boolean => {
   const host = request.headers.get('host');
@@ -215,6 +234,7 @@ export const startMcpServer = async (
   config: AppConfig,
   logger: Logger,
 ): Promise<() => Promise<void>> => {
+  assertCdpCredentialsPaired(config);
   const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
   if (config.MCP_ACCESS_FILE && config.MCP_TRANSPORT === 'stdio') {
     throw new Error('MCP_ACCESS_FILE requires HTTP transport; stdio cannot authenticate individual callers.');
@@ -235,7 +255,7 @@ export const startMcpServer = async (
         logger,
         registry: await loadDatasetRegistry(config.X402_DATASETS_FILE as string),
         payments: store.paymentStore,
-        facilitator: createFacilitatorClient({ url: settings.facilitatorUrl }),
+         facilitator: paidFacilitator(config, settings.facilitatorUrl),
         limiter: queryLimiter,
         settings,
       })

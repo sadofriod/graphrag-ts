@@ -24,6 +24,8 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   X402_ENABLED: z.preprocess((value) => value === 'true' || value === '1' || value === 'yes', z.boolean()).default(false),
   X402_FACILITATOR_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  CDP_API_KEY_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
+  CDP_API_KEY_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
   X402_NETWORK: z.string().default('eip155:84532'),
   X402_ASSET: z.string().optional(),
   X402_ASSET_NAME: z.string().default('USDC'),
@@ -37,7 +39,8 @@ const environmentSchema = z.object({
 type ParsedConfig = z.infer<typeof environmentSchema>;
 export type AppConfig = Omit<ParsedConfig,
   'X402_ENABLED' | 'X402_FACILITATOR_URL' | 'X402_NETWORK' | 'X402_ASSET' | 'X402_ASSET_NAME'
-  | 'X402_ASSET_VERSION' | 'X402_PAY_TO' | 'X402_MAX_TIMEOUT_SECONDS' | 'X402_DATASETS_FILE' | 'X402_PUBLIC_BASE_URL'> & {
+  | 'X402_ASSET_VERSION' | 'X402_PAY_TO' | 'X402_MAX_TIMEOUT_SECONDS' | 'X402_DATASETS_FILE' | 'X402_PUBLIC_BASE_URL'
+  | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET'> & {
     readonly X402_ENABLED?: boolean | undefined;
     readonly X402_FACILITATOR_URL?: string | undefined;
     readonly X402_NETWORK?: string | undefined;
@@ -48,6 +51,8 @@ export type AppConfig = Omit<ParsedConfig,
     readonly X402_MAX_TIMEOUT_SECONDS?: number | undefined;
     readonly X402_DATASETS_FILE?: string | undefined;
     readonly X402_PUBLIC_BASE_URL?: string | undefined;
+    readonly CDP_API_KEY_ID?: string | undefined;
+    readonly CDP_API_KEY_SECRET?: string | undefined;
   };
 
 export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppConfig => environmentSchema.parse(environment);

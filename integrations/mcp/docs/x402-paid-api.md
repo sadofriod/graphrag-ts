@@ -62,6 +62,16 @@ Startup fails with the names of any missing variable and never prints values.
 `X402_PUBLIC_BASE_URL` matters: without it the challenge advertises whatever
 `Host` / `X-Forwarded-*` headers arrive, which is wrong behind a tunnel.
 
+### Coinbase CDP facilitator
+
+For Coinbase CDP, set `X402_FACILITATOR_URL=https://api.cdp.coinbase.com/platform/v2/x402`
+and provide `CDP_API_KEY_ID` and `CDP_API_KEY_SECRET`. Both credentials are required
+together; requests use a fresh authenticated JWT. The API-key secret is an Ed25519
+private key encoded as base64 by default (ES256 PKCS#8 keys are also supported).
+CDP includes 1,000 free onchain settlements per month, then charges $0.001 per
+settlement. It supports `exact`, `upto`, and batch settlement on EVM, plus Solana
+`exact` and `upto`; every payment is screened for KYT and OFAC compliance.
+
 ### Dataset registry
 
 Prices live per dataset, not in environment variables:
