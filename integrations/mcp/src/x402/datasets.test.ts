@@ -43,10 +43,21 @@ describe('x402 dataset registry', () => {
     expect(parsed.datasets[0]?.pricing).toEqual({
       local: { usd: '$0.02', atomic: '20000' },
       global: {
+        scheme: 'upto',
         upto: { usd: '$0.10', atomic: '100000' },
         base: { usd: '$0.02', atomic: '20000' },
         perMapAnswer: { usd: '$0.01', atomic: '10000' },
       },
     });
+  });
+
+  test('parses exact global scheme and defaults omitted scheme to upto', () => {
+    const exact = parseDatasetRegistry({ datasets: [{
+      ...example.datasets[0]!, pricing: { ...example.datasets[0]!.pricing, global: {
+        ...example.datasets[0]!.pricing.global, scheme: 'exact',
+      } },
+    }] });
+    expect(exact.datasets[0]?.pricing.global.scheme).toBe('exact');
+    expect(parseDatasetRegistry(example).datasets[0]?.pricing.global.scheme).toBe('upto');
   });
 });

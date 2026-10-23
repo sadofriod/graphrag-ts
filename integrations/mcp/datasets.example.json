@@ -13,12 +13,16 @@
       "pricing": {
         "local": "$0.02",
         "global": {
+          "scheme": "exact",
           "upto": "$0.10",
           "base": "$0.02",
           "per_map_answer": "$0.01"
         }
       },
-      "tags": ["graphrag", "security"]
+      "tags": [
+        "graphrag",
+        "security"
+      ]
     }
   ]
 }

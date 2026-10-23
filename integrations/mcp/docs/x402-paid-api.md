@@ -35,18 +35,28 @@ client; only `dataset_id` values in the registry are queryable.
 
 ## Enable it
 
+These settings are optional and deliberately **not** part of the root `.env.example`:
+copy what you need from [`../x402.env.example`](../x402.env.example) into your own deployment
+environment. Compose users need their own override file; the shared `docker-compose.yml` does not
+carry them.
+
 ```sh
 X402_ENABLED=true
-X402_FACILITATOR_URL=https://x402.org/facilitator   # testnet facilitator
-X402_NETWORK=eip155:84532                           # Base Sepolia
-X402_ASSET=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # testnet USDC
+X402_FACILITATOR_URL=https://facilitator.payai.network  # no account needed to start
+X402_NETWORK=eip155:8453                                # Base mainnet; 84532 for Sepolia
+X402_ASSET=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913   # USDC on Base
 X402_ASSET_NAME=USDC
 X402_ASSET_VERSION=2
-X402_PAY_TO=0xYourReceivingWallet
+X402_PAY_TO=<your receiving wallet>
 X402_MAX_TIMEOUT_SECONDS=60
-X402_DATASETS_FILE=/app/datasets.json
-X402_PUBLIC_BASE_URL=https://pay.example.com         # used in resource.url
+X402_DATASETS_FILE=./datasets.json
+X402_PUBLIC_BASE_URL=https://pay.example.com            # used in resource.url and /.well-known/x402
 ```
+
+PayAI implements `exact` (Base, Solana, …) and the `bazaar` discovery extension, but **not**
+`upto`. Keep `pricing.global.scheme: "upto"` only with a facilitator that supports it; with PayAI
+set it to `"exact"` so a global query is sold at a flat price. See
+[x402-discovery.md](x402-discovery.md) for how the endpoint gets catalogued.
 
 Startup fails with the names of any missing variable and never prints values.
 `X402_PUBLIC_BASE_URL` matters: without it the challenge advertises whatever
@@ -68,7 +78,7 @@ Prices live per dataset, not in environment variables:
       "license": { "spdx": "MIT", "url": "https://github.com/sadofriod/graphrag-ts/blob/main/LICENSE" },
       "pricing": {
         "local": "$0.02",
-        "global": { "upto": "$0.10", "base": "$0.02", "per_map_answer": "$0.01" }
+        "global": { "scheme": "exact", "upto": "$0.10", "base": "$0.02", "per_map_answer": "$0.01" }
       },
       "tags": ["graphrag", "security"]
     }
@@ -84,8 +94,10 @@ corpus volume, and this API does not sell indexing yet.
 
 ## The paid exchange
 
-Local retrieval uses the `exact` scheme; global Map-Reduce uses `upto` so the
-buyer authorizes a ceiling and pays for what the run actually used.
+Local retrieval uses the `exact` scheme. Global Map-Reduce can use `upto` (buyer
+authorizes a ceiling and pays for the map answers the run actually used) or `exact` (flat price at
+the ceiling), selected per dataset with `pricing.global.scheme`; `exact` is what a facilitator
+without `upto` — including PayAI — can settle.
 
 ```sh
 # 1. unpaid probe -> 402 + PAYMENT-REQUIRED header

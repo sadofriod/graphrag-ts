@@ -16,7 +16,7 @@ export const parseUsdToAtomic = (value: string): string => {
 
 const priceSchema = z.object({
   local: usdSchema,
-  global: z.object({ upto: usdSchema, base: usdSchema, per_map_answer: usdSchema }).strict(),
+  global: z.object({ scheme: z.enum(['upto', 'exact']).default('upto'), upto: usdSchema, base: usdSchema, per_map_answer: usdSchema }).strict(),
 });
 
 const rawDatasetSchema = z.object({
@@ -40,6 +40,7 @@ export type Dataset = {
   readonly pricing: {
     readonly local: { readonly usd: string; readonly atomic: string };
     readonly global: {
+      readonly scheme: 'upto' | 'exact';
       readonly upto: { readonly usd: string; readonly atomic: string };
       readonly base: { readonly usd: string; readonly atomic: string };
       readonly perMapAnswer: { readonly usd: string; readonly atomic: string };
@@ -84,6 +85,7 @@ export const parseDatasetRegistry = (value: unknown): DatasetRegistry => {
       pricing: {
         local: { usd: dataset.pricing.local, atomic: parseUsdToAtomic(dataset.pricing.local) },
         global: {
+          scheme: dataset.pricing.global.scheme,
           upto: { usd: dataset.pricing.global.upto, atomic: parseUsdToAtomic(dataset.pricing.global.upto) },
           base: { usd: dataset.pricing.global.base, atomic: parseUsdToAtomic(dataset.pricing.global.base) },
           perMapAnswer: { usd: dataset.pricing.global.per_map_answer, atomic: parseUsdToAtomic(dataset.pricing.global.per_map_answer) },

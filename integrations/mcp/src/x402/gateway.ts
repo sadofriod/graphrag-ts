@@ -10,9 +10,10 @@ import { PaymentConflictError, PaymentReplayError, type PaymentRecord, type Paym
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements, type SettleResponse } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { buildChallenge, matchesRequirements, requirementsFor } from './challenge.ts';
-import { corsHeaders, errorResponse, jsonResponse } from './http.ts';
+import { corsHeaders, errorResponse, jsonResponse, publicUrlForPath } from './http.ts';
 import { nonceFromPayload, parsePaymentPayload, parseRequestBody, requestHash, validIdempotencyKey, type QueryInput } from './payload.ts';
 import { paymentBody, responseSettlement, settledResponse } from './response.ts';
+import { bazaarDeclaration } from './bazaar.ts';
 
 type PaidRouteDeps = {
   readonly store: IndexStore;
@@ -38,6 +39,7 @@ const catalog = (registry: DatasetRegistry) => ({ datasets: registry.datasets.ma
   pricing: {
     local: dataset.pricing.local,
     global: {
+      scheme: dataset.pricing.global.scheme,
       upto: dataset.pricing.global.upto,
       base: dataset.pricing.global.base,
       per_map_answer: dataset.pricing.global.perMapAnswer,
@@ -50,6 +52,38 @@ const handleCatalogue = (request: Request, registry: DatasetRegistry): Response 
   if (path !== '/api/v1/datasets' && path !== '/api/v1/pricing') return undefined;
   if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
   return jsonResponse(200, catalog(registry), { 'cache-control': 'public, max-age=60' });
+};
+
+const handleDiscovery = (request: Request, deps: PaidRouteDeps): Response | undefined => {
+  const path = new URL(request.url).pathname;
+  if (path === '/.well-known/x402') return handleManifest(request, deps.settings);
+  if (path !== '/api/v1/discovery') return undefined;
+  if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
+  const items = deps.registry.datasets.map((dataset) => ({
+    resource: publicUrlForPath(request, '/api/v1/query', deps.settings.publicBaseUrl),
+    type: 'http',
+    x402Version: 2,
+    accepts: [requirementsFor(dataset, 'local', deps.settings)],
+    extensions: { bazaar: bazaarDeclaration(dataset, 'local') },
+  }));
+  return jsonResponse(200, { x402Version: 2, items, pagination: { limit: 20, offset: 0, total: items.length } }, { 'cache-control': 'public, max-age=300' });
+};
+
+const handleManifest = (request: Request, settings: X402Settings): Response => {
+  if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
+  return jsonResponse(200, {
+    x402Version: 2,
+    kind: 'resource-server',
+    name: 'graphrag-ts',
+    description: 'Paid GraphRAG queries over curated datasets.',
+    resources: [{
+      url: publicUrlForPath(request, '/api/v1/query', settings.publicBaseUrl),
+      method: 'POST',
+      description: 'Ask questions about a GraphRAG dataset.',
+    }],
+    docs: 'https://github.com/sadofriod/graphrag-ts',
+    attestation: { type: 'none' },
+  }, { 'cache-control': 'public, max-age=300' });
 };
 
 const replayResponse = (record: PaymentRecord): Response => {
@@ -145,6 +179,7 @@ const retrieveAndSettle = async (
 
 const parsePaymentAmount = (dataset: Dataset, mode: 'local' | 'global', mapAnswers: number): string => {
   if (mode === 'local') return dataset.pricing.local.atomic;
+  if (dataset.pricing.global.scheme === 'exact') return dataset.pricing.global.upto.atomic;
   const authorization = BigInt(dataset.pricing.global.upto.atomic);
   const computed = BigInt(dataset.pricing.global.base.atomic) + BigInt(dataset.pricing.global.perMapAnswer.atomic) * BigInt(mapAnswers);
   return (computed < authorization ? computed : authorization).toString();
@@ -256,6 +291,8 @@ export const createPaidQueryRoute = (deps: PaidRouteDeps) => async (request: Req
   }
   const catalogue = handleCatalogue(request, deps.registry);
   if (catalogue) return catalogue;
+  const discovery = handleDiscovery(request, deps);
+  if (discovery) return discovery;
   if (path !== '/api/v1/query') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseRequestBody(request);

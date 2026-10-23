@@ -13,9 +13,13 @@ export const errorResponse = (status: number, error: string, headers: Record<str
   jsonResponse(status, { error }, headers);
 
 export const publicUrl = (request: Request, baseUrl: string | undefined): string => {
+  return publicUrlForPath(request, new URL(request.url).pathname, baseUrl);
+};
+
+export const publicUrlForPath = (request: Request, pathname: string, baseUrl: string | undefined): string => {
   const url = new URL(request.url);
-  if (baseUrl) return `${baseUrl.replace(/\/+$/, '')}${url.pathname}`;
+  if (baseUrl) return `${baseUrl.replace(/\/+$/, '')}${pathname}`;
   const protocol = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim() || url.protocol.replace(/:$/, '');
   const host = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || request.headers.get('host') || url.host;
-  return `${protocol}://${host}${url.pathname}`;
+  return `${protocol}://${host}${pathname}`;
 };

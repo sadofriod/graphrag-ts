@@ -2,6 +2,7 @@ import type { Dataset } from './datasets.ts';
 import { encodePaymentHeader, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { jsonResponse, publicUrl } from './http.ts';
+import { bazaarDeclaration } from './bazaar.ts';
 
 export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
   ? {
@@ -10,24 +11,21 @@ export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', sett
       extra: { name: settings.assetName, version: settings.assetVersion },
     }
   : {
-      scheme: 'upto', network: settings.network, amount: dataset.pricing.global.upto.atomic, asset: settings.asset,
+      scheme: dataset.pricing.global.scheme, network: settings.network, amount: dataset.pricing.global.upto.atomic, asset: settings.asset,
       payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
-      extra: { name: settings.assetName, version: settings.assetVersion, paymentFlow: 'authorization' },
+      extra: dataset.pricing.global.scheme === 'upto'
+        ? { name: settings.assetName, version: settings.assetVersion, paymentFlow: 'authorization' }
+        : { name: settings.assetName, version: settings.assetVersion },
     };
 
-const bazaar = (dataset: Dataset, mode: 'local' | 'global') => ({
-  info: {
-    service: 'graphrag-ts', dataset_id: dataset.id, title: dataset.title, description: dataset.description,
-    mode, tags: dataset.tags,
-  },
-  schema: {
-    type: 'object', required: ['dataset_id', 'query'],
-    properties: {
-      dataset_id: { type: 'string', const: dataset.id }, query: { type: 'string', minLength: 1, maxLength: 4000 },
-      mode: { type: 'string', enum: ['local', 'global'] }, max_results: { type: 'integer', minimum: 1, maximum: 20 },
-    },
-  },
-});
+const asciiMetadata = (value: string, maximumLength: number): boolean =>
+  value.length <= maximumLength && /^[\x20-\x7E]+$/.test(value);
+
+const resourceTags = (dataset: Dataset): string[] => dataset.tags
+  .filter((tag) => asciiMetadata(tag, 32))
+  .slice(0, 5);
+
+const oneLineDescription = (description: string): string => description.replace(/\s+/g, ' ').trim();
 
 export const buildChallenge = (
   request: Request,
@@ -42,13 +40,13 @@ export const buildChallenge = (
     ...(error ? { error } : {}),
     resource: {
       url: publicUrl(request, settings.publicBaseUrl),
-      description: dataset.description,
+      description: oneLineDescription(dataset.description),
       mimeType: 'application/json',
       serviceName: 'graphrag-ts',
-      tags: dataset.tags,
+      tags: resourceTags(dataset),
     },
     accepts: [requirements],
-    extensions: { bazaar: bazaar(dataset, mode) },
+    extensions: { bazaar: bazaarDeclaration(dataset, mode) },
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
 };
