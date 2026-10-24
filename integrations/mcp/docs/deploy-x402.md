@@ -163,8 +163,27 @@ cp .env.bak.<timestamp> .env
 docker-compose -f docker-compose.yml up -d mcp-server   # without the override
 ```
 
-The old image stays on the host, so the container comes back as it was. Nothing in the database
-needs reverting: `008_x402_payments.sql` only adds tables.
+The old image stays on the host, so the container comes back as it was — but **the database does
+not roll back with it.**
+
+`008_x402_payments.sql` only adds tables, so rolling back past it is free. `009` is different: it
+rewrites the payment status vocabulary (`pending` → `authorized`) and replaces the status check
+constraint. A binary built before `009` still inserts `pending`, which the new constraint rejects, so
+every paid request after a rollback fails at the ledger write. If you must go back past `009`, restore
+the old vocabulary first:
+
+```sql
+ALTER TABLE x402_payments DROP CONSTRAINT IF EXISTS x402_payments_status_check;
+UPDATE x402_payments SET status = 'pending' WHERE status = 'authorized';
+ALTER TABLE x402_payments ADD CONSTRAINT x402_payments_status_check
+  CHECK (status IN ('pending', 'settled', 'failed'));
+```
+
+The extra columns and `x402_rejected_attempts` are additive and can stay; the older binary ignores
+them. Roll forward by re-applying `009`'s constraint definition once the new image is back.
+
+Treat the first deploy of a migration that changes a constraint as a point of no easy return and run
+it during a window where a failed payment for a few minutes is acceptable.
 
 ## What "verified" meant
 
