@@ -130,6 +130,16 @@ order, ending in `{ "service": "http_status:404" }`. The DNS record is a proxied
 `CNAME pay -> <tunnel-id>.cfargotunnel.com`. Creating DNS records needs a token with
 **Zone → DNS → Edit**; a tunnel-only token cannot do it.
 
+## Known operational caveat: facilitator addresses rotate
+
+CDP publishes `extra.facilitatorAddress` per network in `/supported`, and the value changes between
+calls (observed three different addresses for Base mainnet within one hour). The service resolves it
+once at startup, so a long-running process can advertise an address the facilitator no longer uses,
+and `upto` payments would then build a Permit2 authorization for a stale facilitator. Until the
+resolver is made refreshable, restart the service (or keep `pricing.global.scheme: "exact"`) when
+selling `upto` for long periods, and re-check `/supported` if `upto` settlements start failing with a
+signature/permit error. `exact` is unaffected: it has no facilitator address in the requirement.
+
 ## 7. Roll back
 
 ```sh
