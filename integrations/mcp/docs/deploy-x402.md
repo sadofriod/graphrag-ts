@@ -117,12 +117,28 @@ facilitator setting is wrong; `docker-compose logs --tail=60 mcp-server` names t
 
 ## 6. DNS and the tunnel
 
-The paid hostname needs a proxied CNAME to the tunnel, and an ingress entry:
+The paid hostname needs a proxied CNAME to the tunnel, and an ingress entry that
+exposes **only the paid paths**. Both hostnames reach the same origin, and the paid
+hostname has no Access gate, so anything else it serves is reachable with nothing
+but a bearer key:
 
-```sh
-# tunnel ingress (API or config file)
-pay.<domain>  -> http://localhost:3000
+```yaml
+ingress:
+  - hostname: <mcp-host>
+    service: http://localhost:3000
+  - hostname: pay.<domain>
+    path: ^/(api/v1/.*|\.well-known/x402)$
+    service: http://localhost:3000
+  - hostname: pay.<domain>
+    service: http_status:404
+  - service: http_status:404
 ```
+
+With that ingress `/mcp`, `/api/workspaces/*` and `/healthz` answer `404` on the
+paid hostname, while `/api/v1/*` and `/.well-known/x402` work — the private
+hostname keeps its Access allowlist and the paid one stays payment-only. Verified
+on this deployment: `pay.../mcp` → 404, `pay.../api/v1/datasets` → 200, the MCP
+hostname unchanged.
 
 With a remotely-managed tunnel the API call is
 `PUT /accounts/<account>/cfd_tunnel/<tunnel-id>/configurations` with the full ingress list kept in

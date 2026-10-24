@@ -171,29 +171,48 @@ signing; the repository does not ship a buyer client.
 | Malformed / oversized header | 400 | none | never echoes the header |
 | Requirements mismatch (wrong amount/asset/payTo/network/scheme) | 402 | none | fresh challenge with `error` |
 | Facilitator says invalid | 402 | none | no retrieval runs; challenge returned for a clean retry |
-| Capacity exhausted (shared with MCP queries) | 503 | none | payment row marked `capacity` |
+| Capacity exhausted (shared with MCP queries) | 503 | none | no facilitator call, no key or nonce claimed |
 | No published snapshot | 503 | none | payment row marked `index_not_ready` |
 | Retrieval timeout (`QUERY_TIMEOUT_MS`) | 504 | none | no settle |
 | Retrieval/upstream failure | 502 | none | no settle, library error text is never returned |
-| Settlement rejected | 402 | none | answer is withheld, failed settlement in `PAYMENT-RESPONSE` |
+| Settlement rejected by the facilitator | 402 | none | answer withheld, failed settlement in `PAYMENT-RESPONSE` |
+| Settlement outcome unknown (facilitator timeout / transport error) | 409 `settlement_unknown` | possibly charged | the answer is persisted; retry the same `PAYMENT-SIGNATURE` |
+| Payment verified, answer still being produced | 409 `in_progress` | none yet | `Retry-After: 2`, then retry the same signature |
+| Same signature, different request body | 409 | none | one paid signature covers exactly one question |
 | Success | 200 | `exact` amount, or `min(upto, base + per_map_answer × map_answers)` | settlement in `PAYMENT-RESPONSE` |
 
 Settlement only happens after the answer was produced. Money never moves for an
 answer the buyer did not receive.
 
+A facilitator timeout is **not** treated as a rejection: the row moves to
+`settlement_unknown`, the generated answer is kept, and the buyer gets 409 rather
+than a silent 502 with nothing to show. `scripts/reconcile-payments.ts` lists
+those rows, retries settlement from the stored payload, or records an
+operator-verified outcome (`--mark-settled`, `--mark-failed`) after checking the
+chain.
+
 ### Idempotency and replay
 
-- `Idempotency-Key` (8–200 chars of `A-Za-z0-9._:-`) is optional. When it is
-  absent the signed authorization nonce is the key, so an agent that retries the
-  same signed payload after a network timeout gets the stored answer back.
-- For `upto`, the replay key is the Permit2 authorization nonce.
+- A replay is identified by the **signed payload**, not by a header and not by the
+  request body: the server stores `sha256(PAYMENT-SIGNATURE)` and serves a stored
+  answer only when that signature matches. Knowing somebody's `Idempotency-Key`
+  and question is not enough to read their answer.
+- `Idempotency-Key` (8–200 chars of `A-Za-z0-9._:-`) is optional and still names
+  the request id. When it is absent the nonce does.
 - A replay of a settled request returns the stored response body and the original
-  settlement, with **no** facilitator call and **no** second charge.
-- Reusing an `Idempotency-Key` with different request content, or replaying a
-  nonce against a different request, is a 409.
-- `x402_payments` (migration `008_x402_payments.sql`) stores payment id, request
-  id + request hash, nonce, dataset, scheme, authorized and settled amounts,
-  payer, transaction, dataset version, latency and the stored response.
+  settlement, with **no** facilitator call and **no** second charge — even if the
+  registry price, asset, network or payee changed in the meantime. The quote at
+  the time of payment is the one that applies.
+- The same signature with a different body, or a second signature against an
+  already-claimed idempotency key or nonce, is a 409.
+- Keys are only claimed **after** the facilitator verified the payment, so an
+  invalid or unsigned attempt cannot squat somebody else's idempotency key; those
+  attempts are recorded in `x402_rejected_attempts` without any unique key.
+- `x402_payments` (migrations `008` + `009_x402_settlement_recovery.sql`) stores
+  payment id, request id + request hash, nonce, dataset, workspace, scheme,
+  authorized and settled amounts, payer, transaction, signature fingerprint,
+  stored payload + requirements, the answer, dataset version, latency, settlement
+  attempts and the stored response.
 
 ## Receiving wallet
 
