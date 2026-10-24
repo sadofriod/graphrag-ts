@@ -22,4 +22,5 @@ model.config.json
 .agents/
 
 # Customer credentials and entitlements
-integrations/mcp/access/*.local.jsonintegrations/mcp/.tmp-*
+integrations/mcp/access/*.local.json
+integrations/mcp/.tmp-*
