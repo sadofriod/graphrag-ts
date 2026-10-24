@@ -20,6 +20,31 @@ describe('facilitator supported kinds', () => {
     expect(response.kinds).toEqual(kinds);
   });
 
+  test('fetches supported kinds over HTTP and rejects malformed bodies and non-2xx status', async () => {
+    const facilitator: FacilitatorClient = {
+      verify: async () => ({ isValid: true }),
+      settle: async () => ({ success: true, transaction: 'tx', network: 'eip155:84532' }),
+    };
+    const good = await fetchSupportedKinds({
+      facilitatorUrl: 'https://facilitator.example/', facilitator,
+      fetchImpl: async (url, init) => {
+        expect(url).toBe('https://facilitator.example/supported');
+        expect(init.method).toBe('GET');
+        return new Response(JSON.stringify({ kinds }));
+      },
+    });
+    expect(good.kinds).toEqual(kinds);
+    await expect(fetchSupportedKinds({ facilitatorUrl: 'https://facilitator.example', facilitator,
+      fetchImpl: async () => new Response('{', { status: 200 }),
+    })).rejects.toThrow('malformed /supported JSON');
+    await expect(fetchSupportedKinds({ facilitatorUrl: 'https://facilitator.example', facilitator,
+      fetchImpl: async () => new Response('{}', { status: 503 }),
+    })).rejects.toThrow('HTTP 503');
+    await expect(fetchSupportedKinds({ facilitatorUrl: 'https://facilitator.example', facilitator,
+      fetchImpl: async () => new Response(JSON.stringify({ kinds: 'not an array' })),
+    })).rejects.toThrow('invalid /supported response');
+  });
+
   test('selects the v2 upto address for the requested network', () => {
     expect(findUptoFacilitatorAddress(kinds, 'eip155:8453')).toBe('0xbase');
     expect(findUptoFacilitatorAddress(kinds, 'eip155:84532')).toBe('0xsepolia');
@@ -28,5 +53,6 @@ describe('facilitator supported kinds', () => {
   test('ignores v1 kinds and returns undefined when absent', () => {
     expect(findUptoFacilitatorAddress([kinds[0]!], 'eip155:84532')).toBeUndefined();
     expect(findUptoFacilitatorAddress(kinds, 'eip155:1')).toBeUndefined();
+    expect(findUptoFacilitatorAddress([{ x402Version: 2, scheme: 'exact', network: 'eip155:84532' }], 'eip155:84532')).toBeUndefined();
   });
 });

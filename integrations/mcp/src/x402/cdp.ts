@@ -97,7 +97,10 @@ export const signCdpJwt = async ({
   readonly now?: number;
   readonly expiresInSeconds?: number;
 }): Promise<string> => {
-  const decoded = Buffer.from(apiKeySecret, 'base64');
+  // A secret is normally base64, but an operator may paste the PKCS#8 PEM itself.
+  const decoded = apiKeySecret.includes('-----BEGIN')
+    ? Buffer.from(apiKeySecret, 'utf8')
+    : Buffer.from(apiKeySecret, 'base64');
   const isEd25519 = decoded.length === 32 || decoded.length === 64;
   const key = isEd25519 ? createEd25519Key(decoded) : createEs256Key(decoded);
   const header: JwtHeader = {

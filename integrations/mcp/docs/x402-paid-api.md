@@ -224,6 +224,24 @@ transition), while `settling` becomes `settlement_unknown` with
   stored payload + requirements, the answer, dataset version, latency, settlement
   attempts and the stored response.
 
+## Running the payment tests
+
+Unit coverage for the ledger runs with the normal suite. The SQL-level suite
+(`src/x402/payments.integration.test.ts`) applies migrations `008` and `009` to a
+throwaway database and exercises the real state machine — settlement, the partial
+fingerprint index, the migrated status constraint and stale-row recovery. It is
+skipped unless `X402_TEST_DATABASE_URL` is set, and it deliberately avoids
+`MCP_TEST_DATABASE_URL`, which points at a fully migrated core schema:
+
+```sh
+docker run -d --rm --name graphrag-itest-db -e POSTGRES_PASSWORD=test \
+  -e POSTGRES_DB=graphrag_test -p 127.0.0.1:55432:5432 pgvector/pgvector:pg16
+X402_TEST_DATABASE_URL=postgresql://postgres:test@127.0.0.1:55432/graphrag_test \
+  bun test src/x402/payments.integration.test.ts
+```
+
+CI runs the same suite against a `pgvector/pgvector:pg16` service container.
+
 ## Receiving wallet
 
 `X402_PAY_TO` must be an address the chosen facilitator can settle to on `X402_NETWORK`:

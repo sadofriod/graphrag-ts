@@ -32,6 +32,23 @@ describe('x402 paid query gateway', () => {
     }
   });
 
+  test('routes only known paths, enforces route methods, and handles OPTIONS only below the API prefix', async () => {
+    const app = setup();
+    expect(await app.route(new Request('https://internal.test/not-found'))).toBeUndefined();
+    const wrongQueryMethod = await app.route(new Request('https://internal.test/api/v1/query', { method: 'GET' }));
+    expect(wrongQueryMethod?.status).toBe(405);
+
+    const optionsApi = await app.route(new Request('https://internal.test/api/v1/unknown', { method: 'OPTIONS' }));
+    expect(optionsApi?.status).toBe(204);
+    const optionsOutsideApi = await app.route(new Request('https://internal.test/other', { method: 'OPTIONS' }));
+    expect(optionsOutsideApi).toBeUndefined();
+
+    expect((await app.route(new Request('https://internal.test/api/v1/datasets', { method: 'POST' })))?.status).toBe(405);
+    expect((await app.route(new Request('https://internal.test/api/v1/pricing', { method: 'POST' })))?.status).toBe(405);
+    expect((await app.route(new Request('https://internal.test/api/v1/discovery', { method: 'POST' })))?.status).toBe(405);
+    expect((await app.route(new Request('https://internal.test/.well-known/x402', { method: 'POST' })))?.status).toBe(405);
+  });
+
   test('includes the facilitator address in global upto requirements', async () => {
     const app = setup();
     const challenge = await app.route(new Request('https://internal.test/api/v1/query', {
