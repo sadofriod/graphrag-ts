@@ -27,6 +27,20 @@ agent / MCP client ──https──> Cloudflare (Access on the private hostname
 - Disable host sleep and enable restart-on-boot for the tunnel and containers,
   otherwise a laptop sleep is an outage your pilot will notice.
 
+## Two MCP hostnames, two levels of friction
+
+A deployment can expose the same MCP service twice:
+
+| Hostname | Gate | Use |
+| --- | --- | --- |
+| `mcp.<domain>` (or any hostname routed straight to the tunnel) | application bearer key only (`WWW-Authenticate: Bearer realm="graphrag"`) | pilot teams: one static token, no OAuth dance |
+| portal hostname (Cloudflare MCP Portal / Access OAuth) | Cloudflare Access + OAuth (`resource_metadata=/…/oauth-protected-resource/mcp`) | clients that already speak the MCP OAuth flow |
+
+The bearer-only hostname is the low-friction path and still enforces workspace scopes, monthly limits
+and expiry from `MCP_ACCESS_FILE`; it is not anonymous. Keep the portal hostname for clients that
+need OAuth, and never put the paid `pay.<domain>` hostname behind Access — the login challenge would
+replace `402 Payment Required`.
+
 ## Issue credentials
 
 ```sh

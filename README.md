@@ -60,6 +60,7 @@ To run the three-question Docker smoke benchmark, use `pnpm benchmark:docker:qui
 - [integrations/mcp/docs/x402-paid-api.md](integrations/mcp/docs/x402-paid-api.md): optional x402 paid query API, dataset bundles
 - [integrations/mcp/docs/hosted-beta.md](integrations/mcp/docs/hosted-beta.md): hosted pilot operations checklist
 - [integrations/mcp/docs/x402-discovery.md](integrations/mcp/docs/x402-discovery.md): how agents discover the paid API (Bazaar, .well-known/x402)
+- [integrations/mcp/docs/deploy-x402.md](integrations/mcp/docs/deploy-x402.md): deploying the paid API on a Docker/Colima host behind Cloudflare Tunnel
 - [CONTRIBUTING.md](CONTRIBUTING.md): contribution guide
 
 ## Contributing
