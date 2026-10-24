@@ -224,6 +224,28 @@ transition), while `settling` becomes `settlement_unknown` with
   stored payload + requirements, the answer, dataset version, latency, settlement
   attempts and the stored response.
 
+## Latency, and why a client needs a generous timeout
+
+Every paid response carries `Server-Timing: app;dur=<ms>`, which is the time spent
+inside the application only. Use it before blaming the API: on this deployment the
+application answered a `402` in **1.6 ms** while the same request through the
+Cloudflare Tunnel took **11–30 s** from a distant vantage point, with no
+correlation to path, hostname, request or response size, or HTTP/2 connection reuse
+(three requests on one connection were 15.6 s, 18.3 s and 11.2 s for a 2.2 KB
+header). The same endpoint answered a malformed body in ~1 s, so the stall is on
+the transport path for full challenge responses, not in the route.
+
+Practical consequences for a buyer:
+
+- Set a client timeout of 60 s. A 10–15 s timeout will abort requests the server
+  then completes, which looks like a failure on both sides.
+- Retry with the **same** `PAYMENT-SIGNATURE`. Replays are idempotent and return
+  the stored answer, so a retry after a transport timeout cannot double-charge.
+- Never re-sign on retry: a fresh signature is a new request id and a second
+  charge.
+- If `server-timing` is small and the wall time is large, the delay is outside the
+  application — check the tunnel and the edge before changing code.
+
 ## Running the payment tests
 
 Unit coverage for the ledger runs with the normal suite. The SQL-level suite

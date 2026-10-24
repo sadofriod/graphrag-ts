@@ -4,6 +4,22 @@ import { decodePaymentHeader, type PaymentPayload, type PaymentRequirements } fr
 import { describe, expect, settings, setup, test } from './testSupport.ts';
 
 describe('x402 paid query gateway', () => {
+  test('reports application time in server-timing on every paid response', async () => {
+    const app = setup();
+    // No PAYMENT-SIGNATURE: the challenge response is what carries the header a
+    // buyer sees before paying.
+    const challenge = await app.route(new Request('https://internal.test/api/v1/query', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataset_id: 'demo', query: 'test' }),
+    }));
+    expect(challenge?.status).toBe(402);
+    expect(challenge?.headers.get('server-timing')).toMatch(/^app;dur=\d+\.\d$/);
+    const preflight = await app.route(new Request('https://internal.test/api/v1/query', { method: 'OPTIONS' }));
+    expect(preflight?.status).toBe(204);
+    expect(preflight?.headers.get('server-timing')).toMatch(/^app;dur=\d+\.\d$/);
+  });
+
   test('returns a v2 payment challenge and free catalogue with CORS', async () => {
     const app = setup();
     const challenge = await app.route(new Request('https://internal.test/api/v1/query', {

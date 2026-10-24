@@ -23,3 +23,11 @@ export const publicUrlForPath = (request: Request, pathname: string, baseUrl: st
   const host = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || request.headers.get('host') || url.host;
   return `${protocol}://${host}${pathname}`;
 };
+
+// Edge latency and application latency are different problems: this header lets a
+// client or an operator see which one they are paying for without docker exec.
+export const withServerTiming = (response: Response, startedAt: number): Response => {
+  const headers = new Headers(response.headers);
+  headers.set('server-timing', `app;dur=${(performance.now() - startedAt).toFixed(1)}`);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+};
