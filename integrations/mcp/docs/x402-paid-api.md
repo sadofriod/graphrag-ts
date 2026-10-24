@@ -191,6 +191,16 @@ those rows, retries settlement from the stored payload, or records an
 operator-verified outcome (`--mark-settled`, `--mark-failed`) after checking the
 chain.
 
+Rows can also get stuck without ever reaching settlement: a process that dies
+between inserting the `authorized` row and starting settlement leaves a payment
+that no code path resolves, and every replay then answers `409 in_progress`. The
+same script covers that: `--list --older-than-minutes 30` prints both
+`settlement_unknown` rows and stale unsettled rows, and `--sweep` resolves them —
+`authorized` becomes `failed` with `abandoned_before_settlement` (provably no
+settlement was attempted, because settlement is always preceded by the `settling`
+transition), while `settling` becomes `settlement_unknown` with
+`stale_settling`, since money may have moved.
+
 ### Idempotency and replay
 
 - A replay is identified by the **signed payload**, not by a header and not by the

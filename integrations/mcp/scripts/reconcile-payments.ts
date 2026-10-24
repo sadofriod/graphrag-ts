@@ -1,13 +1,21 @@
 import { Pool } from 'pg';
 import { createFacilitatorClient } from '../src/x402/facilitator.ts';
+import { createPaymentStore, type PaymentRecord } from '../src/x402/payments.ts';
 import type { PaymentPayload, PaymentRequirements } from '../src/x402/types.ts';
 
-type Args = { action: 'list' | 'retry' | 'mark-settled' | 'mark-failed'; paymentId?: string; tx?: string; reason?: string };
+type Args = { action: 'list' | 'sweep' | 'retry' | 'mark-settled' | 'mark-failed'; paymentId?: string; tx?: string; reason?: string; olderThanMinutes?: number };
 
-const usage = 'Usage: --list | --retry <payment_id> | --mark-settled <payment_id> --tx <hash> | --mark-failed <payment_id> --reason <text>';
+const usage = 'Usage: --list [--older-than-minutes <n>] | --sweep [--older-than-minutes <n>] | --retry <payment_id> | --mark-settled <payment_id> --tx <hash> | --mark-failed <payment_id> --reason <text>';
 
-const parseListArgs = (argv: readonly string[]): Args | undefined =>
-  argv.length === 1 && argv[0] === '--list' ? { action: 'list' } : undefined;
+const parseOlderThan = (argv: readonly string[], action: 'list' | 'sweep'): Args | undefined => {
+  if (argv[0] !== `--${action}`) return undefined;
+  if (argv.length === 1) return { action, olderThanMinutes: 30 };
+  if (argv.length !== 3 || argv[1] !== '--older-than-minutes' || !/^\d+$/.test(argv[2] ?? '')) return undefined;
+  const olderThanMinutes = Number(argv[2]);
+  return Number.isSafeInteger(olderThanMinutes) && olderThanMinutes <= 2_147_483_647
+    ? { action, olderThanMinutes }
+    : undefined;
+};
 
 const parseRetryArgs = (argv: readonly string[]): Args | undefined =>
   argv[0] === '--retry' && argv[1] ? { action: 'retry', paymentId: argv[1] } : undefined;
@@ -23,26 +31,39 @@ const parseFailedArgs = (argv: readonly string[]): Args | undefined => {
 };
 
 const parseArgs = (argv: readonly string[]): Args => {
-  const args = parseListArgs(argv) ?? parseRetryArgs(argv) ?? parseSettledArgs(argv) ?? parseFailedArgs(argv);
+  const args = parseOlderThan(argv, 'list') ?? parseOlderThan(argv, 'sweep') ?? parseRetryArgs(argv) ?? parseSettledArgs(argv) ?? parseFailedArgs(argv);
   if (!args) throw new Error(usage);
   return args;
 };
 
-const listPayments = async (pool: Pool): Promise<void> => {
-  const result = await pool.query<{ id: string; request_id: string; dataset_id: string; amount_authorized: string; age: string; settle_attempts: number }>(
-    `SELECT id, request_id, dataset_id, amount_authorized::text,
-            floor(extract(epoch FROM now() - created_at))::text AS age, settle_attempts
-     FROM x402_payments WHERE status = 'settlement_unknown' ORDER BY created_at`,
-  );
-  for (const row of result.rows) console.log(`${row.id} request=${row.request_id} dataset=${row.dataset_id} amount=${row.amount_authorized} age=${row.age}s attempts=${row.settle_attempts}`);
-  console.log(`Listed ${result.rows.length} unsettled payment(s).`);
+const ageMinutes = (createdAt: Date): number => Math.floor((Date.now() - createdAt.getTime()) / 60_000);
+
+const printPayment = (payment: PaymentRecord): void => {
+  console.log(`${payment.id} request=${payment.requestId} status=${payment.status} dataset=${payment.datasetId} amount=${payment.amountAuthorized} age=${ageMinutes(payment.createdAt)}m attempts=${payment.settleAttempts}`);
+};
+
+const listPayments = async (pool: Pool, olderThanMinutes: number): Promise<void> => {
+  const payments = createPaymentStore(pool);
+  const limit = 200;
+  const [unknown, stale] = await Promise.all([payments.listSettlementUnknown(limit), payments.listStaleUnsettled(olderThanMinutes, limit)]);
+  for (const payment of [...unknown, ...stale]) printPayment(payment);
+  console.log(`Listed ${unknown.length + stale.length} unsettled payment(s) (limit=${limit} per list; results may be truncated).`);
+};
+
+const sweepPayments = async (pool: Pool, olderThanMinutes: number): Promise<void> => {
+  const payments = createPaymentStore(pool);
+  const stale = await payments.listStaleUnsettled(olderThanMinutes);
+  for (const payment of stale) {
+    const outcome = await payments.resolveStale(payment.id);
+    console.log(`${payment.id} request=${payment.requestId} status=${payment.status} dataset=${payment.datasetId} amount=${payment.amountAuthorized} age=${ageMinutes(payment.createdAt)}m attempts=${payment.settleAttempts} outcome=${outcome}`);
+  }
+  console.log(`Swept ${stale.length} stale payment(s).`);
 };
 
 const markSettled = async (pool: Pool, id: string, tx: string | undefined): Promise<void> => {
   const result = await pool.query(
     `UPDATE x402_payments SET status = 'settled', transaction = $2, settled_at = now(), updated_at = now(),
-       answer_json = jsonb_set(COALESCE(answer_json, '{}'::jsonb), '{payment,transaction}', to_jsonb($2::text), true),
-       response_body = jsonb_set(COALESCE(answer_json, '{}'::jsonb), '{payment,transaction}', to_jsonb($2::text), true)
+        response_body = jsonb_set(COALESCE(answer_json, '{}'::jsonb), '{payment,transaction}', to_jsonb($2::text), true)
      WHERE id = $1 AND status IN ('settlement_unknown', 'settling')`, [id, tx],
   );
   if ((result.rowCount ?? 0) === 0) throw new Error(`Unknown payment id: ${id}`);
@@ -97,7 +118,7 @@ const persistRetryResult = async (
     const updatedAnswer = { ...answer, payment: { ...bodyPayment, transaction: settlement.transaction } };
     await pool.query(
       `UPDATE x402_payments SET status = 'settled', transaction = $2, payer = COALESCE($3, payer),
-         amount_settled = COALESCE($4, amount_authorized), response_body = $5::jsonb, answer_json = $5::jsonb,
+          amount_settled = COALESCE($4, amount_authorized), response_body = $5::jsonb,
          settled_at = now(), settlement_error = NULL, updated_at = now() WHERE id = $1 AND status = 'settling'`,
       [id, settlement.transaction, settlement.payer ?? null, settlement.amount ?? null, JSON.stringify(updatedAnswer)],
     );
@@ -108,7 +129,8 @@ const persistRetryResult = async (
 };
 
 const dispatch = async (pool: Pool, args: Args): Promise<void> => {
-  if (args.action === 'list') return listPayments(pool);
+  if (args.action === 'list') return listPayments(pool, args.olderThanMinutes ?? 30);
+  if (args.action === 'sweep') return sweepPayments(pool, args.olderThanMinutes ?? 30);
   const id = args.paymentId as string;
   if (args.action === 'mark-settled') return markSettled(pool, id, args.tx);
   if (args.action === 'mark-failed') return markFailed(pool, id, args.reason);

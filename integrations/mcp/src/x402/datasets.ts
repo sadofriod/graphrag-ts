@@ -51,6 +51,25 @@ export type Dataset = {
 
 export type DatasetRegistry = { readonly datasets: readonly Dataset[] };
 
+export const toPublicDataset = (dataset: Dataset) => ({
+  id: dataset.id,
+  workspace_id: dataset.workspaceId,
+  title: dataset.title,
+  description: dataset.description,
+  synthetic: dataset.synthetic,
+  license: dataset.license,
+  tags: dataset.tags,
+  pricing: {
+    local: dataset.pricing.local,
+    global: {
+      scheme: dataset.pricing.global.scheme,
+      upto: dataset.pricing.global.upto,
+      base: dataset.pricing.global.base,
+      per_map_answer: dataset.pricing.global.perMapAnswer,
+    },
+  },
+});
+
 export const datasetRegistrySchema = z.object({ datasets: z.array(rawDatasetSchema).min(1) }).strict().superRefine((registry, context) => {
   const ids = new Set<string>();
   const workspaces = new Set<string>();

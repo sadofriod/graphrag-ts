@@ -3,15 +3,16 @@ import { encodePaymentHeader, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { jsonResponse, publicUrl } from './http.ts';
 import { bazaarDeclaration } from './bazaar.ts';
+import { authorizationFor } from './pricing.ts';
 
 export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
   ? {
-      scheme: 'exact', network: settings.network, amount: dataset.pricing.local.atomic, asset: settings.asset,
+      scheme: 'exact', network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
       payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
       extra: { name: settings.assetName, version: settings.assetVersion },
     }
   : {
-      scheme: dataset.pricing.global.scheme, network: settings.network, amount: dataset.pricing.global.upto.atomic, asset: settings.asset,
+      scheme: dataset.pricing.global.scheme, network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
       payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
       extra: dataset.pricing.global.scheme === 'upto'
         ? {

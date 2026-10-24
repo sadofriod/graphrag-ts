@@ -7,6 +7,7 @@ import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
+import { withQuerySlot, type QuerySlot } from '../x402/slot.ts';
 import { AccessError, type AccessGuard } from '../access.ts';
 import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
 import { runSnapshotQuery, QueryServiceError } from '../queryService.ts';
@@ -49,12 +50,6 @@ const queryErrorResponses = {
   QUERY_TIMEOUT: ['QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.'],
 } as const;
 
-const shouldReleaseAfterCompletion = (error: QueryServiceError, release: () => void): boolean => {
-  if (!error.completion) return false;
-  void error.completion.then(release);
-  return true;
-};
-
 const queryFailureResponse = (error: QueryServiceError) => {
   const known = queryErrorResponses[error.code as keyof typeof queryErrorResponses];
   if (known) return toolErrorResult(known[0], known[1]);
@@ -81,10 +76,9 @@ const executeQuery = async (
   mode: 'local' | 'global',
   maxResults: number,
   communityLevel: number | 'leaf' | undefined,
-  releaseQuerySlot: () => void,
+  slot: QuerySlot,
 ) => {
   const operationId = randomUUID();
-  let releaseAfterCompletion = false;
   try {
     const snapshot = await runSnapshotQuery({ store, config, logger }, {
       workspaceId, query, mode, maxResults, ...(communityLevel === undefined ? {} : { communityLevel }), operationId,
@@ -97,10 +91,8 @@ const executeQuery = async (
     }
     return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
   } catch (error) {
-    if (error instanceof QueryServiceError) releaseAfterCompletion = shouldReleaseAfterCompletion(error, releaseQuerySlot);
+    if (error instanceof QueryServiceError && error.completion) slot.releaseAfter(error.completion);
     return handleQueryError(error, logger, mode);
-  } finally {
-    if (!releaseAfterCompletion) releaseQuerySlot();
   }
 };
 
@@ -120,11 +112,11 @@ const createQuerySnapshot = (
     } catch (error) {
       return inputFailure(error, context.logger, 'query_graph');
     }
-    const releaseQuerySlot = queryLimiter.tryAcquire();
-    if (!releaseQuerySlot) {
-      return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
-    }
-    return executeQuery(context, workspaceId, query, mode, maxResults, communityLevel, releaseQuerySlot);
+    return withQuerySlot(
+      queryLimiter,
+      () => toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.'),
+      async (slot) => executeQuery(context, workspaceId, query, mode, maxResults, communityLevel, slot),
+    );
   };
 };
 

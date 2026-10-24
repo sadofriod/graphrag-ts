@@ -22,7 +22,7 @@ const payload = { x402Version: 2 as const, accepted: { scheme: 'exact', network:
 const requirements = { ...payload.accepted, amount: '20000' };
 const input = { id: 'id', requestId: 'request', requestHash: 'hash', nonce: 'nonce', datasetId: 'dataset', workspaceId: 'workspace', mode: 'local' as const, scheme: 'exact' as const, network: 'eip155:84532', asset: 'USDC', amountAuthorized: '20000', payloadFingerprint: 'fingerprint', payload, requirements, payer: 'payer' };
 
-const fakePool = (query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: Row[] }>) =>
+const fakePool = (query: (sql: string, params?: readonly unknown[]) => Promise<{ rows: Row[]; rowCount?: number | null }>) =>
   ({ query }) as never;
 
 describe('x402 payment ledger', () => {
@@ -53,11 +53,13 @@ describe('x402 payment ledger', () => {
     const store = createPaymentStore(fakePool(async (sql, params) => {
       calls.push({ sql, ...(params ? { params } : {}) });
       if (sql.startsWith('UPDATE') && sql.includes("status = 'settled'")) {
-        return { rows: [{ ...row, status: 'settled', amount_settled: '18000', payer: 'payer', transaction: 'tx', settled_at: new Date() }] };
+        return { rows: [{ ...row, status: 'settled', answer_json: { answer: 'without receipt' }, response_body: { answer: 'with receipt' }, amount_settled: '18000', payer: 'payer', transaction: 'tx', settled_at: new Date() }] };
       }
       return { rows: [] };
     }));
-    expect(await store.completePayment('id', { payer: 'payer', transaction: 'tx', amountSettled: '18000', responseBody: {}, datasetVersion: 'v1', latencyMs: 3 })).toMatchObject({ status: 'settled', amountSettled: '18000' });
+    expect(await store.completePayment('id', { payer: 'payer', transaction: 'tx', amountSettled: '18000', responseBody: { answer: 'with receipt' }, datasetVersion: 'v1', latencyMs: 3 }))
+      .toMatchObject({ status: 'settled', amountSettled: '18000', answerBody: { answer: 'without receipt' }, responseBody: { answer: 'with receipt' } });
+    expect(calls[0]?.sql).not.toContain('answer_json =');
     await store.failPayment('id', { errorReason: 'retrieval failed' });
     expect(calls[1]?.sql).toContain("status IN ('authorized', 'settling', 'settlement_unknown')");
   });
@@ -81,9 +83,53 @@ describe('x402 payment ledger', () => {
     const store = createPaymentStore(fakePool(async (sql) => {
       calls++;
       expect(sql).toContain('FILTER (WHERE status');
-      return { rows: [{ settled_count: '2', failed_count: '3', pending_count: '4', settled_amount: '58000' } as unknown as Row] };
+      return { rows: [{ settled_count: '2', failed_count: '3', unsettled_count: '4', settled_amount: '58000' } as unknown as Row] };
     }));
-    expect(await store.metrics()).toEqual({ settledCount: 2, failedCount: 3, pendingCount: 4, settledAmount: '58000' });
+    expect(await store.metrics()).toEqual({ settledCount: 2, failedCount: 3, unsettledCount: 4, settledAmount: '58000' });
     expect(calls).toBe(1);
+  });
+
+  test('resolves stale authorized and settling rows with conditional status updates', async () => {
+    const statusById = new Map([['authorized-id', 'authorized'], ['settling-id', 'settling']]);
+    const calls: { sql: string; params?: readonly unknown[] }[] = [];
+    const pool = fakePool(async (sql, params) => {
+      calls.push({ sql, ...(params ? { params } : {}) });
+      const id = String(params?.[0]);
+      if (sql.startsWith('SELECT')) {
+        const status = statusById.get(id);
+        return { rows: status ? [{ status } as unknown as Row] : [] };
+      }
+      const expected = String(params?.[1]);
+      if (statusById.get(id) !== expected) return { rows: [], rowCount: 0 };
+      statusById.set(id, expected === 'authorized' ? 'failed' : 'settlement_unknown');
+      return { rows: [], rowCount: 1 };
+    });
+    const resolver = createPaymentStore(pool);
+    expect(await resolver.resolveStale('authorized-id')).toBe('abandoned');
+    expect(await resolver.resolveStale('settling-id')).toBe('unknown');
+    expect(calls[1]?.sql).toContain('WHERE id = $1 AND status = $2');
+    expect(calls[1]?.params).toEqual(['authorized-id', 'authorized']);
+    expect(calls[1]?.sql).toContain("error_reason = 'abandoned_before_settlement'");
+    expect(calls[3]?.sql).toContain('WHERE id = $1 AND status = $2');
+    expect(calls[3]?.params).toEqual(['settling-id', 'settling']);
+    expect(calls[3]?.sql).toContain("settlement_error = 'stale_settling'");
+    expect(statusById.get('authorized-id')).toBe('failed');
+    expect(statusById.get('settling-id')).toBe('settlement_unknown');
+  });
+
+  test('lists stale authorized and settling rows using an integer minute interval', async () => {
+    let query = '';
+    let params: readonly unknown[] = [];
+    const store = createPaymentStore(fakePool(async (sql, values) => {
+      query = sql;
+      params = values ?? [];
+      return { rows: [{ ...row, status: 'authorized' }] };
+    }));
+    expect(await store.listStaleUnsettled(30)).toHaveLength(1);
+    expect(query).toContain("status IN ('authorized', 'settling')");
+    expect(query).toContain("updated_at < now() - ($1::int * interval '1 minute')");
+    expect(query).toContain('ORDER BY created_at');
+    expect(query).toContain('LIMIT $2');
+    expect(params).toEqual([30, 200]);
   });
 });

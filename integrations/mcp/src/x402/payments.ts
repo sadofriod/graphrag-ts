@@ -22,8 +22,8 @@ export type PaymentRecord = {
   readonly errorReason: string | null;
   readonly settlementError: string | null;
   readonly settleAttempts: number;
-  readonly responseBody: unknown | null;
-  readonly answerBody: unknown | null;
+  readonly responseBody: unknown;
+  readonly answerBody: unknown;
   readonly payloadFingerprint: string | null;
   readonly payload: PaymentPayload | null;
   readonly requirements: PaymentRequirements | null;
@@ -50,6 +50,7 @@ const mapPayment = (row: PaymentRow): PaymentRecord => ({
   amountAuthorized: String(row.amount_authorized), amountSettled: row.amount_settled === null ? null : String(row.amount_settled),
   payer: row.payer, status: row.status, transaction: row.transaction, errorReason: row.error_reason,
   settlementError: row.settlement_error, settleAttempts: row.settle_attempts, responseBody: row.response_body,
+  // The response_body fallback preserves answer access for rows created before migration 009.
   answerBody: row.answer_json ?? row.response_body, payloadFingerprint: row.payload_fingerprint,
   payload: row.payload_json, requirements: row.requirements_json, datasetVersion: row.dataset_version,
   latencyMs: row.latency_ms, createdAt: row.created_at, updatedAt: row.updated_at, settledAt: row.settled_at,
@@ -141,7 +142,7 @@ const markSettlementUnknown = async (pool: PaymentPool, id: string, error: strin
 const completePayment = async (pool: PaymentPool, id: string, input: CompletePaymentInput): Promise<PaymentRecord> => {
   const result = await pool.query<PaymentRow>(
     `UPDATE x402_payments SET status = 'settled', payer = $2, transaction = $3, amount_settled = $4,
-       response_body = $5::jsonb, answer_json = $5::jsonb, dataset_version = $6,
+        response_body = $5::jsonb, dataset_version = $6,
        latency_ms = $7, settled_at = now(), updated_at = now()
      WHERE id = $1 AND status IN ('settling', 'settlement_unknown') RETURNING *`,
     [id, input.payer, input.transaction, input.amountSettled, JSON.stringify(input.responseBody), input.datasetVersion, input.latencyMs],
@@ -184,9 +185,32 @@ const markFailed = async (pool: PaymentPool, id: string, reason: string): Promis
   return (result.rowCount ?? 0) > 0;
 };
 
-const listSettlementUnknown = async (pool: PaymentPool): Promise<readonly PaymentRecord[]> => {
-  const result = await pool.query<PaymentRow>("SELECT * FROM x402_payments WHERE status = 'settlement_unknown' ORDER BY created_at");
+const listSettlementUnknown = async (pool: PaymentPool, limit = 200): Promise<readonly PaymentRecord[]> => {
+  const result = await pool.query<PaymentRow>("SELECT * FROM x402_payments WHERE status = 'settlement_unknown' ORDER BY created_at LIMIT $1", [limit]);
   return result.rows.map(mapPayment);
+};
+
+const listStaleUnsettled = async (pool: PaymentPool, olderThanMinutes: number, limit = 200): Promise<readonly PaymentRecord[]> => {
+  const result = await pool.query<PaymentRow>(
+    `SELECT * FROM x402_payments
+     WHERE status IN ('authorized', 'settling') AND updated_at < now() - ($1::int * interval '1 minute')
+      ORDER BY created_at LIMIT $2`, [olderThanMinutes, limit],
+  );
+  return result.rows.map(mapPayment);
+};
+
+const resolveStale = async (pool: PaymentPool, id: string): Promise<'abandoned' | 'unknown' | 'skipped'> => {
+  const current = await pool.query<{ status: PaymentStatus }>('SELECT status FROM x402_payments WHERE id = $1', [id]);
+  const status = current.rows[0]?.status;
+  if (status !== 'authorized' && status !== 'settling') return 'skipped';
+  const target = status === 'authorized' ? 'failed' : 'settlement_unknown';
+  const reasonColumn = status === 'authorized' ? "error_reason = 'abandoned_before_settlement'" : "settlement_error = 'stale_settling'";
+  const updated = await pool.query(
+    `UPDATE x402_payments SET status = '${target}', ${reasonColumn}, updated_at = now()
+     WHERE id = $1 AND status = $2`, [id, status],
+  );
+  if ((updated.rowCount ?? 0) === 0) return 'skipped';
+  return status === 'authorized' ? 'abandoned' : 'unknown';
 };
 
 const getPaymentById = async (pool: PaymentPool, id: string): Promise<PaymentRecord | undefined> => {
@@ -194,17 +218,17 @@ const getPaymentById = async (pool: PaymentPool, id: string): Promise<PaymentRec
   return result.rows[0] ? mapPayment(result.rows[0]) : undefined;
 };
 
-const paymentMetrics = async (pool: PaymentPool): Promise<{ settledCount: number; failedCount: number; pendingCount: number; settledAmount: string }> => {
-  const result = await pool.query<{ settled_count: string | number; failed_count: string | number; pending_count: string | number; settled_amount: string | number }>(
+const paymentMetrics = async (pool: PaymentPool): Promise<{ settledCount: number; failedCount: number; unsettledCount: number; settledAmount: string }> => {
+  const result = await pool.query<{ settled_count: string | number; failed_count: string | number; unsettled_count: string | number; settled_amount: string | number }>(
     `SELECT count(*) FILTER (WHERE status = 'settled') AS settled_count,
             count(*) FILTER (WHERE status = 'failed') AS failed_count,
-            count(*) FILTER (WHERE status IN ('authorized', 'settling', 'settlement_unknown')) AS pending_count,
+            count(*) FILTER (WHERE status IN ('authorized', 'settling', 'settlement_unknown')) AS unsettled_count,
             COALESCE(sum(amount_settled) FILTER (WHERE status = 'settled'), 0) AS settled_amount
      FROM x402_payments`,
   );
   const row = result.rows[0];
   if (!row) throw new Error('Payment metrics query returned no row.');
-  return { settledCount: Number(row.settled_count), failedCount: Number(row.failed_count), pendingCount: Number(row.pending_count), settledAmount: String(row.settled_amount) };
+  return { settledCount: Number(row.settled_count), failedCount: Number(row.failed_count), unsettledCount: Number(row.unsettled_count), settledAmount: String(row.settled_amount) };
 };
 
 export const createPaymentStore = (pool: PaymentPool) => ({
@@ -218,9 +242,30 @@ export const createPaymentStore = (pool: PaymentPool) => ({
   retrySettlement: (id: string) => retrySettlement(pool, id),
   markSettled: (id: string, transaction: string) => markSettled(pool, id, transaction),
   markFailed: (id: string, reason: string) => markFailed(pool, id, reason),
-  listSettlementUnknown: () => listSettlementUnknown(pool),
+  listSettlementUnknown: (limit?: number) => listSettlementUnknown(pool, limit),
+  listStaleUnsettled: (olderThanMinutes: number, limit?: number) => listStaleUnsettled(pool, olderThanMinutes, limit),
+  resolveStale: (id: string) => resolveStale(pool, id),
   getPaymentById: (id: string) => getPaymentById(pool, id),
   metrics: () => paymentMetrics(pool),
 });
 
 export type PaymentStore = ReturnType<typeof createPaymentStore>;
+export type PaymentLedger = Pick<PaymentStore,
+  | 'getPaymentByFingerprint'
+  | 'beginPayment'
+  | 'recordRejectedAttempt'
+  | 'beginSettlement'
+  | 'markSettlementUnknown'
+  | 'completePayment'
+  | 'failPayment'
+>;
+export type PaymentAdmin = Pick<PaymentStore,
+  | 'retrySettlement'
+  | 'markSettled'
+  | 'markFailed'
+  | 'listSettlementUnknown'
+  | 'listStaleUnsettled'
+  | 'resolveStale'
+  | 'getPaymentById'
+  | 'metrics'
+>;
