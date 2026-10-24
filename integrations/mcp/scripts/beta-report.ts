@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import { buildBetaReport, formatBetaReportMarkdown, type JobMetricRow, type PaymentMetricRow, type RetrievalMetricRow } from '../src/ops/betaMetrics.ts';
+import { loadDatasetRegistry } from '../src/x402/datasets.ts';
 
 type Args = { days: number; json: boolean; databaseUrl: string | undefined };
 
@@ -35,6 +36,9 @@ const main = async (): Promise<void> => {
   const pool = new Pool({ connectionString: args.databaseUrl });
   try {
     const interval = `${args.days} days`;
+    const registryPath = process.env.X402_DATASETS_FILE;
+    const registry = registryPath === undefined ? undefined : await loadDatasetRegistry(registryPath);
+    const workspaceByDataset = new Map(registry?.datasets.map((dataset) => [dataset.id, dataset.workspaceId]));
     const [retrievalResult, jobResult, paymentResult] = await Promise.all([
       pool.query<RetrievalMetricRow>(
         `SELECT workspace_id, date_trunc('week', created_at)::text AS week,
@@ -58,20 +62,27 @@ const main = async (): Promise<void> => {
          GROUP BY workspace_id, date_trunc('week', created_at)`,
         [interval],
       ),
-      pool.query<PaymentMetricRow>(
-        `SELECT dataset_id AS workspace_id, date_trunc('week', settled_at)::text AS week,
+      pool.query<Omit<PaymentMetricRow, 'workspace_id'> & { workspace_id: string | null; dataset_id: string }>(
+        `SELECT workspace_id, dataset_id, date_trunc('week', settled_at)::text AS week,
                 count(*) AS settled, sum(amount_settled)::text AS amount_settled
          FROM x402_payments
          WHERE status = 'settled' AND settled_at >= now() - $1::interval
-         GROUP BY dataset_id, date_trunc('week', settled_at)`,
+         GROUP BY workspace_id, dataset_id, date_trunc('week', settled_at)`,
         [interval],
       ),
     ]);
 
+    const payments: PaymentMetricRow[] = paymentResult.rows.map((row) => {
+      const workspaceId = row.workspace_id ?? workspaceByDataset?.get(row.dataset_id);
+      if (workspaceId === undefined) {
+        throw new Error(`Cannot resolve workspace for legacy payment dataset "${row.dataset_id}"; configure X402_DATASETS_FILE.`);
+      }
+      return { ...row, workspace_id: workspaceId };
+    });
     const report = buildBetaReport({
       retrievals: retrievalResult.rows,
       jobs: jobResult.rows,
-      payments: paymentResult.rows,
+      payments,
     });
     console.log(args.json ? JSON.stringify(report, null, 2) : formatBetaReportMarkdown(report));
   } finally {

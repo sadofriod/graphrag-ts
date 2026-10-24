@@ -1,7 +1,7 @@
 export type CredentialLeak = { path: string; line: number; rule: string };
 
 const PEM_PRIVATE_KEY = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/;
-const OPENAI_STYLE_KEY = /\bsk-[A-Za-z0-9]{20,}/;
+const OPENAI_STYLE_KEY = /\bsk-[A-Za-z0-9_-]{20,}/;
 const BEARER_TOKEN = /\bBearer [A-Za-z0-9._-]{24,}/;
 const WALLET_PRIVATE_KEY = /\b(?:0x)?[0-9a-fA-F]{64}\b/;
 const PLACEHOLDER_LINE = /(?:\$\{[^}]+\}|\b(?:changeme|replace[_ -]?me|placeholder|your[_ -]?(?:key|token|password|secret)|example[_ -]?(?:key|token|password|secret))\b)/i;

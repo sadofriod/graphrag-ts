@@ -8,6 +8,7 @@ import path from 'node:path';
 import { Pool } from 'pg';
 import { buildDatasetBundle, type DatasetBundleInput } from '../src/dataset/bundle.ts';
 import { findDataset, loadDatasetRegistry } from '../src/x402/datasets.ts';
+import { createStore } from '../src/store.ts';
 import { workspaceIdSchema } from '../src/workspace.ts';
 
 type Arguments = {
@@ -101,19 +102,43 @@ const assertPathSegment = (value: string, label: string): void => {
   }
 };
 
-const loadExportSettings = async (args: Arguments) => {
+const requireDatabaseUrl = (): string => {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required to export a dataset.');
+  return databaseUrl;
+};
+
+const loadRegistryDataset = async (args: Arguments) => {
   const registryPath = args.datasetFile ?? process.env.X402_DATASETS_FILE;
   const registry = registryPath === undefined ? undefined : await loadDatasetRegistry(registryPath);
   const registryDataset = registry === undefined ? undefined : findDataset(registry, args.dataset);
-  const licenseText = args.licenseText === undefined ? undefined : await readFile(args.licenseText, 'utf8');
-  if (registryDataset === undefined && licenseText === undefined) {
-    throw new Error(`No license is available for dataset "${args.dataset}"; provide a registry entry or --license-text.`);
+  if (registryDataset !== undefined && registryDataset.workspaceId !== args.workspace) {
+    throw new Error(`Dataset "${args.dataset}" belongs to workspace "${registryDataset.workspaceId}", not requested workspace "${args.workspace}".`);
   }
-  const license = registryDataset === undefined
+  return registryDataset;
+};
+
+const loadLicenseText = (args: Arguments): Promise<string | undefined> =>
+  args.licenseText === undefined ? Promise.resolve(undefined) : readFile(args.licenseText, 'utf8');
+
+const prepareLicense = (
+  dataset: string,
+  registryDataset: Awaited<ReturnType<typeof loadDatasetRegistry>>['datasets'][number] | undefined,
+  licenseText: string | undefined,
+) => {
+  if (registryDataset === undefined && licenseText === undefined) {
+    throw new Error(`No license is available for dataset "${dataset}"; provide a registry entry or --license-text.`);
+  }
+  return registryDataset === undefined
     ? { spdx: 'NOASSERTION', url: '', ...(licenseText === undefined ? {} : { text: licenseText }) }
     : { spdx: registryDataset.license.spdx, url: registryDataset.license.url, ...(licenseText === undefined ? {} : { text: licenseText }) };
+};
+
+const loadExportSettings = async (args: Arguments) => {
+  const databaseUrl = requireDatabaseUrl();
+  const registryDataset = await loadRegistryDataset(args);
+  const licenseText = await loadLicenseText(args);
+  const license = prepareLicense(args.dataset, registryDataset, licenseText);
   return { databaseUrl, registryDataset, license };
 };
 
@@ -137,15 +162,8 @@ const loadDatasetInput = async (
   args: Arguments,
   license: DatasetBundleInput['license'],
   registryDataset: Awaited<ReturnType<typeof loadDatasetRegistry>>['datasets'][number] | undefined,
+  version: { id: string; namespace: string },
 ): Promise<{ input: DatasetBundleInput; version: string }> => {
-  const active = await pool.query<{ id: string; namespace: string }>(
-    `SELECT v.id, v.namespace FROM active_index a
-     JOIN index_versions v ON v.id = a.version_id AND v.workspace_id = a.workspace_id
-     WHERE a.workspace_id = $1`,
-    [args.workspace],
-  );
-  const version = active.rows[0];
-  if (!version) throw new Error(`No published snapshot is active for workspace "${args.workspace}".`);
   const [entities, relationships, communities, sources, evalQuestions] = await Promise.all([
     pool.query<{ id: string; name: string; description: string | null }>(
       'SELECT id, name, description FROM rag_entities WHERE namespace = $1 ORDER BY id', [version.namespace],
@@ -192,14 +210,40 @@ const main = async (): Promise<void> => {
   const args = parseArguments(process.argv.slice(2));
   const { databaseUrl, registryDataset, license } = await loadExportSettings(args);
   const pool = new Pool({ connectionString: databaseUrl });
+  const store = createStore(databaseUrl);
+  const leaseDurationMs = 30 * 60 * 1000;
+  let lease: Awaited<ReturnType<typeof store.acquireActiveVersionLease>> = null;
+  let renewal: ReturnType<typeof setInterval> | undefined;
+  let renewalInFlight: Promise<void> | undefined;
+  let renewalError: unknown;
 
   try {
-    const { input, version } = await loadDatasetInput(pool, args, license, registryDataset);
+    lease = await store.acquireActiveVersionLease(args.workspace, leaseDurationMs);
+    if (!lease) throw new Error(`No published snapshot is active for workspace "${args.workspace}".`);
+    renewal = setInterval(() => {
+      if (renewalInFlight !== undefined) return;
+      renewalInFlight = store.renewQueryLease(lease!.leaseId, leaseDurationMs)
+        .catch((error: unknown) => { renewalError = error; })
+        .finally(() => { renewalInFlight = undefined; });
+    }, Math.max(1_000, Math.floor(leaseDurationMs / 3)));
+    const { input, version } = await loadDatasetInput(pool, args, license, registryDataset, lease);
     const bundle = buildDatasetBundle(input);
     const outputDir = await writeBundle(args.out, args.dataset, version, args.dryRun, bundle.files);
+    await renewalInFlight;
+    if (renewalError !== undefined) throw new Error('Could not renew the active snapshot lease during export.', { cause: renewalError });
     printExportResult(args.dataset, version, bundle.manifest.files, bundle.manifest.bundle_sha256, outputDir);
   } finally {
-    await pool.end();
+    if (renewal !== undefined) clearInterval(renewal);
+    await renewalInFlight;
+    try {
+      if (lease !== null) await store.releaseQueryLease(lease.leaseId);
+    } finally {
+      try {
+        await pool.end();
+      } finally {
+        await store.close();
+      }
+    }
   }
 };
 

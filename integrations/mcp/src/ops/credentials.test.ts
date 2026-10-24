@@ -4,14 +4,16 @@ import { findCredentialLeaks, formatLeaks } from './credentials.ts';
 describe('credential leak checks', () => {
   test('detects each configured credential and tracking rule', () => {
     const leaks = findCredentialLeaks([
-      { path: 'key.pem', content: '-----BEGIN PRIVATE KEY-----' },
-      { path: 'client.ts', content: 'const key = "sk-abcdefghijklmnopqrstuvwxyz123456";' },
-      { path: 'auth.ts', content: 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456' },
+      { path: 'key.pem', content: ['-----BE', 'GIN PRIVATE KEY-----', '\n', '-----EN', 'D PRIVATE KEY-----'].join('') },
+      { path: 'client.ts', content: `const key = "${['sk-', 'a'.repeat(32)].join('')}";` },
+      { path: 'auth.ts', content: `Authorization: ${['Bear', 'er ', 'a'.repeat(32)].join('')}` },
       { path: 'wallet.ts', content: 'WALLET_PRIVATE_KEY=0x' + 'a'.repeat(64) },
       { path: 'config.env', content: 'POSTGRES_PASSWORD=strong-secret-value' },
       { path: '.env.production', content: '' },
       { path: 'integrations/mcp/access/accounts.json', content: '{}' },
       { path: 'config.json', content: `api_key_sha256: "${'b'.repeat(64)}"` },
+      { path: 'project.ts', content: ['sk-', 'proj-', 'a'.repeat(24)].join('') },
+      { path: 'service.ts', content: ['sk-', 'svcacct-', 'b'.repeat(24)].join('') },
     ]);
     expect(leaks.map(({ rule }) => rule)).toEqual([
       'pem_private_key',
@@ -22,6 +24,8 @@ describe('credential leak checks', () => {
       'tracked_env_file',
       'tracked_access_policy',
       'api_key_hash_literal',
+      'openai_style_key',
+      'openai_style_key',
     ]);
   });
 
