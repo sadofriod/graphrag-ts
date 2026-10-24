@@ -133,6 +133,7 @@ const migrate = async (pool: Pool): Promise<void> => {
     '006_edge_contributions.sql',
     '007_global_query_cache.sql',
     '008_x402_payments.sql',
+    '009_x402_settlement_recovery.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));

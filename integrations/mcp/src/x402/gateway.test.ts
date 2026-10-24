@@ -29,7 +29,8 @@ const registry: DatasetRegistry = { datasets: [{
 const recordBase = (input: Parameters<PaymentStore['beginPayment']>[0]): PaymentRecord => ({
   id: input.id, requestId: input.requestId, requestHash: input.requestHash, nonce: input.nonce, datasetId: input.datasetId,
   mode: input.mode, scheme: input.scheme, network: input.network, asset: input.asset, amountAuthorized: input.amountAuthorized,
-  amountSettled: null, payer: null, status: 'pending', transaction: null, errorReason: null, responseBody: null,
+  amountSettled: null, payer: null, status: 'authorized', transaction: null, errorReason: null, settlementError: null, settleAttempts: 0,
+  responseBody: null, answerBody: null, payloadFingerprint: null, payload: null, requirements: null, workspaceId: 'workspace-demo',
   datasetVersion: null, latencyMs: null, createdAt: new Date(0), updatedAt: new Date(0), settledAt: null,
 });
 
@@ -39,37 +40,54 @@ const setup = (options: {
   readonly capacity?: boolean;
   readonly completePaymentFails?: boolean;
   readonly globalScheme?: 'upto' | 'exact';
+  readonly settlementThrows?: boolean;
 } = {}) => {
-  const testRegistry: DatasetRegistry = options.globalScheme
+  let testRegistry: DatasetRegistry = options.globalScheme
     ? { datasets: registry.datasets.map((dataset) => ({ ...dataset, pricing: { ...dataset.pricing, global: { ...dataset.pricing.global, scheme: options.globalScheme! } } })) }
     : registry;
   const records = new Map<string, PaymentRecord>();
   const nonceRequests = new Map<string, string>();
+  const fingerprints = new Map<string, string>();
+  const rejected: unknown[] = [];
   let verifyCalls = 0;
+  let valid = options.valid !== false;
   let settleCalls = 0;
   const settledAmounts: string[] = [];
   let executions = 0;
   let failNextSettlement = false;
   const payments = {
     beginPayment: async (input: Parameters<PaymentStore['beginPayment']>[0]) => {
+      const fingerprintId = fingerprints.get(input.payloadFingerprint);
+      if (fingerprintId) return { kind: 'replay' as const, record: [...records.values()].find((item) => item.id === fingerprintId)! };
       const existing = records.get(input.requestId);
-      if (existing) {
-        if (existing.requestHash !== input.requestHash) throw new PaymentConflictError();
-        return { kind: 'replay' as const, record: existing };
-      }
+      if (existing) throw new PaymentConflictError();
       const seen = nonceRequests.get(input.nonce);
       if (seen) throw new PaymentReplayError();
-      const record = recordBase(input);
+      const record = { ...recordBase(input), workspaceId: input.workspaceId, payloadFingerprint: input.payloadFingerprint, payload: input.payload, requirements: input.requirements, payer: input.payer };
       records.set(input.requestId, record);
       nonceRequests.set(input.nonce, input.requestId);
+      fingerprints.set(input.payloadFingerprint, record.id);
       return { kind: 'new' as const, record };
+    },
+    getPaymentByFingerprint: async (fingerprint: string) => {
+      const id = fingerprints.get(fingerprint);
+      return id ? [...records.values()].find((item) => item.id === id) : undefined;
+    },
+    recordRejectedAttempt: async (attempt: unknown) => { rejected.push(attempt); },
+    beginSettlement: async (id: string, answer: unknown) => {
+      const found = [...records.values()].find((item) => item.id === id);
+      if (found) records.set(found.requestId, { ...found, status: 'settling', answerBody: answer });
+    },
+    markSettlementUnknown: async (id: string, message: string) => {
+      const found = [...records.values()].find((item) => item.id === id);
+      if (found) records.set(found.requestId, { ...found, status: 'settlement_unknown', settlementError: message, settleAttempts: found.settleAttempts + 1 });
     },
     completePayment: async (id: string, input: Parameters<PaymentStore['completePayment']>[1]) => {
       if (options.completePaymentFails) throw new Error('ledger unavailable');
       const found = [...records.values()].find((item) => item.id === id);
       if (!found) throw new Error('missing');
       const completed = { ...found, status: 'settled' as const, amountSettled: input.amountSettled, payer: input.payer,
-        transaction: input.transaction, responseBody: input.responseBody, datasetVersion: input.datasetVersion,
+        transaction: input.transaction, responseBody: input.responseBody, answerBody: input.responseBody, datasetVersion: input.datasetVersion,
         latencyMs: input.latencyMs, settledAt: new Date(0) };
       records.set(found.requestId, completed);
       return completed;
@@ -80,12 +98,13 @@ const setup = (options: {
     },
     getPaymentById: async () => undefined,
     metrics: async () => ({ settledCount: 0, failedCount: 0, pendingCount: 0, settledAmount: '0' }),
-  } as PaymentStore;
+  } as unknown as PaymentStore;
   const facilitator: FacilitatorClient = {
-    verify: async () => { verifyCalls++; return options.valid === false ? { isValid: false, invalidReason: 'invalid payment', payer: '0xbuyer' } : { isValid: true, payer: '0xbuyer' }; },
+    verify: async () => { verifyCalls++; return !valid ? { isValid: false, invalidReason: 'invalid payment', payer: '0xbuyer' } : { isValid: true, payer: '0xbuyer' }; },
     settle: async ({ paymentRequirements }) => {
       settleCalls++;
       settledAmounts.push(paymentRequirements.amount);
+      if (options.settlementThrows) throw new Error('transport timeout');
       if (failNextSettlement) return { success: false, transaction: '', network: settings.network, errorReason: 'settlement rejected' };
       return { success: true, transaction: '0xtx', network: settings.network, payer: '0xbuyer' };
     },
@@ -132,6 +151,10 @@ const setup = (options: {
     get settledAmounts() { return settledAmounts; }, get executions() { return executions; },
     get releaseSlot() { return releaseSlot; }, get failNextSettlement() { return failNextSettlement; },
     set failNextSettlement(value: boolean) { failNextSettlement = value; },
+    rejected, set valid(value: boolean) { valid = value; },
+    changePrice() {
+      testRegistry = { datasets: testRegistry.datasets.map((dataset) => ({ ...dataset, pricing: { ...dataset.pricing, local: { usd: '$0.50', atomic: '500000' } } })) };
+    },
   };
 };
 
@@ -244,12 +267,17 @@ describe('x402 paid query gateway', () => {
 
   test('does not execute or settle when facilitator verification fails', async () => {
     const app = setup({ valid: false });
-    const response = await app.request();
+    const signature = app.sign('local', 'nonce-invalid-1');
+    const response = await app.request(undefined, signature, { 'Idempotency-Key': 'free-key-001' });
     expect(response?.status).toBe(402);
     expect(app.executions).toBe(0);
     expect(app.settleCalls).toBe(0);
+    expect(app.records.size).toBe(0);
+    expect(app.rejected).toHaveLength(1);
     expect(await response?.json()).toEqual({ error: 'invalid payment' });
     expect(response?.headers.get('payment-required')).toBeTruthy();
+    app.valid = true;
+    expect((await app.request(undefined, signature, { 'Idempotency-Key': 'free-key-001' }))?.status).toBe(200);
   });
 
   test('settles local queries and reports sources, version, usage and receipt', async () => {
@@ -328,11 +356,60 @@ describe('x402 paid query gateway', () => {
     expect((await app.request({ dataset_id: 'demo', query: 'different' }, signature, { 'Idempotency-Key': 'different-key-01' }))?.status).toBe(409);
   });
 
-  test('marks capacity exhaustion failed and answers 503', async () => {
+  test('replays the stored answer after the dataset quote changes', async () => {
+    const app = setup();
+    const signature = app.sign('local', 'nonce-price-change');
+    const first = await app.request(undefined, signature);
+    const body = await first?.text();
+    app.changePrice();
+    const replay = await app.request(undefined, signature);
+    expect(replay?.status).toBe(200);
+    expect(await replay?.text()).toBe(body);
+    expect(app.verifyCalls).toBe(1);
+    expect(app.settleCalls).toBe(1);
+  });
+
+  test('settlement transport failure preserves answer and replays as unknown', async () => {
+    const app = setup({ settlementThrows: true });
+    const signature = app.sign('local', 'nonce-settlement-unknown');
+    const first = await app.request(undefined, signature);
+    expect(first?.status).toBe(409);
+    expect(await first?.json()).toMatchObject({ status: 'settlement_unknown', recovery: 'retry with the same PAYMENT-SIGNATURE' });
+    const [record] = app.records.values();
+    expect(record).toMatchObject({ status: 'settlement_unknown', settleAttempts: 1, answerBody: { answer: 'local answer' } });
+    const replay = await app.request(undefined, signature);
+    expect(replay?.status).toBe(409);
+    expect(await replay?.json()).toMatchObject({ status: 'settlement_unknown' });
+    expect(app.executions).toBe(1);
+    expect(app.settleCalls).toBe(1);
+  });
+
+  test('same body with a different signature cannot retrieve another buyer answer', async () => {
+    const app = setup();
+    const buyer = await app.request(undefined, app.sign('local', 'nonce-buyer-one'));
+    expect(buyer?.status).toBe(200);
+    app.valid = false;
+    const collision = await app.request(undefined, app.sign('local', 'nonce-buyer-two'));
+    expect(collision?.status).toBe(402);
+    expect(await collision?.text()).not.toContain('local answer');
+  });
+
+  test('concurrent identical signed requests settle only once', async () => {
+    const app = setup();
+    const signature = app.sign('local', 'nonce-concurrent');
+    const [first, second] = await Promise.all([app.request(undefined, signature), app.request(undefined, signature)]);
+    expect([first?.status, second?.status].sort()).toEqual([200, 409]);
+    expect(app.settleCalls).toBe(1);
+  });
+
+  test('answers 503 on capacity exhaustion without verifying or reserving anything', async () => {
     const app = setup({ capacity: true });
     const response = await app.request();
     expect(response?.status).toBe(503);
+    // A saturated server must not call the facilitator, and must not claim the
+    // idempotency key or nonce of a request it is going to refuse.
     expect(app.verifyCalls).toBe(0);
-    expect([...app.records.values()][0]?.errorReason).toBe('capacity');
+    expect(app.settleCalls).toBe(0);
+    expect(app.records.size).toBe(0);
   });
 });

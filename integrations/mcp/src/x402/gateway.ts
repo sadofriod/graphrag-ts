@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { AppConfig } from '../config.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
@@ -91,30 +91,10 @@ const replayResponse = (record: PaymentRecord): Response => {
     return jsonResponse(200, record.responseBody, { 'payment-response': encodePaymentHeader(responseSettlement(record)) });
   }
   if (record.status === 'failed') return errorResponse(402, record.errorReason ?? 'Payment failed.');
-  return errorResponse(409, 'Payment request is still pending.');
-};
-
-const beginRequestPayment = async (
-  deps: PaidRouteDeps,
-  dataset: Dataset,
-  input: QueryInput,
-  requirements: PaymentRequirements,
-  payload: PaymentPayload,
-  requestId: string,
-): Promise<{ record?: PaymentRecord; response?: Response }> => {
-  try {
-    const begun = await deps.payments.beginPayment({
-      id: randomUUID(), requestId, requestHash: requestHash(input), nonce: nonceFromPayload(payload), datasetId: dataset.id,
-      mode: input.mode, scheme: requirements.scheme as 'exact' | 'upto', network: requirements.network,
-      asset: requirements.asset, amountAuthorized: requirements.amount,
-    });
-    if (begun.kind === 'replay') return { response: replayResponse(begun.record) };
-    return { record: begun.record };
-  } catch (error) {
-    if (error instanceof PaymentReplayError || error instanceof PaymentConflictError) return { response: errorResponse(409, error.message) };
-    deps.logger.error('Paid query payment ledger unavailable.', { dataset_id: dataset.id, mode: input.mode, result_code: 'ledger_error' });
-    return { response: errorResponse(503, 'Payment service unavailable.') };
+  if (record.status === 'settlement_unknown') {
+    return jsonResponse(409, { status: 'settlement_unknown', request_id: record.requestId, recovery: 'retry with the same PAYMENT-SIGNATURE' });
   }
+  return jsonResponse(409, { status: 'in_progress' }, { 'retry-after': '2' });
 };
 
 const handleRetrievalFailure = async (
@@ -161,12 +141,18 @@ const retrieveAndSettle = async (
   const mapAnswers = 'selectedMapAnswers' in snapshot.result ? snapshot.result.selectedMapAnswers.length : 0;
   const actualAmount = parsePaymentAmount(dataset, input.mode, mapAnswers);
   const settleRequirements: PaymentRequirements = { ...requirements, amount: actualAmount };
+  const pendingAnswer = paymentBody(dataset, input.mode, snapshot.result, snapshot.version, snapshot.durationMs, {
+    payment_id: record.id, request_id: requestId, scheme: record.scheme, network: record.network,
+    asset: record.asset, amount: actualAmount, payer: payer ?? '', transaction: '',
+    settled_at: new Date((deps.now ?? Date.now)()).toISOString(),
+  });
+  await deps.payments.beginSettlement(record.id, pendingAnswer, settleRequirements);
   let settlement: SettleResponse;
   try {
     settlement = await deps.facilitator.settle({ paymentPayload: payload, paymentRequirements: settleRequirements });
-  } catch {
-    await deps.payments.failPayment(record.id, { errorReason: 'settlement_unavailable', ...(payer ? { payer } : {}) });
-    return errorResponse(502, 'Payment settlement failed.');
+  } catch (error) {
+    await deps.payments.markSettlementUnknown(record.id, error instanceof Error ? error.message : 'Settlement transport failed.');
+    return jsonResponse(409, { status: 'settlement_unknown', request_id: requestId, recovery: 'retry with the same PAYMENT-SIGNATURE' });
   }
   if (!settlement.success) {
     const reason = settlement.errorReason ?? 'Payment settlement failed.';
@@ -230,34 +216,55 @@ const performPaidQuery = async (
   payload: PaymentPayload,
   record: PaymentRecord,
   requestId: string,
+  release: () => void,
+  markReleased: () => void,
 ): Promise<Response> => {
-  const fail = (reason: string, payer?: string): Promise<void> => deps.payments.failPayment(record.id, { errorReason: reason, ...(payer ? { payer } : {}) });
-  const release = deps.limiter.tryAcquire();
-  if (!release) {
-    await fail('capacity');
-    return errorResponse(503, 'The server has reached its active query limit. Try again shortly.');
-  }
   const startedAt = (deps.now ?? Date.now)();
-  let releaseAfterCompletion = false;
+  return retrieveAndSettle(
+    deps, dataset, input, requirements, payload, record, requestId, record.payer ?? undefined, startedAt,
+    release, markReleased,
+  );
+};
+
+const handleRejectedPayment = async (
+  request: Request,
+  dataset: Dataset,
+  input: QueryInput,
+  payload: PaymentPayload,
+  fingerprint: string,
+  requirements: PaymentRequirements,
+  deps: PaidRouteDeps,
+  reason: string,
+  payer: string | undefined,
+): Promise<Response> => {
   try {
-    let verification;
-    try {
-      verification = await deps.facilitator.verify({ paymentPayload: payload, paymentRequirements: requirements });
-    } catch {
-      await fail('verification_unavailable');
-      return errorResponse(502, 'Payment verification failed.');
+    await deps.payments.recordRejectedAttempt({
+      id: randomUUID(), datasetId: dataset.id, mode: input.mode, nonce: nonceFromPayload(payload),
+      payloadHash: fingerprint, ...(payer ? { payer } : {}), reason,
+    });
+  } catch {
+    deps.logger.error('Rejected payment audit write failed.', { dataset_id: dataset.id, mode: input.mode, result_code: 'audit_write_failed' });
+  }
+  return buildChallenge(request, dataset, input.mode, requirements, deps.settings, reason);
+};
+
+const replayResponseForRequest = async (
+  deps: PaidRouteDeps,
+  dataset: Dataset,
+  input: QueryInput,
+  fingerprint: string,
+  bodyHash: string,
+): Promise<Response | undefined> => {
+  try {
+    const replay = await deps.payments.getPaymentByFingerprint(fingerprint);
+    if (!replay) return undefined;
+    if (replay.requestHash !== bodyHash) {
+      return errorResponse(409, 'This payment signature was already used for a different request.');
     }
-    if (!verification.isValid) {
-      const reason = 'Payment is invalid.';
-      await fail(reason, verification.payer);
-      return buildChallenge(request, dataset, input.mode, requirements, deps.settings, verification.invalidReason ?? reason);
-    }
-    return await retrieveAndSettle(
-      deps, dataset, input, requirements, payload, record, requestId, verification.payer, startedAt,
-      release, () => { releaseAfterCompletion = true; },
-    );
-  } finally {
-    if (!releaseAfterCompletion) release();
+    return replayResponse(replay);
+  } catch {
+    deps.logger.error('Paid query payment ledger unavailable.', { dataset_id: dataset.id, mode: input.mode, result_code: 'ledger_error' });
+    return errorResponse(503, 'Payment service unavailable.');
   }
 };
 
@@ -270,13 +277,76 @@ const handlePaidQuery = async (request: Request, input: QueryInput, deps: PaidRo
   const decoded = parsePaymentPayload(signature);
   if (!decoded.payload) return errorResponse(400, decoded.error ?? 'Payment payload is invalid.');
   const payload = decoded.payload;
+  const fingerprint = createHash('sha256').update(signature).digest('hex');
+  const bodyHash = requestHash(input);
+  const replay = await replayResponseForRequest(deps, dataset, input, fingerprint, bodyHash);
+  if (replay) return replay;
   if (!matchesRequirements(payload.accepted, requirements)) return buildChallenge(request, dataset, input.mode, requirements, deps.settings, 'payment requirements do not match');
   const idempotencyKey = request.headers.get('Idempotency-Key');
   if (!validIdempotencyKey(idempotencyKey)) return errorResponse(400, 'Invalid Idempotency-Key.');
   const requestId = idempotencyKey ?? `nonce:${nonceFromPayload(payload)}`;
-  const begun = await beginRequestPayment(deps, dataset, input, requirements, payload, requestId);
-  if (begun.response) return begun.response;
-  return performPaidQuery(deps, request, dataset, input, requirements, payload, begun.record as PaymentRecord, requestId);
+  // Capacity is checked before authentication so a saturated server neither verifies
+  // payments nor claims an idempotency key or nonce it will not honour.
+  const release = deps.limiter.tryAcquire();
+  if (!release) {
+    return errorResponse(503, 'The server has reached its active query limit. Try again shortly.');
+  }
+  let releaseAfterCompletion = false;
+  try {
+    return await authenticatedPaidQuery(
+      deps, request, dataset, input, requirements, payload, fingerprint, bodyHash, requestId, release,
+      () => { releaseAfterCompletion = true; },
+    );
+  } finally {
+    if (!releaseAfterCompletion) release();
+  }
+};
+
+const authenticatedPaidQuery = async (
+  deps: PaidRouteDeps,
+  request: Request,
+  dataset: Dataset,
+  input: QueryInput,
+  requirements: PaymentRequirements,
+  payload: PaymentPayload,
+  fingerprint: string,
+  bodyHash: string,
+  requestId: string,
+  release: () => void,
+  markReleased: () => void,
+): Promise<Response> => {
+  let verification;
+  try {
+    verification = await deps.facilitator.verify({ paymentPayload: payload, paymentRequirements: requirements });
+  } catch {
+    return errorResponse(502, 'Payment verification failed.');
+  }
+  if (!verification.isValid) {
+    const reason = verification.invalidReason ?? 'Payment is invalid.';
+    return handleRejectedPayment(request, dataset, input, payload, fingerprint, requirements, deps, reason, verification.payer);
+  }
+  let begun: Awaited<ReturnType<PaymentStore['beginPayment']>>;
+  try {
+    begun = await deps.payments.beginPayment({
+      id: randomUUID(), requestId, requestHash: bodyHash, nonce: nonceFromPayload(payload), datasetId: dataset.id,
+      workspaceId: dataset.workspaceId, mode: input.mode, scheme: requirements.scheme as 'exact' | 'upto',
+      network: requirements.network, asset: requirements.asset, amountAuthorized: requirements.amount,
+      payloadFingerprint: fingerprint, payload, requirements, payer: verification.payer ?? '',
+    });
+  } catch (error) {
+    if (error instanceof PaymentReplayError || error instanceof PaymentConflictError) return errorResponse(409, error.message);
+    deps.logger.error('Paid query payment ledger unavailable.', { dataset_id: dataset.id, mode: input.mode, result_code: 'ledger_error' });
+    return errorResponse(503, 'Payment service unavailable.');
+  }
+  if (begun.kind === 'replay') {
+    if (begun.record.requestHash !== bodyHash) {
+      return errorResponse(409, 'This payment signature was already used for a different request.');
+    }
+    return replayResponse(begun.record);
+  }
+  return performPaidQuery(
+    deps, request, dataset, input, requirements, payload, begun.record, requestId, release, markReleased,
+  );
 };
 
 export const createPaidQueryRoute = (deps: PaidRouteDeps) => async (request: Request): Promise<Response | undefined> => {
