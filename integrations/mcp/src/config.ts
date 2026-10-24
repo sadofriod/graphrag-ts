@@ -22,8 +22,37 @@ const environmentSchema = z.object({
   MAX_RETAINED_VERSIONS: z.coerce.number().int().min(1).max(100).default(3),
   QUEUE_POLL_MS: z.coerce.number().int().min(100).default(1_000),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  X402_ENABLED: z.preprocess((value) => value === 'true' || value === '1' || value === 'yes', z.boolean()).default(false),
+  X402_FACILITATOR_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  CDP_API_KEY_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
+  CDP_API_KEY_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
+  X402_NETWORK: z.string().default('eip155:84532'),
+  X402_ASSET: z.string().optional(),
+  X402_ASSET_NAME: z.string().default('USDC'),
+  X402_ASSET_VERSION: z.string().default('2'),
+  X402_PAY_TO: z.string().optional(),
+  X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(600).default(60),
+  X402_DATASETS_FILE: z.string().optional(),
+  X402_PUBLIC_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
 });
 
-export type AppConfig = z.infer<typeof environmentSchema>;
+type ParsedConfig = z.infer<typeof environmentSchema>;
+export type AppConfig = Omit<ParsedConfig,
+  'X402_ENABLED' | 'X402_FACILITATOR_URL' | 'X402_NETWORK' | 'X402_ASSET' | 'X402_ASSET_NAME'
+  | 'X402_ASSET_VERSION' | 'X402_PAY_TO' | 'X402_MAX_TIMEOUT_SECONDS' | 'X402_DATASETS_FILE' | 'X402_PUBLIC_BASE_URL'
+  | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET'> & {
+    readonly X402_ENABLED?: boolean | undefined;
+    readonly X402_FACILITATOR_URL?: string | undefined;
+    readonly X402_NETWORK?: string | undefined;
+    readonly X402_ASSET?: string | undefined;
+    readonly X402_ASSET_NAME?: string | undefined;
+    readonly X402_ASSET_VERSION?: string | undefined;
+    readonly X402_PAY_TO?: string | undefined;
+    readonly X402_MAX_TIMEOUT_SECONDS?: number | undefined;
+    readonly X402_DATASETS_FILE?: string | undefined;
+    readonly X402_PUBLIC_BASE_URL?: string | undefined;
+    readonly CDP_API_KEY_ID?: string | undefined;
+    readonly CDP_API_KEY_SECRET?: string | undefined;
+  };
 
 export const loadConfig = (environment: NodeJS.ProcessEnv = process.env): AppConfig => environmentSchema.parse(environment);
