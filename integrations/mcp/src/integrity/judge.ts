@@ -31,6 +31,14 @@ const rootData = (path: RetractionPath, statuses: readonly RetractionRecord[]): 
   };
 };
 
+const targetRoot = (paper: PaperRecord, statuses: readonly RetractionRecord[]): RootData => ({
+  path: { paper, edges: [], depth: 0, retractions: statuses },
+  statuses,
+  allStatuses: statuses,
+  acknowledged: false,
+  rootContext: { context_class: 'unknown', snippet: null, tier: null, uri: null },
+});
+
 const rootsFor = async (store: IntegrityStore, paths: readonly RetractionPath[]): Promise<RootData[]> => {
   const ids = paths.map((path) => path.paper?.paper_id).filter((id): id is string => id !== undefined);
   const statuses = await store.retractionStatuses(ids);
@@ -77,7 +85,7 @@ const collectConflicts = (roots: readonly RootData[], ratio: number, targetId: s
 };
 
 const confidenceFor = (roots: readonly RootData[], ratio: number): number => {
-  const strongest = roots.reduce((best, root) => Math.max(best, evidenceWeight(root.statuses) * (root.path.depth === 1 ? 1 : 0.75)), 0);
+  const strongest = roots.reduce((best, root) => Math.max(best, evidenceWeight(root.statuses) * (root.path.depth <= 1 ? 1 : 0.75)), 0);
   return Math.max(0, Math.min(1, strongest * (0.5 + 0.5 * ratio)));
 };
 
@@ -119,7 +127,9 @@ const tierDistribution = (roots: readonly RootData[]): Readonly<Record<SourceTie
 const explainPayload = (payload: Omit<JudgmentPayload, 'explain'>): string => {
   const roots = payload.retracted_roots.length;
   const codes = payload.conflict_flags.map((flag) => flag.code).sort().join(', ') || 'none';
-  return `${payload.verdict}: ${roots} retracted root(s); reference coverage ${payload.coverage.resolved}/${payload.coverage.references} (${payload.coverage.ratio.toFixed(2)}); confidence ${payload.confidence.toFixed(2)}; conflicts: ${codes}${payload.abstention_reason ? `; abstention: ${payload.abstention_reason}` : ''}.`;
+  const selfRoot = payload.retracted_roots.find((root) => root.depth === 0);
+  const prefix = selfRoot ? `Target is retracted (${selfRoot.agreement}): ` : `${payload.verdict}: `;
+  return `${prefix}${roots} retracted root(s); reference coverage ${payload.coverage.resolved}/${payload.coverage.references} (${payload.coverage.ratio.toFixed(2)}); confidence ${payload.confidence.toFixed(2)}; conflicts: ${codes}${payload.abstention_reason ? `; abstention: ${payload.abstention_reason}` : ''}.`;
 };
 
 const makeJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean): Promise<JudgmentPayload> => {
@@ -134,12 +144,30 @@ const makeJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean
   return buildPresentJudgment(store, ref, audit, snapshot, resolved.paper);
 };
 
+const chooseVerdict = (
+  ownAsserting: readonly RetractionRecord[],
+  selfRoot: RootData | undefined,
+  ancestorRoots: readonly RootData[],
+  coverageRatio: number,
+): { verdict: JudgmentPayload['verdict']; reason: string | null } => {
+  if (ownAsserting.some((status) => status.source_tier === 'A')) return { verdict: 'CONTESTED', reason: null };
+  if (ownAsserting.length > 0 && ownAsserting.every((status) => status.source_tier === 'C')) {
+    return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'single_aggregator_source' };
+  }
+  if (selfRoot) return { verdict: 'CONTESTED', reason: null };
+  return verdictFor(ancestorRoots, coverageRatio);
+};
+
 const buildPresentJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean, snapshot: NonNullable<ResolvedRef['snapshot']>, paper: PaperRecord): Promise<JudgmentPayload> => {
   const coverage = await store.coverage(paper.paper_id);
+  const ownStatuses = await store.retractionStatuses([paper.paper_id]);
+  const ownAsserting = ownStatuses.get(paper.paper_id)?.filter((status) => status.is_retracted) ?? [];
+  const selfRoot = ownAsserting.length > 0 ? targetRoot(paper, ownStatuses.get(paper.paper_id) ?? []) : undefined;
   const paths = await store.pathsToRetracted(paper.paper_id, 2);
-  const roots = await rootsFor(store, paths);
+  const ancestorRoots = await rootsFor(store, paths);
+  const roots = [...(selfRoot ? [selfRoot] : []), ...ancestorRoots];
   const conflicts = await collectJudgmentConflicts(store, paper, roots, coverage.ratio);
-  const decision = verdictFor(roots, coverage.ratio);
+  const decision = chooseVerdict(ownAsserting, selfRoot, ancestorRoots, coverage.ratio);
   const base = {
     snapshot: { id: snapshot.id, built_at: String(snapshot.built_at) }, target: targetShape(paper), verdict: decision.verdict,
     confidence: confidenceFor(roots, coverage.ratio), retracted_roots: roots.map(rootPayload), conflict_flags: conflicts,

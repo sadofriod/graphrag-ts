@@ -18,6 +18,7 @@ export type RequestCounter = {
   onRequest?: () => void | Promise<void>;
 };
 type OpenAlexResponse = { results: OpenAlexWork[]; meta?: { count?: number } };
+export type OpenCitationsCiting = { doi: string | null; openalexId: string | null };
 export type RwInfo = { date: string | null; reason: string | null; nature: string | null };
 
 const retryWait = (attempt: number): number => Math.min(500 * (2 ** (attempt - 1)), 4000);
@@ -79,6 +80,35 @@ const openAlexUrl = (params: Record<string, string>): string => {
   const query = new URLSearchParams({ ...params, ...(apiKey ? { api_key: apiKey } : {}) });
   return `${openAlexBase}?${query.toString()}`;
 };
+
+const openAlexEntityUrl = (path: string, params: Record<string, string>): string => {
+  const query = new URLSearchParams({ ...params, ...(process.env.OPENALEX_API_KEY ? { api_key: process.env.OPENALEX_API_KEY } : {}) });
+  return `https://api.openalex.org/works/${path}?${query.toString()}`;
+};
+
+export const fetchWorkByDoi = (doi: string, counter: RequestCounter): Promise<OpenAlexWork> =>
+  fetchJson(openAlexEntityUrl(`doi:${doi}`, { select: 'id,doi,title,publication_year,cited_by_count,is_retracted,referenced_works,primary_location' }), counter);
+
+export const fetchWorkById = (id: string, counter: RequestCounter): Promise<OpenAlexWork> =>
+  fetchJson(openAlexEntityUrl(id, { select: 'id,doi,title,publication_year,is_retracted' }), counter);
+
+export const fetchCitingDois = async (doi: string, counter: RequestCounter): Promise<OpenCitationsCiting[]> => {
+  const rows = await fetchJson<{ citing?: string }[]>(`https://api.opencitations.net/index/v2/citations/doi:${doi}`, counter);
+  const unique = new Map<string, OpenCitationsCiting>();
+  for (const row of rows) {
+    const parsed = parseCitingIdentity(row.citing ?? '');
+    if (parsed.doi || parsed.openalexId) unique.set(parsed.doi ?? parsed.openalexId ?? '', parsed);
+  }
+  return [...unique.values()];
+};
+
+const parseCitingIdentity = (identity: string): OpenCitationsCiting => {
+  const doi = identity.match(/(?:^|\s)doi:([^\s]+)/i)?.[1] ?? null;
+  const openalex = identity.match(/(?:^|\s)openalex:(?:https?:\/\/openalex\.org\/)?(W\w+)/i)?.[1] ?? null;
+  return { doi: normalizeDoi(doi), openalexId: openalex?.toUpperCase() ?? null };
+};
+
+export const openAlexEntityUri = (id: string): string => `https://openalex.org/${id.replace(/^https?:\/\/openalex\.org\//i, '')}`;
 
 export const findRetractedWorks = (page: number, counter: RequestCounter): Promise<OpenAlexResponse> =>
   fetchJson(openAlexUrl({ filter: 'is_retracted:true', sort: 'cited_by_count:desc', 'per-page': '50', page: String(page), select: 'id,doi,title,publication_year,cited_by_count,is_retracted,referenced_works,primary_location' }), counter);
