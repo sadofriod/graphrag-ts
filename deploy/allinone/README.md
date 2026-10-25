@@ -22,25 +22,20 @@ baked into the image at `/app/datasets.json`, so no datasets mount is needed.
 
 ## Load a snapshot
 
-Mount the snapshot directory into the running container, then run the loader
-from the MCP application directory. For example, recreate the service with a
-read-only bind mount for a local snapshot:
-
-```yaml
-    volumes:
-      - graphrag-pgdata:/var/lib/postgresql/data
-      - ./access:/app/access:ro
-      - /path/to/snapshots:/data/snapshots:ro
-```
-
-Then load the selected snapshot:
+`docker exec` starts a new process that does **not** inherit the
+`DATABASE_URL` the entrypoint exports, so pass it explicitly. Copy the snapshot
+in (or bind-mount it) and run the loader from the application directory:
 
 ```sh
-docker exec <ctr> bun scripts/integrity-load.ts /data/snapshots/<id>
+docker cp /path/to/snapshots/<id> <ctr>:/tmp/snap
+docker exec <ctr> sh -c 'export DATABASE_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@127.0.0.1:5432/$POSTGRES_DB";
+  cd /workspace/integrations/mcp && bun scripts/integrity-load.ts /tmp/snap'
 ```
 
-Replace `<ctr>` with the running container name or ID and `<id>` with the
-snapshot directory name.
+A successful load prints one JSON line
+(`{"snapshot_id":"…","papers":N,"cites":N,"retractions":N,"active":true}`) and
+the new snapshot becomes the active one; earlier snapshots stay on disk and can
+be re-activated by loading them again.
 
 ## Verify
 
@@ -94,3 +89,24 @@ This layout trades isolation for portability: application and database share a
 container lifecycle and failure domain. Keep independent backups and avoid
 using this design where separate service isolation or high availability is
 required.
+
+## Gotchas this layout actually hit (keep these when editing the image)
+
+1. **The npm `bun` package ships `bin/bun.exe`**, not `bin/bun`. A symlink to
+   `…/node_modules/bun/bin/bun` dangles and the container restart-loops with
+   `No such file or directory`.
+2. **Prisma picks its query-engine flavour at generate time.** The build stage
+   (`node:22-bookworm-slim`) reports openssl 1.1 while the runtime stage is
+   Debian 12 with openssl 3.0, so `prisma generate` must run in a build stage
+   that has `openssl` installed — otherwise the container dies with
+   `Prisma Client could not locate the Query Engine for runtime
+   "debian-openssl-3.0.x"`.
+3. **`ensureGraphSchema()` shells out to `./node_modules/.bin/prisma db push`**,
+   which is a node shim. The runtime stage therefore needs a `node` binary in
+   PATH even though the app itself runs on bun; without it the service prints
+   only `GraphRAG MCP service failed to start.` and exits.
+4. **Healthcheck matters here**: because app and database share the container,
+   a schema failure looks like "restarting" rather than "db unreachable". Read
+   `docker logs` (Postgres lines are interleaved with app JSON logs).
+5. Postgres and the app share one network namespace, so the app talks to
+   `127.0.0.1:5432`; never expose 5432 publicly on this layout.
