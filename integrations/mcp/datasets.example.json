@@ -2,6 +2,7 @@
   "datasets": [
     {
       "id": "web3-security",
+      "product": "graph",
       "workspace_id": "web3-security",
       "title": "Synthetic smart-contract security relations",
       "description": "Entity/relationship graph over a synthetic audit corpus, with source excerpts.",
@@ -23,6 +24,28 @@
         "graphrag",
         "security"
       ]
+    },
+    {
+      "id": "retraction-propagation",
+      "product": "judgment",
+      "tool": "retraction_propagation",
+      "title": "Retraction propagation judgment",
+      "description": "Deterministic analysis of retraction propagation through citations.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$0.02" },
+      "tags": ["integrity", "retractions", "academic"]
+    },
+    {
+      "id": "retraction-evidence-audit",
+      "product": "judgment",
+      "tool": "evidence_audit",
+      "title": "Retraction evidence audit",
+      "description": "Full retraction evidence path, source tiers, and deterministic explanation.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$0.10" },
+      "tags": ["integrity", "retractions", "evidence", "academic"]
     }
   ]
 }

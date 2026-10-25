@@ -3,7 +3,7 @@ import { loadConfig } from '../config.ts';
 import { createLogger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
 import { QueryServiceError, type runSnapshotQuery } from '../queryService.ts';
-import type { DatasetRegistry } from './datasets.ts';
+import { isJudgmentDataset, type DatasetRegistry } from './datasets.ts';
 import { createPaidQueryRoute } from './gateway.ts';
 import type { FacilitatorClient } from './facilitator.ts';
 import { PaymentConflictError, PaymentReplayError, type PaymentRecord, type PaymentStore } from './payments.ts';
@@ -20,13 +20,24 @@ export const settings: X402Settings = {
 };
 
 export const registry: DatasetRegistry = { datasets: [{
-  id: 'demo', workspaceId: 'workspace-demo', title: 'Demo dataset', description: 'Synthetic demo.', synthetic: true,
+  product: 'graph', id: 'demo', workspaceId: 'workspace-demo', title: 'Demo dataset', description: 'Synthetic demo.', synthetic: true,
   license: { spdx: 'MIT', url: 'https://example.test/license' }, tags: ['demo'],
   pricing: {
     local: { usd: '$0.02', atomic: '20000' },
     global: { scheme: 'upto', upto: { usd: '$0.10', atomic: '100000' }, base: { usd: '$0.02', atomic: '20000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } },
   },
 }] };
+
+export const judgmentDataset = {
+  product: 'judgment' as const, id: 'retraction-propagation', tool: 'retraction_propagation' as const,
+  title: 'Retraction propagation', description: 'Academic integrity judgment.', synthetic: false,
+  license: { spdx: 'CC0-1.0', url: 'https://example.test/license' }, tags: ['integrity'],
+  pricing: { per_call: { usd: '$0.02', atomic: '20000' } },
+};
+export const auditDataset = {
+  ...judgmentDataset, id: 'retraction-evidence-audit', tool: 'evidence_audit' as const,
+  title: 'Retraction evidence audit', pricing: { per_call: { usd: '$0.10', atomic: '100000' } },
+};
 
 const config = loadConfig({ DATABASE_URL: 'postgresql://localhost/unused', QUERY_TIMEOUT_MS: '1000' });
 const logger = createLogger('error');
@@ -48,6 +59,8 @@ export type SetupOptions = {
   readonly globalScheme?: 'upto' | 'exact';
   readonly settlementThrows?: boolean;
   readonly settlementClaimFails?: boolean;
+  readonly includeJudgment?: boolean;
+  readonly judgeFailure?: boolean;
 };
 
 type LedgerState = {
@@ -149,10 +162,11 @@ type FacilitationState = {
   readonly settledAmounts: string[];
   failNextSettlement: boolean;
   valid: boolean;
+  readonly events: string[];
 };
 
 const createFacilitationState = (options: SetupOptions): FacilitationState => ({
-  verifyCalls: 0, settleCalls: 0, settledAmounts: [], failNextSettlement: false, valid: options.valid !== false,
+  verifyCalls: 0, settleCalls: 0, settledAmounts: [], failNextSettlement: false, valid: options.valid !== false, events: [],
 });
 
 const createFacilitator = (state: FacilitationState, options: SetupOptions): FacilitatorClient => ({
@@ -164,6 +178,7 @@ const createFacilitator = (state: FacilitationState, options: SetupOptions): Fac
   },
   settle: async ({ paymentRequirements }: { paymentRequirements: PaymentRequirements }) => {
     state.settleCalls += 1;
+    state.events.push('settle');
     state.settledAmounts.push(paymentRequirements.amount);
     if (options.settlementThrows) throw new Error('transport timeout');
     if (state.failNextSettlement) {
@@ -191,7 +206,7 @@ const createSigner = (currentRegistry: () => DatasetRegistry) => (
   overrides: Partial<PaymentRequirements> = {},
 ): string => {
   const accepted: PaymentRequirements = {
-    scheme: mode === 'local' ? 'exact' : currentRegistry().datasets[0]?.pricing.global.scheme ?? 'upto',
+    scheme: mode === 'local' ? 'exact' : currentRegistry().datasets.find((dataset) => dataset.product === 'graph')?.pricing.global.scheme ?? 'upto',
     network: settings.network,
     amount: mode === 'local' ? '20000' : '100000', asset: settings.asset, payTo: settings.payTo,
     maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' }, ...overrides,
@@ -203,13 +218,29 @@ const createSigner = (currentRegistry: () => DatasetRegistry) => (
   return encodePaymentHeader(payload);
 };
 
+const registryFor = (options: SetupOptions): DatasetRegistry => ({ datasets: [
+    ...registry.datasets.map((dataset) => !isJudgmentDataset(dataset) && options.globalScheme ? ({
+      ...dataset, pricing: { ...dataset.pricing, global: { ...dataset.pricing.global, scheme: options.globalScheme! } },
+    }) : dataset),
+    ...(options.includeJudgment ? [judgmentDataset, auditDataset] : []),
+  ] });
+
+const fakeJudge = (events: string[], options: SetupOptions) => ({
+  paperStatus: async () => ({ paper: { paper_id: 'W123' }, statuses: [] }),
+  retractionPropagation: async () => {
+    events.push('judge');
+    if (options.judgeFailure) throw new Error('synthetic judge error');
+    return { snapshot: { id: 'snapshot-1', built_at: '2025-01-01' }, verdict: 'SUPPORTED', confidence: 0.8, retracted_roots: [], conflict_flags: [] };
+  },
+  evidenceAudit: async () => {
+    events.push('judge');
+    if (options.judgeFailure) throw new Error('synthetic judge error');
+    return { snapshot: { id: 'snapshot-1', built_at: '2025-01-01' }, verdict: 'SUPPORTED', confidence: 0.8, retracted_roots: [], conflict_flags: [], evidence_path: [] };
+  },
+});
+
 export const setup = (options: SetupOptions = {}) => {
-  let testRegistry: DatasetRegistry = options.globalScheme
-    ? { datasets: registry.datasets.map((dataset) => ({
-        ...dataset,
-        pricing: { ...dataset.pricing, global: { ...dataset.pricing.global, scheme: options.globalScheme! } },
-      })) }
-    : registry;
+  let testRegistry = registryFor(options);
   const ledgerState: LedgerState = {
     records: new Map<string, PaymentRecord>(), nonceRequests: new Map<string, string>(),
     fingerprints: new Map<string, string>(), rejected: [],
@@ -218,6 +249,8 @@ export const setup = (options: SetupOptions = {}) => {
   const facilitation = createFacilitationState(options);
   const facilitator = createFacilitator(facilitation, options);
   const payments = createLedger(ledgerState, options);
+  const events = facilitation.events;
+  const judge = fakeJudge(events, options);
   let releaseSlot: (() => void) | undefined;
   const limiter = options.capacity
     ? { tryAcquire: () => undefined }
@@ -235,6 +268,7 @@ export const setup = (options: SetupOptions = {}) => {
   }) as unknown as typeof runSnapshotQuery;
   const route = createPaidQueryRoute({
     store: leasedStore, config, logger, registry: testRegistry, payments, facilitator, limiter, settings,
+    integrity: {} as never, judge: judge as never,
     now: () => 1_700_000_000_000, runQuery,
   });
   const sign = createSigner(() => testRegistry);
@@ -252,15 +286,16 @@ export const setup = (options: SetupOptions = {}) => {
     get verifyCalls() { return facilitation.verifyCalls; },
     get settleCalls() { return facilitation.settleCalls; },
     get settledAmounts() { return facilitation.settledAmounts; },
+    events,
     get executions() { return counters.executions; },
     get releaseSlot() { return releaseSlot; },
     get failNextSettlement() { return facilitation.failNextSettlement; },
     set failNextSettlement(value: boolean) { facilitation.failNextSettlement = value; },
     set valid(value: boolean) { facilitation.valid = value; },
     changePrice() {
-      testRegistry = { datasets: testRegistry.datasets.map((dataset) => ({
-        ...dataset, pricing: { ...dataset.pricing, local: { usd: '$0.50', atomic: '500000' } },
-      })) };
+      testRegistry = { datasets: testRegistry.datasets.map((dataset) => dataset.product === 'graph'
+        ? { ...dataset, pricing: { ...dataset.pricing, local: { usd: '$0.50', atomic: '500000' } } }
+        : dataset) };
     },
   };
 };

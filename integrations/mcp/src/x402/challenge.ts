@@ -1,11 +1,12 @@
-import type { Dataset } from './datasets.ts';
+import type { GraphDataset } from './datasets.ts';
 import { encodePaymentHeader, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { jsonResponse, publicUrl } from './http.ts';
 import { bazaarDeclaration } from './bazaar.ts';
+import { judgmentBazaarDeclaration } from './bazaar.ts';
 import { authorizationFor } from './pricing.ts';
 
-export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
+export const requirementsFor = (dataset: GraphDataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
   ? {
       scheme: 'exact', network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
       payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
@@ -27,7 +28,7 @@ export const requirementsFor = (dataset: Dataset, mode: 'local' | 'global', sett
 const asciiMetadata = (value: string, maximumLength: number): boolean =>
   value.length <= maximumLength && /^[\x20-\x7E]+$/.test(value);
 
-const resourceTags = (dataset: Dataset): string[] => dataset.tags
+const resourceTags = (dataset: GraphDataset): string[] => dataset.tags
   .filter((tag) => asciiMetadata(tag, 32))
   .slice(0, 5);
 
@@ -35,7 +36,7 @@ const oneLineDescription = (description: string): string => description.replace(
 
 export const buildChallenge = (
   request: Request,
-  dataset: Dataset,
+  dataset: GraphDataset,
   mode: 'local' | 'global',
   requirements: PaymentRequirements,
   settings: X402Settings,
@@ -56,6 +57,24 @@ export const buildChallenge = (
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
 };
+
+export const buildJudgmentChallenge = (
+  request: Request,
+  dataset: import('./datasets.ts').JudgmentDataset,
+  requirements: PaymentRequirements,
+  settings: X402Settings,
+  error?: string,
+): Response => {
+  const required = {
+    x402Version: 2,
+    ...(error ? { error } : {}),
+    resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.description),
+      mimeType: 'application/json', serviceName: 'graphrag-ts', tags: dataset.tags.filter((tag) => asciiMetadata(tag, 32)).slice(0, 5) },
+    accepts: [requirements], extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
+  };
+  return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
+};
+
 
 export const matchesRequirements = (accepted: PaymentRequirements, expected: PaymentRequirements): boolean =>
   accepted.scheme === expected.scheme && accepted.network === expected.network && accepted.asset === expected.asset

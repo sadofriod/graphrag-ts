@@ -82,6 +82,14 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 - `query_graph(workspace_id, query)`: perform local hybrid retrieval against that workspace's latest published snapshot, optionally filtered by `community_level`.
 - `query_graph_global(workspace_id, query, community_level)`: perform corpus-wide Map-Reduce retrieval over terminal community summaries by default. Set `community_level` to a non-negative integer to use exactly that hierarchy level, or `"leaf"` to explicitly select all terminal communities across uneven branches.
 
+## Integrity judgment products
+
+The paid products are `retraction_propagation` ($0.02 per call) and `evidence_audit` ($0.10 per call), available via `POST /api/v1/judge`. Paper status is free via `GET /api/v1/judge/paper?doi=`. MCP clients can use `integrity_paper_status`, `retraction_propagation`, and `integrity_evidence_audit`; each accepts exactly one of `doi` or `paper_id`.
+
+Evidence records use four `source_tier` levels: A is an official notice, B is peer-reviewed citing text, C is an aggregator, and D is unverified/zero-weight evidence. Judgments return one of three verdicts: `CONTESTED`, `SUPPORTED`, or `INSUFFICIENT_EVIDENCE`.
+
+Load a versioned snapshot from the container with `bun scripts/integrity-load.ts <snapshotDir>`. The harvester that builds snapshots lives at `scripts/integrity/harvest.ts`.
+
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
 
 Use the same workspace ID when submitting, polling, and querying:

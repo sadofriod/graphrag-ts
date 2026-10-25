@@ -84,7 +84,9 @@ describe('x402 paid query gateway', () => {
     expect(manifest?.headers.get('cache-control')).toBe('public, max-age=300');
     expect(manifest?.headers.get('content-type')).toContain('application/json');
     expect(manifest?.headers.get('access-control-allow-origin')).toBe('*');
-    expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [{ url: 'https://api.example.test/api/v1/query' }] });
+    expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [
+      { url: 'https://api.example.test/api/v1/query', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge', method: 'POST' },
+    ] });
     const discovery = await app.route(new Request('https://internal.test/api/v1/discovery'));
     expect(discovery?.status).toBe(200);
     expect(await discovery?.json()).toMatchObject({
@@ -92,6 +94,23 @@ describe('x402 paid query gateway', () => {
       items: [{ resource: 'https://api.example.test/api/v1/query', accepts: [{ scheme: 'exact', amount: '20000' }] }],
       pagination: { limit: 20, offset: 0, total: 1 },
     });
+  });
+
+  test('advertises judgment products as paid judge resources', async () => {
+    const app = setup({ includeJudgment: true });
+    const response = await app.route(new Request('https://internal.test/api/v1/discovery'));
+    const body = await response?.json() as { items: { id: string; resource: string; accepts: PaymentRequirements[] }[] };
+    const judgmentItems = body.items.filter((item) => item.resource.endsWith('/api/v1/judge'));
+    expect(judgmentItems).toHaveLength(2);
+    expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000']);
+  });
+
+  test('serves the free paper existence endpoint and validates its required identifier', async () => {
+    const app = setup({ includeJudgment: true });
+    const found = await app.route(new Request('https://internal.test/api/v1/judge/paper?doi=10.1234/example'));
+    expect(found?.status).toBe(200);
+    expect(await found?.json()).toMatchObject({ paper: { paper_id: 'W123' } });
+    expect((await app.route(new Request('https://internal.test/api/v1/judge/paper')))?.status).toBe(400);
   });
 
   test('serves the x402 exchange over real HTTP headers', async () => {

@@ -4,6 +4,7 @@ import { handlePaidQuery } from './paymentFlow.ts';
 import { corsHeaders, errorResponse, withServerTiming } from './http.ts';
 import { handleCatalogue } from './routes/catalogue.ts';
 import { handleDiscovery } from './routes/discovery.ts';
+import { handleIntegrityRoute } from '../integrity/routes.ts';
 
 export type { PaidRouteDeps } from './routeTypes.ts';
 
@@ -27,6 +28,8 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
   if (catalogue) return catalogue;
   const discovery = handleDiscovery(request, deps);
   if (discovery) return discovery;
+  const integrity = await handleIntegrityRoute(request, deps);
+  if (integrity) return integrity;
   if (path !== '/api/v1/query') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseRequestBody(request);

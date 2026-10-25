@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { AppConfig } from './config.ts';
-import { createMcpServer, createQueryLimiter } from './mcp/tools.ts';
+import { createMcpServer, createQueryLimiter, type McpToolOptions } from './mcp/tools.ts';
 import type { Logger } from './log.ts';
 import type { IndexStore } from './store.ts';
 import { authenticate, createAccessGuard, loadAccessPolicy, type AccessAccount, type AccessPolicy } from './access.ts';
@@ -14,6 +14,7 @@ import { loadDatasetRegistry } from './x402/datasets.ts';
 import { createFacilitatorClient } from './x402/facilitator.ts';
 import { createCdpFacilitatorClient } from './x402/cdp.ts';
 import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supported.ts';
+import { createJudge } from './integrity/judge.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -160,13 +161,14 @@ const startSession = async (
   logger: Logger,
   sessions: SessionMap,
   queryLimiter: ReturnType<typeof createQueryLimiter>,
+  mcpTools: McpToolOptions,
   account?: AccessAccount,
 ): Promise<Response> => {
   if (request.method !== 'POST') {
     return httpError(400, 'Initialize an MCP session before sending requests.');
   }
 
-  const server = createMcpServer(store, config, logger, queryLimiter, account ? createAccessGuard(account, store) : undefined);
+  const server = createMcpServer(store, config, logger, queryLimiter, account ? createAccessGuard(account, store) : undefined, mcpTools);
   let newSessionId: string | undefined;
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: randomUUID,
@@ -207,6 +209,7 @@ export const createHttpHandler = (
   policy?: AccessPolicy,
   paidRoute?: ReturnType<typeof createPaidQueryRoute>,
   paidHostname?: string,
+  mcpTools: McpToolOptions = {},
 ) => {
   let pendingSessions = 0;
   return async (request: Request): Promise<Response> => {
@@ -242,11 +245,31 @@ export const createHttpHandler = (
     }
     pendingSessions += 1;
     try {
-      return await startSession(request, store, config, logger, sessions, queryLimiter, account);
+       return await startSession(request, store, config, logger, sessions, queryLimiter, mcpTools, account);
     } finally {
       pendingSessions -= 1;
     }
   };
+};
+
+const createPaidRoute = async (store: IndexStore, config: AppConfig, logger: Logger, limiter: ReturnType<typeof createQueryLimiter>, judge: ReturnType<typeof createJudge>) => {
+  const settings = x402Settings(config);
+  if (!settings) return { settings, route: undefined };
+  const registry = await loadDatasetRegistry(config.X402_DATASETS_FILE as string);
+  const facilitator = paidFacilitator(config, settings.facilitatorUrl);
+  const graphDatasets = registry.datasets.filter((dataset) => dataset.product === 'graph');
+  const usesUpto = graphDatasets.some((dataset) => dataset.pricing.global.scheme === 'upto');
+  const uptoFacilitatorAddress = usesUpto
+    ? findUptoFacilitatorAddress((await fetchSupportedKinds({ facilitatorUrl: settings.facilitatorUrl, facilitator })).kinds, settings.network)
+    : undefined;
+  if (usesUpto && !uptoFacilitatorAddress) {
+    throw new Error(`X402 upto pricing requires a facilitator that advertises extra.facilitatorAddress for ${settings.network}; switch the dataset to pricing.global.scheme "exact" or use a facilitator that supports upto.`);
+  }
+  const route = (await import('./x402/gateway.ts')).createPaidQueryRoute({
+    store, config, logger, registry, payments: store.paymentStore, integrity: store.integrityStore, judge,
+    facilitator, limiter, settings: { ...settings, ...(uptoFacilitatorAddress ? { uptoFacilitatorAddress } : {}) },
+  });
+  return { settings, route };
 };
 
 export const startMcpServer = async (
@@ -256,43 +279,23 @@ export const startMcpServer = async (
 ): Promise<() => Promise<void>> => {
   assertCdpCredentialsPaired(config);
   const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
+  const judge = createJudge(store.integrityStore);
+  const mcpTools: McpToolOptions = { integrity: { store: store.integrityStore, judge } };
   if (config.MCP_ACCESS_FILE && config.MCP_TRANSPORT === 'stdio') {
     throw new Error('MCP_ACCESS_FILE requires HTTP transport; stdio cannot authenticate individual callers.');
   }
   const policy = config.MCP_ACCESS_FILE ? await loadAccessPolicy(config.MCP_ACCESS_FILE) : undefined;
   if (config.MCP_TRANSPORT === 'stdio') {
-    const server = createMcpServer(store, config, logger, queryLimiter);
+    const server = createMcpServer(store, config, logger, queryLimiter, undefined, mcpTools);
     await server.connect(new StdioServerTransport());
     logger.info('MCP server listening on stdio.');
     return async () => server.close();
   }
 
-  const settings = x402Settings(config);
-  let paidRoute: ReturnType<typeof createPaidQueryRoute> | undefined;
-  if (settings) {
-    const registry = await loadDatasetRegistry(config.X402_DATASETS_FILE as string);
-    const facilitator = paidFacilitator(config, settings.facilitatorUrl);
-    const usesUpto = registry.datasets.some((dataset) => dataset.pricing.global.scheme === 'upto');
-    const uptoFacilitatorAddress = usesUpto
-      ? findUptoFacilitatorAddress((await fetchSupportedKinds({ facilitatorUrl: settings.facilitatorUrl, facilitator })).kinds, settings.network)
-      : undefined;
-    if (usesUpto && !uptoFacilitatorAddress) {
-      throw new Error(`X402 upto pricing requires a facilitator that advertises extra.facilitatorAddress for ${settings.network}; switch the dataset to pricing.global.scheme "exact" or use a facilitator that supports upto.`);
-    }
-    paidRoute = (await import('./x402/gateway.ts')).createPaidQueryRoute({
-        store,
-        config,
-        logger,
-        registry,
-        payments: store.paymentStore,
-        facilitator,
-        limiter: queryLimiter,
-        settings: { ...settings, ...(uptoFacilitatorAddress ? { uptoFacilitatorAddress } : {}) },
-      });
-  }
+  const { settings, route: paidRoute } = await createPaidRoute(store, config, logger, queryLimiter, judge);
   const sessions: SessionMap = new Map();
   const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute,
-    settings?.publicBaseUrl ? new URL(settings.publicBaseUrl).hostname : undefined);
+    settings?.publicBaseUrl ? new URL(settings.publicBaseUrl).hostname : undefined, mcpTools);
   const closeIdleSessionsHandle = setInterval(() => {
     void closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
   }, Math.min(config.HTTP_SESSION_IDLE_TIMEOUT_MS, 60_000));

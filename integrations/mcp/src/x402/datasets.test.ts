@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { datasetRegistrySchema, parseDatasetRegistry, parseUsdToAtomic, toPublicDataset } from './datasets.ts';
+import { datasetRegistrySchema, isJudgmentDataset, parseDatasetRegistry, parseUsdToAtomic, toPublicDataset } from './datasets.ts';
 
 const example = {
   datasets: [{
@@ -67,12 +67,15 @@ describe('x402 dataset registry', () => {
         ...example.datasets[0]!.pricing.global, scheme: 'exact',
       } },
     }] });
-    expect(exact.datasets[0]?.pricing.global.scheme).toBe('exact');
-    expect(parseDatasetRegistry(example).datasets[0]?.pricing.global.scheme).toBe('upto');
+    const exactDataset = exact.datasets[0];
+    const defaultDataset = parseDatasetRegistry(example).datasets[0];
+    expect(exactDataset && !isJudgmentDataset(exactDataset) ? exactDataset.pricing.global.scheme : undefined).toBe('exact');
+    expect(defaultDataset && !isJudgmentDataset(defaultDataset) ? defaultDataset.pricing.global.scheme : undefined).toBe('upto');
   });
 
   test('maps internal dataset fields and camel-case pricing into public wire names', () => {
     const parsed = parseDatasetRegistry(example).datasets[0]!;
+    if (isJudgmentDataset(parsed)) throw new Error('Expected a graph dataset.');
     expect(toPublicDataset(parsed)).toEqual({
       id: 'web3-security', workspace_id: 'web3-security', title: 'Synthetic smart-contract security relations',
       description: 'Graph over a synthetic audit corpus.', synthetic: true,
@@ -85,5 +88,19 @@ describe('x402 dataset registry', () => {
         },
       },
     });
+  });
+
+  test('parses judgment products, validates prices and tool, and mixes products', () => {
+    const judgment = { id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation',
+      title: 'Retraction propagation', description: 'Judgment.', synthetic: false,
+      license: { spdx: 'CC0-1.0', url: 'https://example.com/license' }, tags: ['integrity'], pricing: { per_call: '$0.02' } };
+    const parsed = parseDatasetRegistry({ datasets: [...example.datasets, judgment] });
+    const product = parsed.datasets[1]!;
+    expect(isJudgmentDataset(product)).toBe(true);
+    if (!isJudgmentDataset(product)) throw new Error('Expected a judgment dataset.');
+    expect(product.pricing.per_call).toEqual({ usd: '$0.02', atomic: '20000' });
+    expect(toPublicDataset(product)).toMatchObject({ tool: 'retraction_propagation', pricing: { per_call: { atomic: '20000' } } });
+    expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, tool: 'unknown' }] })).toThrow();
+    expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, pricing: { per_call: '$1e-3' } }] })).toThrow('Prices must be non-negative USD amounts');
   });
 });
