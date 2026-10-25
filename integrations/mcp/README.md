@@ -89,7 +89,7 @@ The paid products are `retraction_propagation` ($0.02 per call) and `evidence_au
 Evidence records use four `source_tier` levels: A is an official notice, B is peer-reviewed citing text, C is an aggregator, and D is unverified/zero-weight evidence. Judgments return one of three verdicts: `CONTESTED`, `SUPPORTED`, or `INSUFFICIENT_EVIDENCE`.
 
 `confidence` is confidence in the emitted verdict, with `confidence_basis` identifying `retraction_evidence` or `coverage` as its basis.
-`coverage.indexed` is true only when the target has a non-empty reference list in the snapshot; otherwise its ratio is 0 and it is not treated as audited.
+`coverage.indexed` is true when `references > 0` and `resolved >= 0`; otherwise `ratio` is 0 and no reference audit is claimed.
 When no self-retraction or ancestor root exists and the target references are not indexed, the judgment abstains with `target_references_not_indexed`.
 
 Load a versioned snapshot from the container with `bun scripts/integrity-load.ts <snapshotDir>`. The harvester that builds snapshots lives at `scripts/integrity/harvest.ts`.

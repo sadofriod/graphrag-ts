@@ -42,6 +42,15 @@ describe('integrity storage mappers and snapshot load', () => {
     expect(coverage).toEqual({ references: 0, resolved: 0, ratio: 0, indexed: false });
   });
 
+  test('marks non-empty reference lists as indexed and reports resolved ratio', async () => {
+    const scripted = scriptedPool([], [{
+      match: /jsonb_array_length/,
+      rows: [{ reference_count: 4, resolved: 3 }],
+    }]);
+    const coverage = await createIntegrityStore(scripted.pool).coverage('W1');
+    expect(coverage).toEqual({ references: 4, resolved: 3, ratio: 0.75, indexed: true });
+  });
+
   test('loads rows in a single ordered transaction and activates the snapshot', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'integrity-store-'));
     try {

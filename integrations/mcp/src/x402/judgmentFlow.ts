@@ -98,7 +98,7 @@ const settleJudgment = async (
   record: PaymentRecord, requestId: string, payer: string, judgment: unknown, judgeMs: number,
 ): Promise<Response> => {
   const settledAt = new Date((deps.now ?? Date.now)()).toISOString();
-  const body = { dataset: { id: dataset.id, tool: dataset.tool }, judgment, usage: { judge_ms: judgeMs }, payment: {
+  const body = { dataset: { id: dataset.id, tool: dataset.tool }, judgment, usage: { judge_ms: Math.round(judgeMs) }, payment: {
     payment_id: record.id, request_id: requestId, scheme: record.scheme, network: record.network,
     asset: record.asset, amount: requirements.amount, payer, transaction: '', settled_at: settledAt,
   } };
@@ -122,13 +122,24 @@ const completeJudgment = async (
 ): Promise<Response> => {
   const settledAt = new Date((deps.now ?? Date.now)()).toISOString();
   const body = { ...initial, payment: { ...initial.payment, payer: canonicalPayer(settlement.payer, payer) ?? '', transaction: settlement.transaction, settled_at: settledAt } };
+  const completion = {
+    payer: body.payment.payer, transaction: settlement.transaction, amountSettled: amount,
+    responseBody: body, datasetVersion: (body.judgment as { snapshot?: { id?: string } })?.snapshot?.id ?? 'judgment',
+    latencyMs: Math.max(0, Math.round(Number(body.usage.judge_ms))),
+  };
   try {
-    await deps.payments.completePayment(record.id, {
-      payer: body.payment.payer, transaction: settlement.transaction, amountSettled: amount,
-      responseBody: body, datasetVersion: (body.judgment as { snapshot?: { id?: string } })?.snapshot?.id ?? 'judgment',
-      latencyMs: Math.max(0, Number(body.usage.judge_ms)),
-    });
-  } catch { deps.logger.error('Judgment payment ledger write failed after settlement.', { dataset_id: dataset.id, payment_id: record.id, result_code: 'ledger_write_failed' }); }
+    await deps.payments.completePayment(record.id, completion);
+  } catch {
+    try {
+      await deps.payments.completePayment(record.id, completion);
+    } catch (error) {
+      deps.logger.error('Judgment payment ledger write failed after settlement.', {
+        dataset_id: dataset.id, payment_id: record.id, result_code: 'ledger_write_failed',
+        error_name: error instanceof Error ? error.name : 'UnknownError',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
   return jsonResponse(200, body, { 'payment-response': encodePaymentHeader({ ...settlement, amount }) });
 };
 

@@ -39,6 +39,45 @@ describe('paid integrity judgment route', () => {
     expect(app.settleCalls).toBe(1);
   });
 
+  test('rounds fractional judge latency before returning and writing the ledger', async () => {
+    const app = setup({ includeJudgment: true });
+    const completePayment = app.payments.completePayment.bind(app.payments);
+    let latencyMs = Number.NaN;
+    app.payments.completePayment = async (id, input) => {
+      latencyMs = input.latencyMs;
+      return completePayment(id, input);
+    };
+    const originalNow = performance.now;
+    let time = 0;
+    performance.now = () => (time += 0.6);
+    try {
+      const response = await postJudge(app, judgmentBody, signed(app, 'judge-fractional-01'));
+      expect(response?.status).toBe(200);
+      const body = await response?.json() as { usage: { judge_ms: number } };
+      expect(Number.isSafeInteger(latencyMs)).toBe(true);
+      expect(body.usage.judge_ms).toBe(latencyMs);
+      expect(body.usage.judge_ms).toBe(Math.round(body.usage.judge_ms));
+    } finally {
+      performance.now = originalNow;
+    }
+  });
+
+  test('retries a failed ledger completion once and returns the settled receipt', async () => {
+    const app = setup({ includeJudgment: true });
+    const completePayment = app.payments.completePayment.bind(app.payments);
+    let calls = 0;
+    app.payments.completePayment = async (id, input) => {
+      calls += 1;
+      if (calls === 1) throw new Error('temporary ledger failure');
+      return completePayment(id, input);
+    };
+
+    const response = await postJudge(app, judgmentBody, signed(app, 'judge-ledger-retry-01'));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get('payment-response')).toBeTruthy();
+    expect(calls).toBe(2);
+  });
+
   test('does not settle when judgment fails', async () => {
     const app = setup({ includeJudgment: true, judgeFailure: true });
     const response = await postJudge(app, judgmentBody, signed(app, 'judge-failure-01'));
