@@ -162,6 +162,14 @@ describe('x402 paid query gateway', () => {
     expect((await app.request({ dataset_id: 'demo', query: 'different' }, signature, { 'Idempotency-Key': 'different-key-01' }))?.status).toBe(409);
   });
 
+  test('uses the signed payload fingerprint when no idempotency key is supplied', async () => {
+    const app = setup();
+    const signature = app.sign('local', 'nonce-fingerprint-request-id');
+    expect((await app.request(undefined, signature))?.status).toBe(200);
+    const [payment] = app.records.values();
+    expect(payment?.requestId).toBe(`payment:${createHash('sha256').update(signature).digest('hex')}`);
+  });
+
   test('replays the stored answer after the dataset quote changes', async () => {
     const app = setup();
     const signature = app.sign('local', 'nonce-price-change');

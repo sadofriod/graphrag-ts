@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { PaymentPayload, PaymentRequirements } from './types.ts';
+import { authorizationContractFromPayload } from './payload.ts';
 
 export type PaymentStatus = 'authorized' | 'settling' | 'settled' | 'settlement_unknown' | 'failed';
 
@@ -8,6 +9,7 @@ export type PaymentRecord = {
   readonly requestId: string;
   readonly requestHash: string;
   readonly nonce: string;
+  readonly nonceContract: string;
   readonly datasetId: string;
   readonly workspaceId: string | null;
   readonly mode: 'local' | 'global';
@@ -35,7 +37,7 @@ export type PaymentRecord = {
 };
 
 type PaymentRow = {
-  id: string; request_id: string; request_hash: string; nonce: string; dataset_id: string; workspace_id: string | null;
+  id: string; request_id: string; request_hash: string; nonce: string; nonce_contract: string; nonce_identity: string | null; dataset_id: string; workspace_id: string | null;
   mode: 'local' | 'global'; scheme: 'exact' | 'upto'; network: string; asset: string;
   amount_authorized: string | number; amount_settled: string | number | null; payer: string | null; status: PaymentStatus;
   transaction: string | null; error_reason: string | null; settlement_error: string | null; settle_attempts: number;
@@ -45,7 +47,7 @@ type PaymentRow = {
 };
 
 const mapPayment = (row: PaymentRow): PaymentRecord => ({
-  id: row.id, requestId: row.request_id, requestHash: row.request_hash, nonce: row.nonce, datasetId: row.dataset_id,
+  id: row.id, requestId: row.request_id, requestHash: row.request_hash, nonce: row.nonce, nonceContract: row.nonce_contract, datasetId: row.dataset_id,
   workspaceId: row.workspace_id, mode: row.mode, scheme: row.scheme, network: row.network, asset: row.asset,
   amountAuthorized: String(row.amount_authorized), amountSettled: row.amount_settled === null ? null : String(row.amount_settled),
   payer: row.payer, status: row.status, transaction: row.transaction, errorReason: row.error_reason,
@@ -92,24 +94,32 @@ type RejectedAttemptInput = {
 };
 
 const beginPayment = async (pool: PaymentPool, input: BeginPaymentInput): Promise<{ kind: 'new'; record: PaymentRecord } | { kind: 'replay'; record: PaymentRecord }> => {
+  const payer = input.payer.trim().toLowerCase();
+  const nonceContract = authorizationContractFromPayload(input.payload);
   try {
     const result = await pool.query<PaymentRow>(
       `INSERT INTO x402_payments
-         (id, request_id, request_hash, nonce, dataset_id, workspace_id, mode, scheme, network, asset,
+         (id, request_id, request_hash, nonce, nonce_contract, nonce_identity, dataset_id, workspace_id, mode, scheme, network, asset,
           amount_authorized, payload_fingerprint, payload_json, requirements_json, payer, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, 'authorized')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16::jsonb, $17, 'authorized')
        ON CONFLICT DO NOTHING RETURNING *`,
-      [input.id, input.requestId, input.requestHash, input.nonce, input.datasetId, input.workspaceId, input.mode,
+      [input.id, input.requestId, input.requestHash, input.nonce, nonceContract, input.nonce, input.datasetId, input.workspaceId, input.mode,
         input.scheme, input.network, input.asset, input.amountAuthorized, input.payloadFingerprint,
-        JSON.stringify(input.payload), JSON.stringify(input.requirements), input.payer],
+        JSON.stringify(input.payload), JSON.stringify(input.requirements), payer],
     );
     if (result.rows[0]) return { kind: 'new', record: mapPayment(result.rows[0]) };
     const existing = await loadByFingerprint(pool, input.payloadFingerprint);
     if (existing) return { kind: 'replay', record: existing };
+    const replay = await pool.query<{ readonly id: string }>(
+      `SELECT id FROM x402_payments
+       WHERE network = $1 AND lower(COALESCE(payer, '')) = $2 AND nonce_contract = $3 AND nonce_identity = $4`,
+      [input.network, payer, nonceContract, input.nonce],
+    );
+    if (replay.rows[0]) throw new PaymentReplayError();
     throw new PaymentConflictError();
   } catch (error) {
     if (isUniqueViolation(error)) {
-      if ((error.constraint ?? '').toLowerCase().includes('nonce')) throw new PaymentReplayError();
+      if ((error.constraint ?? '').toLowerCase().includes('replay_scope')) throw new PaymentReplayError();
       throw new PaymentConflictError();
     }
     throw error;
@@ -124,11 +134,12 @@ const recordRejectedAttempt = async (pool: PaymentPool, input: RejectedAttemptIn
   );
 };
 
-const beginSettlement = async (pool: PaymentPool, id: string, answer: unknown, requirements: PaymentRequirements): Promise<void> => {
-  await pool.query(
+const beginSettlement = async (pool: PaymentPool, id: string, answer: unknown, requirements: PaymentRequirements): Promise<boolean> => {
+  const result = await pool.query(
     `UPDATE x402_payments SET status = 'settling', answer_json = $2::jsonb, requirements_json = $3::jsonb, updated_at = now()
      WHERE id = $1 AND status = 'authorized'`, [id, JSON.stringify(answer), JSON.stringify(requirements)],
   );
+  return (result.rowCount ?? 0) > 0;
 };
 
 const markSettlementUnknown = async (pool: PaymentPool, id: string, error: string): Promise<void> => {
@@ -141,7 +152,7 @@ const markSettlementUnknown = async (pool: PaymentPool, id: string, error: strin
 
 const completePayment = async (pool: PaymentPool, id: string, input: CompletePaymentInput): Promise<PaymentRecord> => {
   const result = await pool.query<PaymentRow>(
-    `UPDATE x402_payments SET status = 'settled', payer = $2, transaction = $3, amount_settled = $4,
+    `UPDATE x402_payments SET status = 'settled', payer = lower($2), transaction = $3, amount_settled = $4,
         response_body = $5::jsonb, dataset_version = $6,
        latency_ms = $7, settled_at = now(), updated_at = now()
      WHERE id = $1 AND status IN ('settling', 'settlement_unknown') RETURNING *`,
@@ -155,7 +166,7 @@ const completePayment = async (pool: PaymentPool, id: string, input: CompletePay
 const failPayment = async (pool: PaymentPool, id: string, input: { readonly errorReason: string; readonly payer?: string }): Promise<void> => {
   await pool.query(
     `UPDATE x402_payments SET status = 'failed', error_reason = $2,
-       payer = COALESCE($3, payer), updated_at = now()
+       payer = COALESCE(lower($3), payer), updated_at = now()
      WHERE id = $1 AND status IN ('authorized', 'settling', 'settlement_unknown')`,
     [id, input.errorReason, input.payer ?? null],
   );

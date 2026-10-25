@@ -13,6 +13,19 @@ export type X402Settings = {
   readonly uptoFacilitatorAddress?: string;
 };
 
+const validateNetwork = (network: string): void => {
+  if (!/^eip155:\d+$/.test(network) && !/^solana:[1-9A-HJ-NP-Za-km-z]+$/.test(network)) {
+    throw new Error(`X402_NETWORK must be a CAIP-2 network in the eip155:<digits> or solana:<base58> family; got a ${network.length}-character value.`);
+  }
+  if (network.startsWith('solana:')) throw new Error('Solana x402 payments are not supported yet.');
+};
+
+const requiredPublicBaseUrl = (config: AppConfig): string => {
+  const url = config.X402_PUBLIC_BASE_URL?.trim();
+  if (!url) throw new Error('Missing required x402 setting: X402_PUBLIC_BASE_URL.');
+  return url;
+};
+
 export const x402Settings = (config: AppConfig): X402Settings | undefined => {
   if (config.X402_ENABLED !== true) return undefined;
   const missing = [
@@ -23,9 +36,8 @@ export const x402Settings = (config: AppConfig): X402Settings | undefined => {
   ].filter((entry) => typeof entry[1] !== 'string' || entry[1].trim().length === 0).map(([name]) => name);
   if (missing.length > 0) throw new Error(`Missing required x402 settings: ${missing.join(', ')}.`);
   const network = config.X402_NETWORK ?? 'eip155:84532';
-  if (!/^eip155:\d+$/.test(network) && !/^solana:[1-9A-HJ-NP-Za-km-z]+$/.test(network)) {
-    throw new Error(`X402_NETWORK must be a CAIP-2 network in the eip155:<digits> or solana:<base58> family; got a ${network.length}-character value.`);
-  }
+  validateNetwork(network);
+  const publicBaseUrl = requiredPublicBaseUrl(config);
   const asset = assertAsset(network, config.X402_ASSET as string);
   const payTo = assertPayee(network, config.X402_PAY_TO as string);
   return {
@@ -36,6 +48,6 @@ export const x402Settings = (config: AppConfig): X402Settings | undefined => {
     assetVersion: config.X402_ASSET_VERSION ?? '2',
     payTo,
     maxTimeoutSeconds: config.X402_MAX_TIMEOUT_SECONDS ?? 60,
-    ...(config.X402_PUBLIC_BASE_URL ? { publicBaseUrl: config.X402_PUBLIC_BASE_URL.trim() } : {}),
+    publicBaseUrl,
   };
 };

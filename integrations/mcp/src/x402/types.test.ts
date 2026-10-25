@@ -39,6 +39,17 @@ describe('x402 v2 wire objects', () => {
     expect(permit2Parsed.payload?.payload.permit2Authorization?.nonce).toBe('permit2-nonce');
   });
 
+  test('canonicalizes numeric nonces while preserving opaque nonce values', () => {
+    const noncePayload = (nonce: string) => ({
+      x402Version: 2 as const,
+      accepted: requirements,
+      payload: { authorization: { nonce } },
+    });
+    expect(nonceFromPayload(noncePayload('00042'))).toBe('42');
+    expect(nonceFromPayload(noncePayload('0x002a'))).toBe('0x2a');
+    expect(nonceFromPayload(noncePayload('opaque-nonce'))).toBe('opaque-nonce');
+  });
+
   test('rejects missing and blank authorization nonces', () => {
     const payload = (paymentPayload: Record<string, unknown>) => encodePaymentHeader({
       x402Version: 2,

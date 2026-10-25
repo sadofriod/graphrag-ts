@@ -25,7 +25,7 @@ describe('payment store SQL branches', () => {
     const fresh = await createPaymentStore(created.pool).beginPayment(input);
     // `beginPayment` returns the row Postgres produced, not the input we sent.
     expect(fresh).toMatchObject({ kind: 'new', record: { id: '00000000-0000-4000-8000-000000000001', amountAuthorized: '20000', answerBody: null } });
-    expect(created.calls[0]?.params).toHaveLength(15);
+    expect(created.calls[0]?.params).toHaveLength(17);
 
     const replay = createScriptedPool();
     replay.queueResult(/^\s*INSERT INTO x402_payments/, []);
@@ -37,6 +37,7 @@ describe('payment store SQL branches', () => {
     const conflict = createScriptedPool();
     conflict.queueResult(/^\s*INSERT INTO x402_payments/, []);
     conflict.queueResult(/payload_fingerprint/, []);
+    conflict.queueResult(/nonce_identity =/, []);
     await expect(createPaymentStore(conflict.pool).beginPayment(input)).rejects.toBeInstanceOf(PaymentConflictError);
   });
 
@@ -48,7 +49,7 @@ describe('payment store SQL branches', () => {
 
   test('maps unique nonce errors to replay, other unique errors to conflict, and preserves other errors', async () => {
     for (const [error, expected] of [
-      [{ code: '23505', constraint: 'x402_payments_nonce_key' }, PaymentReplayError],
+      [{ code: '23505', constraint: 'x402_payments_replay_scope_idx' }, PaymentReplayError],
       [{ code: '23505', constraint: 'x402_payments_request_id_key' }, PaymentConflictError],
     ] as const) {
       const scripted = createScriptedPool();
@@ -63,14 +64,14 @@ describe('payment store SQL branches', () => {
 
   test('persists settlement transitions without overwriting the answer and handles missing completion rows', async () => {
     const scripted = createScriptedPool();
-    scripted.queueResult(/SET status = 'settling'/, []);
+    scripted.queueResult(/SET status = 'settling'/, [], 1);
     scripted.queueResult(/settle_attempts = settle_attempts \+ 1/, []);
     scripted.queueResult(/SET status = 'settled'/, [paymentRow({
       status: 'settled', answer_json: { answer: 'pre-settlement' }, response_body: completion.responseBody,
       amount_settled: '18000', transaction: '0xtx', settled_at: new Date('2025-01-02T00:00:00Z'),
     })]);
     const store = createPaymentStore(scripted.pool);
-    await store.beginSettlement('payment-id', { answer: 'pre-settlement' }, requirements);
+    expect(await store.beginSettlement('payment-id', { answer: 'pre-settlement' }, requirements)).toBe(true);
     await store.markSettlementUnknown('payment-id', 'timeout');
     const completed = await store.completePayment('payment-id', completion);
     expect(completed).toMatchObject({ status: 'settled', amountSettled: '18000', answerBody: { answer: 'pre-settlement' }, responseBody: completion.responseBody });
@@ -90,7 +91,7 @@ describe('payment store SQL branches', () => {
     scripted.queueResult(/SET status = 'settling'.*RETURNING/s, []);
     const store = createPaymentStore(scripted.pool);
     await store.failPayment('payment-id', { errorReason: 'rejected' });
-    expect(scripted.calls[0]?.sql).toContain('payer = COALESCE($3, payer)');
+    expect(scripted.calls[0]?.sql).toContain('payer = COALESCE(lower($3), payer)');
     expect(scripted.calls[0]?.params).toEqual(['payment-id', 'rejected', null]);
     expect(await store.retrySettlement('payment-id')).toMatchObject({ status: 'settling', amountAuthorized: '20' });
     expect(await store.retrySettlement('missing')).toBeUndefined();

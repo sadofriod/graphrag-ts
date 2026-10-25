@@ -30,7 +30,7 @@ suite('x402 payment SQL migrations and recovery', () => {
   beforeAll(async () => {
     // Apply only the payment migrations: 001..007 depend on the Prisma-managed core
     // schema, and this suite is about the payment ledger, not the retrieval tables.
-    for (const file of ['008_x402_payments.sql', '009_x402_settlement_recovery.sql']) {
+    for (const file of ['008_x402_payments.sql', '009_x402_settlement_recovery.sql', '010_x402_scoped_nonces.sql']) {
       await pool!.query(await readFile(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
     }
   });
@@ -63,17 +63,66 @@ suite('x402 payment SQL migrations and recovery', () => {
     await store!.paymentStore.beginPayment(first);
     await expect(pool!.query(
       `INSERT INTO x402_payments
-         (id, request_id, request_hash, nonce, dataset_id, workspace_id, mode, scheme, network, asset,
+         (id, request_id, request_hash, nonce, nonce_contract, nonce_identity, dataset_id, workspace_id, mode, scheme, network, asset,
           amount_authorized, payload_fingerprint, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'authorized')`,
-      [duplicate.id, duplicate.requestId, duplicate.requestHash, duplicate.nonce, duplicate.datasetId, duplicate.workspaceId,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'authorized')`,
+      [duplicate.id, duplicate.requestId, duplicate.requestHash, duplicate.nonce, '0xasset', duplicate.nonce, duplicate.datasetId, duplicate.workspaceId,
         duplicate.mode, duplicate.scheme, duplicate.network, duplicate.asset, duplicate.amountAuthorized, duplicate.payloadFingerprint],
     )).rejects.toMatchObject({ code: '23505', constraint: 'x402_payments_payload_fingerprint_idx' });
     await expect(pool!.query(
-      `INSERT INTO x402_payments (id, request_id, request_hash, nonce, dataset_id, mode, scheme, network, asset, amount_authorized, status)
-       VALUES ($1, $2, $3, $4, $5, 'local', 'exact', 'eip155:84532', '0xasset', 1, 'pending')`,
-      [randomUUID(), `pending-${randomUUID()}`, 'hash', `nonce-${randomUUID()}`, 'dataset-integration'],
+      `INSERT INTO x402_payments (id, request_id, request_hash, nonce, nonce_contract, nonce_identity, dataset_id, mode, scheme, network, asset, amount_authorized, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'local', 'exact', 'eip155:84532', '0xasset', 1, 'pending')`,
+      [randomUUID(), `pending-${randomUUID()}`, 'hash', `nonce-${randomUUID()}`, '0xasset', 'pending-nonce-identity', 'dataset-integration'],
     )).rejects.toMatchObject({ code: '23514', constraint: 'x402_payments_status_check' });
+  });
+
+  test('allows distinct verified payers to reuse a nonce but rejects a scoped replay', async () => {
+    const first = paymentInput({ nonce: 'shared-nonce', payer: '0xBuyerOne' });
+    const secondPayer = paymentInput({ nonce: 'shared-nonce', payer: '0xBuyerTwo' });
+    await store!.paymentStore.beginPayment(first);
+    await expect(store!.paymentStore.beginPayment(secondPayer)).resolves.toMatchObject({ kind: 'new' });
+    await expect(store!.paymentStore.beginPayment(paymentInput({
+      nonce: 'shared-nonce', payer: '0xbuyerone',
+    }))).rejects.toMatchObject({ code: 'NONCE_REPLAY' });
+  });
+
+  test('scopes Permit2 nonces to the authorization contract rather than token asset', async () => {
+    const makePermitPayment = (asset: string, id: string): BeginPaymentInput => {
+      const permitRequirements = { ...requirements, scheme: 'upto' as const, asset };
+      const permitPayload = {
+        x402Version: 2 as const,
+        accepted: permitRequirements,
+        payload: { permit2Authorization: { nonce: '42' } },
+      };
+      return paymentInput({
+        id: randomUUID(), requestId: id, nonce: '42', payer: '0xBuyer',
+        scheme: 'upto', asset, payload: permitPayload, requirements: permitRequirements,
+      });
+    };
+    await store!.paymentStore.beginPayment(makePermitPayment('0xtoken-one', 'permit-first'));
+    await expect(store!.paymentStore.beginPayment(makePermitPayment('0xtoken-two', 'permit-second')))
+      .rejects.toMatchObject({ code: 'NONCE_REPLAY' });
+  });
+
+  test('resolves historical case-variant nonce collisions without dropping payment records', async () => {
+    await pool!.query('DROP INDEX x402_payments_replay_scope_idx');
+    for (const [suffix, nonce, payer] of [['one', '0x00AB', '0xBuyer'], ['two', '0x00ab', '0xbuyer']]) {
+      await pool!.query(
+        `INSERT INTO x402_payments
+           (id, request_id, request_hash, nonce, nonce_contract, nonce_identity, dataset_id, mode, scheme, network,
+            asset, amount_authorized, payer, status)
+         VALUES ($1, $2, 'hash', $3, '0xasset', NULL, 'dataset-integration', 'local', 'exact',
+            'eip155:84532', '0xasset', 20000, $4, 'failed')`,
+        [randomUUID(), `legacy-${suffix}`, nonce, payer],
+      );
+    }
+    await pool!.query(await readFile(new URL('../../migrations/010_x402_scoped_nonces.sql', import.meta.url), 'utf8'));
+    const rows = await pool!.query<{ nonce: string; nonce_identity: string | null }>(
+      `SELECT nonce, nonce_identity FROM x402_payments WHERE request_id LIKE 'legacy-%' ORDER BY request_id`,
+    );
+    expect(rows.rows).toHaveLength(2);
+    expect(rows.rows.filter((row) => row.nonce_identity === '0xab')).toHaveLength(1);
+    expect(rows.rows.filter((row) => row.nonce_identity === null)).toHaveLength(1);
   });
 
   test('resolves old authorized and settling records through their documented recovery paths', async () => {

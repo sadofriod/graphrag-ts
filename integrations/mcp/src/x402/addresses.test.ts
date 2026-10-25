@@ -53,6 +53,7 @@ describe('x402 address validation', () => {
       X402_PAY_TO: tronAddress,
       X402_DATASETS_FILE: './datasets.json',
       X402_NETWORK: 'eip155:8453',
+      X402_PUBLIC_BASE_URL: 'https://pay.example.test',
     });
     expect(() => x402Settings(config)).toThrow('X402_PAY_TO');
   });

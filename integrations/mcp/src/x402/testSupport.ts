@@ -7,6 +7,7 @@ import type { DatasetRegistry } from './datasets.ts';
 import { createPaidQueryRoute } from './gateway.ts';
 import type { FacilitatorClient } from './facilitator.ts';
 import { PaymentConflictError, PaymentReplayError, type PaymentRecord, type PaymentStore } from './payments.ts';
+import { authorizationContractFromPayload } from './payload.ts';
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 
@@ -32,6 +33,7 @@ const logger = createLogger('error');
 
 const recordBase = (input: Parameters<PaymentStore['beginPayment']>[0]): PaymentRecord => ({
   id: input.id, requestId: input.requestId, requestHash: input.requestHash, nonce: input.nonce, datasetId: input.datasetId,
+  nonceContract: authorizationContractFromPayload(input.payload),
   mode: input.mode, scheme: input.scheme, network: input.network, asset: input.asset, amountAuthorized: input.amountAuthorized,
   amountSettled: null, payer: null, status: 'authorized', transaction: null, errorReason: null, settlementError: null, settleAttempts: 0,
   responseBody: null, answerBody: null, payloadFingerprint: null, payload: null, requirements: null, workspaceId: 'workspace-demo',
@@ -45,6 +47,7 @@ export type SetupOptions = {
   readonly completePaymentFails?: boolean;
   readonly globalScheme?: 'upto' | 'exact';
   readonly settlementThrows?: boolean;
+  readonly settlementClaimFails?: boolean;
 };
 
 type LedgerState = {
@@ -57,8 +60,22 @@ type LedgerState = {
 const findById = (state: LedgerState, id: string): PaymentRecord | undefined =>
   [...state.records.values()].find((item) => item.id === id);
 
+const nonceKey = (input: Parameters<PaymentStore['beginPayment']>[0]): string =>
+  `${input.network}:${input.payer.toLowerCase()}:${authorizationContractFromPayload(input.payload)}:${input.nonce}`;
+
 const replaceRecord = (state: LedgerState, next: PaymentRecord): void => {
   state.records.set(next.requestId, next);
+};
+
+const beginSettlement = async (state: LedgerState, options: SetupOptions, id: string, answer: unknown): Promise<boolean> => {
+  const found = findById(state, id);
+  if (!found || found.status !== 'authorized') return false;
+  if (options.settlementClaimFails) {
+    replaceRecord(state, { ...found, status: 'failed', errorReason: 'abandoned_before_settlement' });
+    return false;
+  }
+  replaceRecord(state, { ...found, status: 'settling', answerBody: answer });
+  return true;
 };
 
 const createLedger = (state: LedgerState, options: SetupOptions): PaymentStore => ({
@@ -69,13 +86,13 @@ const createLedger = (state: LedgerState, options: SetupOptions): PaymentStore =
       if (replay) return { kind: 'replay' as const, record: replay };
     }
     if (state.records.has(input.requestId)) throw new PaymentConflictError();
-    if (state.nonceRequests.has(input.nonce)) throw new PaymentReplayError();
+    if (state.nonceRequests.has(nonceKey(input))) throw new PaymentReplayError();
     const record = {
       ...recordBase(input), workspaceId: input.workspaceId, payloadFingerprint: input.payloadFingerprint,
-      payload: input.payload, requirements: input.requirements, payer: input.payer,
+      payload: input.payload, requirements: input.requirements, payer: input.payer.trim().toLowerCase(),
     };
     state.records.set(input.requestId, record);
-    state.nonceRequests.set(input.nonce, input.requestId);
+    state.nonceRequests.set(nonceKey(input), input.requestId);
     state.fingerprints.set(input.payloadFingerprint, record.id);
     return { kind: 'new' as const, record };
   },
@@ -84,10 +101,7 @@ const createLedger = (state: LedgerState, options: SetupOptions): PaymentStore =
     return id ? findById(state, id) : undefined;
   },
   recordRejectedAttempt: async (attempt: unknown) => { state.rejected.push(attempt); },
-  beginSettlement: async (id: string, answer: unknown) => {
-    const found = findById(state, id);
-    if (found) replaceRecord(state, { ...found, status: 'settling', answerBody: answer });
-  },
+  beginSettlement: (id: string, answer: unknown) => beginSettlement(state, options, id, answer),
   markSettlementUnknown: async (id: string, message: string) => {
     const found = findById(state, id);
     if (found) {
@@ -145,8 +159,8 @@ const createFacilitator = (state: FacilitationState, options: SetupOptions): Fac
   verify: async () => {
     state.verifyCalls += 1;
     return state.valid
-      ? { isValid: true, payer: '0xbuyer' }
-      : { isValid: false, invalidReason: 'invalid payment', payer: '0xbuyer' };
+      ? { isValid: true, payer: '0xBUYER' }
+      : { isValid: false, invalidReason: 'invalid payment', payer: '0xBUYER' };
   },
   settle: async ({ paymentRequirements }: { paymentRequirements: PaymentRequirements }) => {
     state.settleCalls += 1;
@@ -155,7 +169,7 @@ const createFacilitator = (state: FacilitationState, options: SetupOptions): Fac
     if (state.failNextSettlement) {
       return { success: false, transaction: '', network: settings.network, errorReason: 'settlement rejected' };
     }
-    return { success: true, transaction: '0xtx', network: settings.network, payer: '0xbuyer' };
+    return { success: true, transaction: '0xtx', network: settings.network, payer: '0xBUYER' };
   },
 } as unknown as FacilitatorClient);
 

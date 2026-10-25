@@ -32,6 +32,26 @@ describe('x402 facilitator client', () => {
     await expect(http.verify(request)).rejects.not.toThrow('secret');
   });
 
+  test('parses structured payment rejections returned with HTTP error statuses', async () => {
+    const verify = createFacilitatorClient({
+      url: 'https://facilitator.example',
+      fetchImpl: async () => new Response(JSON.stringify({ isValid: false, invalidReason: 'invalid_signature' }), { status: 402 }),
+    });
+    await expect(verify.verify(request)).resolves.toMatchObject({ isValid: false, invalidReason: 'invalid_signature' });
+
+    const settle = createFacilitatorClient({
+      url: 'https://facilitator.example',
+      fetchImpl: async () => new Response(JSON.stringify({ success: false, errorReason: 'not_authorized', network: 'eip155:84532' }), { status: 403 }),
+    });
+    await expect(settle.settle(request)).resolves.toMatchObject({ success: false, transaction: '', errorReason: 'not_authorized' });
+
+    const unshaped = createFacilitatorClient({
+      url: 'https://facilitator.example',
+      fetchImpl: async () => new Response(JSON.stringify({ success: false, errorReason: 'invalid signature' }), { status: 400 }),
+    });
+    await expect(unshaped.verify(request)).rejects.toMatchObject({ code: 'FACILITATOR_HTTP', status: 400 });
+  });
+
   test('aborts requests after the configured timeout', async () => {
     const client = createFacilitatorClient({
       url: 'https://facilitator.example', timeoutMs: 1,

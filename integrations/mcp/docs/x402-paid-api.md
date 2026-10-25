@@ -28,6 +28,10 @@ Keep the paid route and the private MCP route on different hostnames:
 | `/mcp`, `/api/usage`, `/api/workspaces/*` | private hostname | Cloudflare Access allowlist + `MCP_ACCESS_FILE` bearer keys |
 | `/api/v1/*` paid API | separate paid hostname | x402 payment verification only |
 
+Set `X402_PUBLIC_BASE_URL` to the paid hostname. The application then returns 404
+for every non-payment path on that hostname, even if the tunnel ingress is
+misconfigured; keep the tunnel's path allowlist as a second boundary.
+
 Do not put the x402 hostname behind a Cloudflare Access email login: an agent
 would receive the Access redirect instead of `402 Payment Required`, and the
 payment handshake never starts. `workspace_id` is never accepted from a paid
@@ -53,7 +57,8 @@ X402_DATASETS_FILE=./datasets.json
 X402_PUBLIC_BASE_URL=https://pay.example.com            # used in resource.url and /.well-known/x402
 ```
 
-The default `pricing.global.scheme` is `"upto"`. PayAI implements `exact` (Base, Solana, …) and the
+The default `pricing.global.scheme` is `"upto"`. PayAI implements `exact` (Base and other supported
+networks) and the
 `bazaar` discovery extension, but **not** `upto`; PayAI specifically needs `"exact"` so a global
 query is sold at a flat price. See
 [x402-discovery.md](x402-discovery.md) for how the endpoint gets catalogued.
@@ -63,8 +68,8 @@ from the facilitator's `/supported` response at startup. PayAI does not support 
 `pricing.global.scheme: "exact"` when using PayAI.
 
 Startup fails with the names of any missing variable and never prints values.
-`X402_PUBLIC_BASE_URL` matters: without it the challenge advertises whatever
-`Host` / `X-Forwarded-*` headers arrive, which is wrong behind a tunnel.
+`X402_PUBLIC_BASE_URL` is required: it controls the advertised resource URL and
+the application's paid-hostname boundary.
 
 ### Coinbase CDP facilitator
 
@@ -175,7 +180,7 @@ signing; the repository does not ship a buyer client.
 | No published snapshot | 503 | none | payment row marked `index_not_ready` |
 | Retrieval timeout (`QUERY_TIMEOUT_MS`) | 504 | none | no settle |
 | Retrieval/upstream failure | 502 | none | no settle, library error text is never returned |
-| Settlement rejected by the facilitator | 402 | none | answer withheld, failed settlement in `PAYMENT-RESPONSE` |
+| Settlement rejected by the facilitator | 402 | none | answer withheld, definitive first-attempt rejection is terminal |
 | Settlement outcome unknown (facilitator timeout / transport error) | 409 `settlement_unknown` | possibly charged | the answer is persisted; retry the same `PAYMENT-SIGNATURE` |
 | Payment verified, answer still being produced | 409 `in_progress` | none yet | `Retry-After: 2`, then retry the same signature |
 | Same signature, different request body | 409 | none | one paid signature covers exactly one question |
@@ -189,7 +194,8 @@ A facilitator timeout is **not** treated as a rejection: the row moves to
 than a silent 502 with nothing to show. `scripts/reconcile-payments.ts` lists
 those rows, retries settlement from the stored payload, or records an
 operator-verified outcome (`--mark-settled`, `--mark-failed`) after checking the
-chain.
+chain. A rejection from a retry does not prove the original attempt failed, so it
+remains `settlement_unknown` until the transaction is verified.
 
 Rows can also get stuck without ever reaching settlement: a process that dies
 between inserting the `authorized` row and starting settlement leaves a payment
@@ -208,7 +214,9 @@ transition), while `settling` becomes `settlement_unknown` with
   answer only when that signature matches. Knowing somebody's `Idempotency-Key`
   and question is not enough to read their answer.
 - `Idempotency-Key` (8–200 chars of `A-Za-z0-9._:-`) is optional and still names
-  the request id. When it is absent the nonce does.
+  the request id. When it is absent the signed-payload fingerprint does.
+- Nonces are canonicalized and scoped by the verified payer, network and
+  authorization contract; separate payers can use the same nonce.
 - A replay of a settled request returns the stored response body and the original
   settlement, with **no** facilitator call and **no** second charge — even if the
   registry price, asset, network or payee changed in the meantime. The quote at
@@ -218,7 +226,7 @@ transition), while `settling` becomes `settlement_unknown` with
 - Keys are only claimed **after** the facilitator verified the payment, so an
   invalid or unsigned attempt cannot squat somebody else's idempotency key; those
   attempts are recorded in `x402_rejected_attempts` without any unique key.
-- `x402_payments` (migrations `008` + `009_x402_settlement_recovery.sql`) stores
+- `x402_payments` (migrations `008`–`010`) stores
   payment id, request id + request hash, nonce, dataset, workspace, scheme,
   authorized and settled amounts, payer, transaction, signature fingerprint,
   stored payload + requirements, the answer, dataset version, latency, settlement
@@ -249,7 +257,7 @@ Practical consequences for a buyer:
 ## Running the payment tests
 
 Unit coverage for the ledger runs with the normal suite. The SQL-level suite
-(`src/x402/payments.integration.test.ts`) applies migrations `008` and `009` to a
+(`src/x402/payments.integration.test.ts`) applies migrations `008`–`010` to a
 throwaway database and exercises the real state machine — settlement, the partial
 fingerprint index, the migrated status constraint and stale-row recovery. It is
 skipped unless `X402_TEST_DATABASE_URL` is set, and it deliberately avoids
@@ -271,9 +279,9 @@ CI runs the same suite against a `pgvector/pgvector:pg16` service container.
 - `eip155:*` networks: an EVM address (`0x` + 40 hex characters). An empty wallet is fine — the
   `exact` EVM scheme settles an ERC-3009 `transferWithAuthorization`, so the payer signs and the
   facilitator pays gas; the recipient needs no balance and no gas.
-- `solana:*` networks: a base58 public key (32 bytes).
+- Solana networks are not accepted by this service yet; use an EVM network.
 
-Anything else — a Tron `T...` address, a truncated value, a Solana key on an EVM network — is
+Anything else — a Tron `T...` address, a truncated value, or a Solana key on an EVM network — is
 rejected at startup with a message naming `X402_PAY_TO`, instead of serving a 402 challenge that no
 client can pay. `X402_ASSET` is checked the same way against the network family.
 
@@ -365,6 +373,9 @@ anything that a customer depends on.
 - **No MCP tool payment.** `/mcp` keeps its bearer-key and monthly-quota model.
   Charging individual MCP tool calls needs per-tool accounting and a payment
   binding for stateful sessions.
+- **Solana is not enabled.** Although facilitators may support Solana, this
+  service rejects Solana configuration until transaction-based replay protection
+  is implemented.
 - **No tenant isolation.** One workspace per dataset, registered server-side;
   a paid client cannot choose a workspace. Private corpora are out of scope until
   there is an authorization mapping from payer to workspace.

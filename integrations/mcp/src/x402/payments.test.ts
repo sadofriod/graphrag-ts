@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { createPaymentStore, PaymentConflictError, PaymentReplayError } from './payments.ts';
 
 type Row = {
-  id: string; request_id: string; request_hash: string; nonce: string; dataset_id: string; mode: 'local' | 'global';
+  id: string; request_id: string; request_hash: string; nonce: string; nonce_contract: string; nonce_identity: string | null; dataset_id: string; mode: 'local' | 'global';
   scheme: 'exact' | 'upto'; network: string; asset: string; amount_authorized: string | number; amount_settled: string | number | null;
   payer: string | null; status: 'authorized' | 'settling' | 'settled' | 'settlement_unknown' | 'failed'; transaction: string | null; error_reason: string | null;
   workspace_id?: string | null; payload_fingerprint?: string | null; payload_json?: unknown | null; requirements_json?: unknown | null;
@@ -11,7 +11,7 @@ type Row = {
 };
 
 const row: Row = {
-  id: 'id', request_id: 'request', request_hash: 'hash', nonce: 'nonce', dataset_id: 'dataset', mode: 'local', scheme: 'exact',
+  id: 'id', request_id: 'request', request_hash: 'hash', nonce: 'nonce', nonce_contract: '0xasset', nonce_identity: 'nonce', dataset_id: 'dataset', mode: 'local', scheme: 'exact',
   network: 'eip155:84532', asset: 'USDC', amount_authorized: '20000', amount_settled: null, payer: null, status: 'authorized',
   transaction: null, error_reason: null, response_body: null, dataset_version: null, latency_ms: null, created_at: new Date(0), updated_at: new Date(0), settled_at: null,
   workspace_id: 'workspace', payload_fingerprint: 'fingerprint', payload_json: null, requirements_json: null,
@@ -42,7 +42,7 @@ describe('x402 payment ledger', () => {
   test('detects idempotency conflicts and nonce replay errors', async () => {
     const conflictStore = createPaymentStore(fakePool(async (sql) => ({ rows: sql.startsWith('INSERT') ? [] : [] })));
     await expect(conflictStore.beginPayment(input)).rejects.toBeInstanceOf(PaymentConflictError);
-    const replayStore = createPaymentStore(fakePool(async () => { throw { code: '23505', constraint: 'x402_payments_nonce_key' }; }));
+    const replayStore = createPaymentStore(fakePool(async () => { throw { code: '23505', constraint: 'x402_payments_replay_scope_idx' }; }));
     await expect(replayStore.beginPayment(input)).rejects.toBeInstanceOf(PaymentReplayError);
     const unknownStore = createPaymentStore(fakePool(async () => { throw { code: '23505', constraint: 'unknown_key' }; }));
     await expect(unknownStore.beginPayment(input)).rejects.toBeInstanceOf(PaymentConflictError);

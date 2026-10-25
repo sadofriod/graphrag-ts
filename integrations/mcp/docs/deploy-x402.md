@@ -118,9 +118,9 @@ facilitator setting is wrong; `docker-compose logs --tail=60 mcp-server` names t
 ## 6. DNS and the tunnel
 
 The paid hostname needs a proxied CNAME to the tunnel, and an ingress entry that
-exposes **only the paid paths**. Both hostnames reach the same origin, and the paid
-hostname has no Access gate, so anything else it serves is reachable with nothing
-but a bearer key:
+exposes **only the paid paths**. The application also restricts that hostname to
+those paths using `X402_PUBLIC_BASE_URL`. Both hostnames reach the same origin,
+and the paid hostname has no Access gate, so keep both boundaries in place:
 
 ```yaml
 ingress:
@@ -179,11 +179,17 @@ ALTER TABLE x402_payments ADD CONSTRAINT x402_payments_status_check
   CHECK (status IN ('pending', 'settled', 'failed'));
 ```
 
-The extra columns and `x402_rejected_attempts` are additive and can stay; the older binary ignores
-them. Roll forward by re-applying `009`'s constraint definition once the new image is back.
+The columns and `x402_rejected_attempts` added by `009` are additive and can stay; the older binary
+ignores them. Roll forward by re-applying `009`'s constraint definition once the new image is back.
 
 Treat the first deploy of a migration that changes a constraint as a point of no easy return and run
 it during a window where a failed payment for a few minutes is acceptable.
+
+`010_x402_scoped_nonces.sql` adds a required authorization-contract field and replaces global nonce
+uniqueness with payer-scoped uniqueness. A binary built before `010` cannot insert into that schema,
+and after multiple payers reuse a nonce the old global constraint cannot be restored without
+investigating those rows. Prefer rolling forward; plan a database restore if rollback to a pre-`010`
+binary is unavoidable.
 
 ## What "verified" meant
 

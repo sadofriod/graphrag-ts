@@ -15,6 +15,7 @@ const enabledConfig = (overrides: Record<string, string> = {}) => loadConfig({
   X402_PAY_TO: evmAddress,
   X402_DATASETS_FILE: './datasets.json',
   X402_NETWORK: 'eip155:8453',
+  X402_PUBLIC_BASE_URL: 'https://pay.example.test',
   ...overrides,
 });
 
@@ -31,6 +32,7 @@ describe('x402 settings', () => {
     expect(x402Settings(config)).toEqual({
       facilitatorUrl: 'https://facilitator.example.test/', network: 'eip155:8453', asset: evmAddress,
       assetName: 'USDC', assetVersion: '2', payTo: evmAddress, maxTimeoutSeconds: 60,
+      publicBaseUrl: 'https://pay.example.test',
     });
   });
 
@@ -41,9 +43,9 @@ describe('x402 settings', () => {
     expect(() => x402Settings(enabledConfig({ X402_PAY_TO: 'not-an-address' }))).toThrow('X402_PAY_TO');
   });
 
-  test('validates a syntactically valid Solana network and applies optional overrides', () => {
+  test('rejects Solana networks until transaction replay protection is implemented', () => {
     const solanaAddress = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-    expect(x402Settings(enabledConfig({
+    expect(() => x402Settings(enabledConfig({
       X402_NETWORK: `solana:${solanaAddress}`,
       X402_ASSET: solanaAddress,
       X402_PAY_TO: solanaAddress,
@@ -51,10 +53,11 @@ describe('x402 settings', () => {
       X402_ASSET_VERSION: '3',
       X402_MAX_TIMEOUT_SECONDS: '30',
       X402_PUBLIC_BASE_URL: ' https://public.example.test/ ',
-    }))).toMatchObject({
-      network: `solana:${solanaAddress}`, assetName: 'Token', assetVersion: '3', maxTimeoutSeconds: 30,
-      publicBaseUrl: 'https://public.example.test/',
-    });
+    }))).toThrow('Solana x402 payments are not supported yet.');
+  });
+
+  test('requires the public base URL for the paid-hostname boundary', () => {
+    expect(() => x402Settings(enabledConfig({ X402_PUBLIC_BASE_URL: '' }))).toThrow('X402_PUBLIC_BASE_URL');
   });
 
   test('requires a facilitator address when a registry uses upto pricing', async () => {
@@ -68,6 +71,7 @@ describe('x402 settings', () => {
       X402_ASSET: evmAddress, X402_PAY_TO: evmAddress,
       X402_DATASETS_FILE: fileURLToPath(new URL('../../datasets.example.json', import.meta.url)),
       X402_NETWORK: 'eip155:84532',
+      X402_PUBLIC_BASE_URL: 'https://pay.example.test',
     });
     try {
       await expect(startMcpServer({} as IndexStore, config, createLogger('error'))).rejects.toThrow('X402 upto pricing requires a facilitator');

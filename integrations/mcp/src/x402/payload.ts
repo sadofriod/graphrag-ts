@@ -63,8 +63,15 @@ export const nonceFromPayload = (payload: PaymentPayload): string => {
   if (typeof nonce !== 'string' || nonce.length < 1 || nonce.length > 256) {
     throw new X402FormatError('PAYMENT_PAYLOAD_INVALID', 'Payment payload authorization is invalid.');
   }
+  if (/^0x[0-9a-f]+$/i.test(nonce)) return `0x${BigInt(nonce).toString(16)}`;
+  if (/^[0-9]+$/.test(nonce)) return BigInt(nonce).toString(10);
   return nonce;
 };
+
+export const authorizationContractFromPayload = (payload: PaymentPayload): string =>
+  payload.payload.permit2Authorization
+    ? '0x000000000022d473030f116ddee9f6b43ac78ba3'
+    : payload.accepted.asset.toLowerCase();
 
 export const validIdempotencyKey = (key: string | null): boolean => key === null || /^[A-Za-z0-9._:-]{8,200}$/.test(key);
 

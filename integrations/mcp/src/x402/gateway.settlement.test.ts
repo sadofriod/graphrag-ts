@@ -15,6 +15,7 @@ describe('x402 paid query settlement', () => {
     const [payment] = app.records.values();
     expect(payment?.answerBody).not.toHaveProperty('payment.transaction', '0xtx');
     expect(payment?.responseBody).toHaveProperty('payment.transaction', '0xtx');
+    expect(payment?.payer).toBe('0xbuyer');
     expect(app.settledAmounts).toEqual(['20000']);
   });
 
@@ -74,6 +75,17 @@ describe('x402 paid query settlement', () => {
     expect(await replay?.json()).toMatchObject({ status: 'settlement_unknown' });
     expect(app.executions).toBe(1);
     expect(app.settleCalls).toBe(1);
+  });
+
+  test('does not settle if reconciliation already claimed the authorized payment', async () => {
+    const app = setup({ settlementClaimFails: true });
+    const signature = app.sign('local', 'nonce-claim-lost');
+    const first = await app.request(undefined, signature);
+    expect(first?.status).toBe(409);
+    expect(await first?.json()).toMatchObject({ status: 'payment_not_claimed' });
+    expect(app.settleCalls).toBe(0);
+    expect([...app.records.values()][0]).toMatchObject({ status: 'failed' });
+    expect((await app.request(undefined, signature))?.status).toBe(402);
   });
 
   test('concurrent identical signed requests settle only once', async () => {

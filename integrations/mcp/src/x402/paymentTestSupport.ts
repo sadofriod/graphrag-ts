@@ -6,6 +6,8 @@ export type PaymentTestRow = {
   request_id: string;
   request_hash: string;
   nonce: string;
+  nonce_contract: string;
+  nonce_identity: string | null;
   dataset_id: string;
   workspace_id: string | null;
   mode: 'local' | 'global';
@@ -42,6 +44,8 @@ export const paymentRow = (overrides: Partial<PaymentTestRow> = {}): PaymentTest
   request_id: 'request-1',
   request_hash: 'request-hash',
   nonce: 'nonce-1',
+  nonce_contract: '0xasset',
+  nonce_identity: 'nonce-1',
   dataset_id: 'dataset-1',
   workspace_id: 'workspace-1',
   mode: 'local',

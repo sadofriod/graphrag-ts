@@ -8,7 +8,7 @@ import {
   type VerifyRequest,
   type VerifyResponse,
 } from './types.ts';
-import { X402FacilitatorError, type FacilitatorClient } from './facilitator.ts';
+import { parseFacilitatorResponse, X402FacilitatorError, type FacilitatorClient } from './facilitator.ts';
 
 const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 const DEFAULT_BASE_URL = 'https://api.cdp.coinbase.com/platform/v2/x402';
@@ -128,48 +128,6 @@ const requestUrl = (baseUrl: string, endpoint: 'verify' | 'settle'): URL => {
   return url;
 };
 
-const isPaymentRejection = (endpoint: 'verify' | 'settle', value: unknown): boolean => {
-  if (typeof value !== 'object' || value === null) return false;
-  return endpoint === 'verify'
-    ? 'isValid' in value && value.isValid === false
-    : 'success' in value && value.success === false;
-};
-
-const httpError = (status: number): X402FacilitatorError =>
-  new X402FacilitatorError('FACILITATOR_HTTP', `Facilitator returned HTTP ${status}.`, status);
-
-const readResponseBody = async (response: Response): Promise<unknown> => {
-  try {
-    return await response.json() as unknown;
-  } catch {
-    if (!response.ok) throw httpError(response.status);
-    throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', 'Facilitator returned malformed JSON.');
-  }
-};
-
-const normalizeSettleRejection = (body: unknown, endpoint: 'verify' | 'settle', response: Response): unknown => {
-  if (endpoint !== 'settle' || response.ok || !isPaymentRejection(endpoint, body)
-    || typeof body !== 'object' || body === null || 'transaction' in body) return body;
-  return { ...body, transaction: '' };
-};
-
-const parseResponseBody = <T>(body: unknown, response: Response, endpoint: 'verify' | 'settle', schema: { parse(value: unknown): T }): T => {
-  try {
-    return schema.parse(body);
-  } catch {
-    if (!response.ok) throw httpError(response.status);
-    throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', `Facilitator returned an invalid ${endpoint} response.`);
-  }
-};
-
-const parseResponse = async <T>(response: Response, endpoint: 'verify' | 'settle', schema: { parse(value: unknown): T }): Promise<T> => {
-  if (!response.ok && ![400, 402, 403].includes(response.status)) throw httpError(response.status);
-  const body = normalizeSettleRejection(await readResponseBody(response), endpoint, response);
-  const parsed = parseResponseBody(body, response, endpoint, schema);
-  if (!response.ok && !isPaymentRejection(endpoint, parsed)) throw httpError(response.status);
-  return parsed;
-};
-
 const post = async <T>(
   endpoint: 'verify' | 'settle',
   request: VerifyRequest,
@@ -191,7 +149,7 @@ const post = async <T>(
       body: JSON.stringify({ x402Version: 2, paymentPayload: request.paymentPayload, paymentRequirements: request.paymentRequirements }),
       signal: AbortSignal.timeout(10_000),
     });
-    return await parseResponse(response, endpoint, schema);
+    return await parseFacilitatorResponse(response, endpoint, schema);
   } catch (error) {
     if (error instanceof X402FacilitatorError) throw error;
     throw new X402FacilitatorError('FACILITATOR_REQUEST_FAILED', `Facilitator ${endpoint} request failed.`);

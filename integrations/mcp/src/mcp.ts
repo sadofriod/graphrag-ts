@@ -86,6 +86,18 @@ const paidRouteResponse = async (
   paidRoute: ReturnType<typeof createPaidQueryRoute> | undefined,
 ): Promise<Response | undefined> => paidRoute ? paidRoute(request) : undefined;
 
+const isPaidHostname = (request: Request, paidHostname: string): boolean => {
+  const expected = paidHostname.toLowerCase();
+  if (new URL(request.url).hostname.toLowerCase() === expected) return true;
+  const host = request.headers.get('host');
+  if (!host) return false;
+  try {
+    return new URL(`http://${host}`).hostname.toLowerCase() === expected;
+  } catch {
+    return false;
+  }
+};
+
 const handleExistingSession = async (
   request: Request,
   sessionId: string,
@@ -194,9 +206,16 @@ export const createHttpHandler = (
   queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
   policy?: AccessPolicy,
   paidRoute?: ReturnType<typeof createPaidQueryRoute>,
+  paidHostname?: string,
 ) => {
   let pendingSessions = 0;
   return async (request: Request): Promise<Response> => {
+    if (paidHostname && isPaidHostname(request, paidHostname)) {
+      const path = new URL(request.url).pathname;
+      if (!path.startsWith('/api/v1/') && path !== '/.well-known/x402') {
+        return httpError(404, 'Not found.');
+      }
+    }
     const health = await healthResponse(request, store);
     if (health) {
       return health;
@@ -272,7 +291,8 @@ export const startMcpServer = async (
       });
   }
   const sessions: SessionMap = new Map();
-  const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute);
+  const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute,
+    settings?.publicBaseUrl ? new URL(settings.publicBaseUrl).hostname : undefined);
   const closeIdleSessionsHandle = setInterval(() => {
     void closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
   }, Math.min(config.HTTP_SESSION_IDLE_TIMEOUT_MS, 60_000));
