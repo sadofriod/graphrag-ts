@@ -16,6 +16,7 @@ const resolveRef = async (store: IntegrityStore, ref: PaperRef): Promise<Resolve
 const classOf = (context: ContextClass | undefined): ContextClass => context ?? 'unknown';
 const isAcknowledging = (context: ContextClass | undefined): boolean => contextFactor(context) === 1;
 const emptyCoverage = { references: 0, resolved: 0, ratio: 0 };
+const isoTimestamp = (value: Date | string): string => new Date(value).toISOString();
 
 const targetShape = (paper: PaperRecord) => ({ paper_id: paper.paper_id, doi: paper.doi, title: paper.title, year: paper.publication_year, source_tier: paper.source_tier });
 
@@ -137,7 +138,7 @@ const makeJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean
   const snapshot = resolved.snapshot;
   if (!snapshot) throw new Error('No active integrity snapshot is available.');
   if (!resolved.paper) {
-    const payload: JudgmentPayload = { snapshot: { id: snapshot.id, built_at: String(snapshot.built_at) }, target: { paper_id: ref.paper_id ?? '', doi: ref.doi ?? null, title: null, year: null, source_tier: null }, verdict: 'INSUFFICIENT_EVIDENCE', confidence: 0, retracted_roots: [], conflict_flags: [], coverage: emptyCoverage, abstention_reason: 'paper_not_in_snapshot' };
+    const payload: JudgmentPayload = { snapshot: { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) }, target: { paper_id: ref.paper_id ?? '', doi: ref.doi ?? null, title: null, year: null, source_tier: null }, verdict: 'INSUFFICIENT_EVIDENCE', confidence: 0, retracted_roots: [], conflict_flags: [], coverage: emptyCoverage, abstention_reason: 'paper_not_in_snapshot' };
     await store.recordJudgment({ snapshotId: snapshot.id, paperId: null, inputRef: ref.doi ?? ref.paper_id ?? '', judgmentType: audit ? 'evidence_audit' : 'retraction_propagation', payload });
     return audit ? { ...payload, evidence_path: [], tier_distribution: { A: 0, B: 0, C: 0, D: 0 }, explain: explainPayload(payload) } : payload;
   }
@@ -169,7 +170,7 @@ const buildPresentJudgment = async (store: IntegrityStore, ref: PaperRef, audit:
   const conflicts = await collectJudgmentConflicts(store, paper, roots, coverage.ratio);
   const decision = chooseVerdict(ownAsserting, selfRoot, ancestorRoots, coverage.ratio);
   const base = {
-    snapshot: { id: snapshot.id, built_at: String(snapshot.built_at) }, target: targetShape(paper), verdict: decision.verdict,
+    snapshot: { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) }, target: targetShape(paper), verdict: decision.verdict,
     confidence: confidenceFor(roots, coverage.ratio), retracted_roots: roots.map(rootPayload), conflict_flags: conflicts,
     coverage, abstention_reason: decision.reason,
     ...(roots.length > 0 && roots.every((root) => root.acknowledged) ? { dependence_acknowledged: true } : {}),

@@ -5,17 +5,16 @@ import { normalizeDoi, normalizeOpenAlexId } from './classify.ts';
 import {
   fetchCitingWorks, fetchCrossref, fetchRetractionWatch,
   findRetractedWorks, openAlexEntityUri, parseRetractionWatchCsv,
-  resolveWorks, semanticMinInterval, type CrossrefMessage, type OpenAlexWork, type RequestCounter,
+  resolveWorks, semanticMinInterval, type CrossrefMessage, type OpenAlexWork, type RequestCounter, type RwRow,
 } from './sources.ts';
 import { cachedRetractionSeeds, createPaperCallbacks, gatherOpenCitations, referenceDeadline, resolveReferenceEntities, workFromCache } from './opencitations.ts';
 import { semanticContexts, type ContextEdge } from './contexts.ts';
+import { selectRetractionWatchRow } from './retractionwatch.ts';
 
 type Options = { out: string; seeds: number; citing: number; snapshotId?: string; refresh: boolean; citingSource: 'openalex' | 'opencitations'; maxReferences: number; refConcurrency: number };
-type CsvRow = Record<string, string>;
 type Paper = OpenAlexWork & { id: string; referenced_works: string[] };
 type WorkRow = Record<string, unknown>;
 type CiteRow = ContextEdge;
-type RwInfo = { date: string | null; reason: string | null; nature: string | null };
 type Counters = { openalex: RequestCounter; crossref: RequestCounter; semantic: RequestCounter; rw: RequestCounter; opencitations: RequestCounter; unresolvedCiting: number };
 const usage = 'Usage: bun scripts/integrity/harvest.ts --out <dir> [--seeds 12] [--citing 60] [--citing-source openalex|opencitations] [--max-references 6000] [--ref-concurrency 6] [--snapshot-id <id>] [--refresh]';
 
@@ -171,12 +170,12 @@ const pageWorks = async (id: string, cap: number, counter: RequestCounter): Prom
   return works;
 };
 
-const chooseSeeds = async (limit: number, rw: Map<string, RwInfo>, counter: RequestCounter): Promise<OpenAlexWork[]> => {
+const chooseSeeds = async (limit: number, rw: Map<string, RwRow[]>, counter: RequestCounter): Promise<OpenAlexWork[]> => {
   const seeds: OpenAlexWork[] = [];
   for (let page = 1; page <= 3 && seeds.length < limit; page += 1) {
     const response = await findRetractedWorks(page, counter);
     for (const work of response.results) {
-      if (normalizeDoi(work.doi) && rw.has(normalizeDoi(work.doi) as string)) seeds.push(work);
+      if (normalizeDoi(work.doi) && selectRetractionWatchRow(rw.get(normalizeDoi(work.doi) as string) ?? [])?.is_retracted) seeds.push(work);
       if (seeds.length >= limit) break;
     }
   }
@@ -280,18 +279,18 @@ const formatDate = (parts?: number[][]): string | null => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-const retractionRows = async (papers: Map<string, Paper>, rw: Map<string, RwInfo>, counter: RequestCounter): Promise<WorkRow[]> => {
+const retractionRows = async (papers: Map<string, Paper>, rw: Map<string, RwRow[]>, counter: RequestCounter): Promise<WorkRow[]> => {
   const rows: WorkRow[] = [];
   const observedAt = new Date().toISOString();
   for (const paper of papers.values()) {
     const doi = normalizeDoi(paper.doi);
-    const rwInfo = doi ? rw.get(doi) : undefined;
-    if (rwInfo) rows.push({ paper_id: paper.id, doi, source: 'retraction_watch', source_tier: 'A', is_retracted: true, retraction_date: rwInfo.date, reason: rwInfo.reason, nature: rwInfo.nature, source_uri: 'https://api.labs.crossref.org/data/retractionwatch', source_chunk_id: null, observed_at: observedAt });
-    if (rwInfo || paper.is_retracted) rows.push({ paper_id: paper.id, doi, source: 'openalex', source_tier: 'C', is_retracted: Boolean(paper.is_retracted), source_uri: `https://openalex.org/${paper.id}`, source_chunk_id: null, observed_at: observedAt });
+    const rwNotice = doi ? selectRetractionWatchRow(rw.get(doi) ?? []) : undefined;
+    if (rwNotice) rows.push({ paper_id: paper.id, doi, source: 'retraction_watch', source_tier: 'A', is_retracted: rwNotice.is_retracted, retraction_date: rwNotice.date, reason: rwNotice.reason, nature: rwNotice.nature, source_uri: 'https://api.labs.crossref.org/data/retractionwatch', source_chunk_id: null, observed_at: observedAt });
+    if (rwNotice || paper.is_retracted) rows.push({ paper_id: paper.id, doi, source: 'openalex', source_tier: 'C', is_retracted: Boolean(paper.is_retracted), source_uri: `https://openalex.org/${paper.id}`, source_chunk_id: null, observed_at: observedAt });
   }
   const targetDois = [...new Set([...papers.values()].filter((paper) => {
     const doi = normalizeDoi(paper.doi);
-    return Boolean(doi && (rw.has(doi) || paper.is_retracted));
+    return Boolean(doi && ((rw.get(doi)?.length ?? 0) > 0 || paper.is_retracted));
   }).map((paper) => normalizeDoi(paper.doi) as string))];
   const targets = targetDois.slice(0, 150).map((doi) => [...papers.values()].find((paper) => normalizeDoi(paper.doi) === doi)).filter((paper): paper is Paper => Boolean(paper));
   counter.maxRequests = 150;
@@ -319,7 +318,7 @@ const crossrefRow = (paper: Paper, doi: string, message: CrossrefMessage | undef
 
 const counters = (): Counters => ({ openalex: { count: 0 }, crossref: { count: 0 }, semantic: { count: 0 }, rw: { count: 0 }, opencitations: { count: 0 }, unresolvedCiting: 0 });
 
-const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: CsvRow[], sha256: string, calls: Counters, skipped: string[], contextsFailed: number): Promise<void> => {
+const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: RwRow[], sha256: string, calls: Counters, skipped: string[], contextsFailed: number): Promise<void> => {
   const snapshotId = options.snapshotId ?? snapshotIdNow();
   const parent = join(options.out, 'snapshots');
   const directory = join(parent, snapshotId);
@@ -363,7 +362,7 @@ const run = async (options: Options): Promise<void> => {
   console.log(JSON.stringify({ snapshot_id: snapshotId, papers: papers.size, cites: edges.length, retractions: retractions.length, skipped_references: references.skipped.length, contexts_failed: contextsFailed, sources: { openalex: calls.openalex.count, ...(calls.openalex.lastOpenAlexRateLimit?.remainingUsd || calls.openalex.lastOpenAlexRateLimit?.reset ? { openalex_rate_limit: { ...(calls.openalex.lastOpenAlexRateLimit.remainingUsd ? { 'x-ratelimit-remaining-usd': calls.openalex.lastOpenAlexRateLimit.remainingUsd } : {}), ...(calls.openalex.lastOpenAlexRateLimit.reset ? { 'x-ratelimit-reset': calls.openalex.lastOpenAlexRateLimit.reset } : {}) } } : {}), ...(options.citingSource === 'opencitations' ? { opencitations: { requests: calls.opencitations.count }, unresolved_citing: calls.unresolvedCiting } : {}), retraction_watch: { rows: rw.rows.length, sha256: rwFile.sha256 }, crossref: calls.crossref.count, semantic_scholar: calls.semantic.count } }));
 };
 
-const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<string, RwInfo>, papers: Map<string, Paper>, cache: string, calls: Counters, startedAt: number) => {
+const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<string, RwRow[]>, papers: Map<string, Paper>, cache: string, calls: Counters, startedAt: number) => {
   const seeds = await selectSeeds(options, rw, papers, calls.openalex);
   const graph = await gatherGraph(options, snapshotOptions, seeds, papers, cache, calls);
   const references = await resolveGraphReferences(options, papers, graph, cache, calls.openalex, startedAt);
@@ -371,7 +370,7 @@ const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<
   return { seeds, graph, references };
 };
 
-const selectSeeds = (options: Options, rw: Map<string, RwInfo>, papers: Map<string, Paper>, counter: RequestCounter): Promise<OpenAlexWork[]> | OpenAlexWork[] =>
+const selectSeeds = (options: Options, rw: Map<string, RwRow[]>, papers: Map<string, Paper>, counter: RequestCounter): Promise<OpenAlexWork[]> | OpenAlexWork[] =>
   options.citingSource === 'openalex' ? chooseSeeds(options.seeds, rw, counter) : cachedRetractionSeeds(papers, options.seeds).map(workFromCache);
 
 const gatherGraph = (options: Options, snapshotOptions: Options, seeds: OpenAlexWork[], papers: Map<string, Paper>, cache: string, calls: Counters) =>

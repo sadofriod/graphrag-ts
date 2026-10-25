@@ -19,7 +19,7 @@ export type RequestCounter = {
 };
 type OpenAlexResponse = { results: OpenAlexWork[]; meta?: { count?: number } };
 export type OpenCitationsCiting = { doi: string | null; openalexId: string | null };
-export type RwInfo = { date: string | null; reason: string | null; nature: string | null };
+export type RwRow = Record<string, string>;
 
 const retryWait = (attempt: number): number => Math.min(500 * (2 ** (attempt - 1)), 4000);
 const isNonRetryableClientError = (error: unknown): error is Error =>
@@ -153,14 +153,14 @@ const splitCsv = (input: string): string[][] => {
   if (state.field || state.row.length) { state.row.push(state.field); state.rows.push(state.row); }
   return state.rows;
 };
-export const parseRetractionWatchCsv = (csv: string): { rows: Record<string, string>[]; byDoi: Map<string, RwInfo> } => {
+export const parseRetractionWatchCsv = (csv: string): { rows: RwRow[]; byDoi: Map<string, RwRow[]> } => {
   const parsed = splitCsv(csv.replace(/^\uFEFF/, ''));
   const headers = parsed.shift() ?? [];
   const rows = parsed.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ''])));
-  const byDoi = new Map<string, RwInfo>();
+  const byDoi = new Map<string, RwRow[]>();
   for (const row of rows) {
     const doi = normalizeDoi(row.OriginalPaperDOI);
-    if (doi) byDoi.set(doi, { date: row.RetractionDate || null, reason: row.Reason || null, nature: row.RetractionNature || null });
+    if (doi) byDoi.set(doi, [...(byDoi.get(doi) ?? []), row]);
   }
   return { rows, byDoi };
 };
