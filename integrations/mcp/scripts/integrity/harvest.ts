@@ -5,11 +5,11 @@ import { normalizeDoi, normalizeOpenAlexId } from './classify.ts';
 import {
   fetchCitingWorks, fetchCrossref, fetchRetractionWatch,
   findRetractedWorks, openAlexEntityUri, parseRetractionWatchCsv,
-  resolveWorks, semanticMinInterval, type CrossrefMessage, type OpenAlexWork, type RequestCounter, type RwRow,
+  resolveWorks, semanticMinInterval, type CrossrefMessage, type OpenAlexWork, type RequestCounter,
 } from './sources.ts';
 import { cachedRetractionSeeds, createPaperCallbacks, gatherOpenCitations, referenceDeadline, resolveReferenceEntities, workFromCache } from './opencitations.ts';
-import { semanticContexts, type ContextEdge } from './contexts.ts';
-import { selectRetractionWatchRow } from './retractionwatch.ts';
+import { semanticContexts, semanticMaxPages, type ContextEdge } from './contexts.ts';
+import { selectRetractionWatchRow, type RwNotice } from './retractionwatch.ts';
 
 type Options = { out: string; seeds: number; citing: number; snapshotId?: string; refresh: boolean; citingSource: 'openalex' | 'opencitations'; maxReferences: number; refConcurrency: number };
 type Paper = OpenAlexWork & { id: string; referenced_works: string[] };
@@ -17,7 +17,6 @@ type WorkRow = Record<string, unknown>;
 type CiteRow = ContextEdge;
 type Counters = { openalex: RequestCounter; crossref: RequestCounter; semantic: RequestCounter; rw: RequestCounter; opencitations: RequestCounter; unresolvedCiting: number };
 const usage = 'Usage: bun scripts/integrity/harvest.ts --out <dir> [--seeds 12] [--citing 60] [--citing-source openalex|opencitations] [--max-references 6000] [--ref-concurrency 6] [--snapshot-id <id>] [--refresh]';
-
 const parseNumber = (value: string | undefined, fallback: number): number => {
   if (value === undefined) return fallback;
   const number = Number(value);
@@ -40,6 +39,7 @@ const parseArgs = (argv: readonly string[]): Options => {
     ...(parsed.snapshotId ? { snapshotId: parsed.snapshotId } : {}), refresh: parsed.refresh,
     citingSource: parsed.citingSource, maxReferences: parsed.maxReferences, refConcurrency: parsed.refConcurrency };
 };
+
 const optionValue = (argv: readonly string[], index: number): string => {
   const value = argv[index + 1];
   if (!value) throw new Error(usage);
@@ -70,7 +70,7 @@ const snapshotIdNow = (date = new Date()): string => {
   const pad = (value: number): string => String(value).padStart(2, '0');
   return `ri-${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
 };
-const cachedRwCsv = async (options: Options, counter: RequestCounter): Promise<{ csv: string; sha256: string }> => {
+const cachedRwCsv = async (options: Options, counter: RequestCounter): Promise<{ rowCount: number; byDoi: Map<string, RwNotice[]>; sha256: string }> => {
   const cache = join(options.out, 'cache', 'retractionwatch.csv');
   let csv: string | undefined;
   if (!options.refresh) {
@@ -87,7 +87,8 @@ const cachedRwCsv = async (options: Options, counter: RequestCounter): Promise<{
     csv = await fetchRetractionWatch(email, counter);
     await atomicWrite(cache, csv);
   }
-  return { csv, sha256: createHash('sha256').update(csv, 'utf8').digest('hex') };
+  const parsed = parseRetractionWatchCsv(csv);
+  return { ...parsed, sha256: createHash('sha256').update(csv, 'utf8').digest('hex') };
 };
 const atomicWrite = async (path: string, content: string): Promise<void> => {
   const temporary = `${path}.tmp-${process.pid}`;
@@ -96,7 +97,6 @@ const atomicWrite = async (path: string, content: string): Promise<void> => {
 };
 const jsonl = (rows: readonly Record<string, unknown>[], key: string): string =>
   `${[...rows].sort((left, right) => `${String(left[key] ?? '')}|${String(left.cited_id ?? left.source ?? '')}`.localeCompare(`${String(right[key] ?? '')}|${String(right.cited_id ?? right.source ?? '')}`)).map((row) => JSON.stringify(row)).join('\n')}\n`;
-
 const paperRow = (work: Paper, fetchedAt: string): WorkRow => ({
   paper_id: normalizeOpenAlexId(work.id), doi: normalizeDoi(work.doi), title: work.title,
   publication_year: work.publication_year, venue: work.primary_location?.source?.display_name ?? null,
@@ -170,7 +170,7 @@ const pageWorks = async (id: string, cap: number, counter: RequestCounter): Prom
   return works;
 };
 
-const chooseSeeds = async (limit: number, rw: Map<string, RwRow[]>, counter: RequestCounter): Promise<OpenAlexWork[]> => {
+const chooseSeeds = async (limit: number, rw: Map<string, RwNotice[]>, counter: RequestCounter): Promise<OpenAlexWork[]> => {
   const seeds: OpenAlexWork[] = [];
   for (let page = 1; page <= 3 && seeds.length < limit; page += 1) {
     const response = await findRetractedWorks(page, counter);
@@ -211,9 +211,9 @@ const gatherWorksAndEdges = async (seeds: OpenAlexWork[], options: Options, pape
 
 const resolveBatch = async (batch: readonly string[], papers: Map<string, Paper>, resolved: Set<string>, skipped: string[], cache: string, counter: RequestCounter, deadline: number): Promise<void> => {
   if (Date.now() >= deadline) { skipped.push(...batch); return; }
-  let response;
+  let resolvedWorks: Paper[];
   try {
-    response = await resolveWorks(batch, counter);
+    resolvedWorks = await resolveBatchWorks(batch, papers, resolved, counter);
   } catch {
     if (batch.length === 1) { skipped.push(batch[0] ?? ''); return; }
     const midpoint = Math.ceil(batch.length / 2);
@@ -221,12 +221,17 @@ const resolveBatch = async (batch: readonly string[], papers: Map<string, Paper>
     await resolveBatch(batch.slice(midpoint), papers, resolved, skipped, cache, counter, deadline);
     return;
   }
-  const resolvedWorks: Paper[] = [];
+  await appendWorksCache(cache, resolvedWorks);
+};
+
+const resolveBatchWorks = async (batch: readonly string[], papers: Map<string, Paper>, resolved: Set<string>, counter: RequestCounter): Promise<Paper[]> => {
+  const response = await resolveWorks(batch, counter);
+  const works: Paper[] = [];
   for (const work of response.results) {
     const paper = ensurePaper(papers, work);
-    if (paper) { resolved.add(paper.id); resolvedWorks.push(paper); }
+    if (paper) { resolved.add(paper.id); works.push(paper); }
   }
-  await appendWorksCache(cache, resolvedWorks);
+  return works;
 };
 
 const maxRunMinutes = (): number => {
@@ -248,7 +253,7 @@ const resolveReferences = async (papers: Map<string, Paper>, cache: string, coun
     if (Date.now() >= deadline) {
       const remaining = ids.slice(offset);
       skipped.push(...remaining);
-      process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+      reportReferenceStopped();
       break;
     }
     const batch = ids.slice(offset, offset + 100);
@@ -256,12 +261,22 @@ const resolveReferences = async (papers: Map<string, Paper>, cache: string, coun
     if (Date.now() >= deadline && offset + batch.length < ids.length) {
       const remaining = ids.slice(offset + batch.length);
       skipped.push(...remaining);
-      process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+      reportReferenceStopped();
       break;
     }
-    progress('references', Math.min(offset + batch.length, ids.length), ids.length);
+    reportReferenceProgress(Math.min(offset + batch.length, ids.length), ids.length);
   }
   return { resolved, skipped };
+};
+
+const reportReferenceProgress = (done: number, total: number): void => {
+  progress('references', done, total);
+  process.stderr.write(`${JSON.stringify({ step: 'memory', rss_mb: Number((process.memoryUsage().rss / 1_048_576).toFixed(1)) })}\n`);
+};
+
+const reportReferenceStopped = (): void => {
+  process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+  process.stderr.write(`${JSON.stringify({ step: 'memory', rss_mb: Number((process.memoryUsage().rss / 1_048_576).toFixed(1)) })}\n`);
 };
 
 const addReferenceEdges = (papers: Map<string, Paper>, resolved: Set<string>, edges: CiteRow[]): void => {
@@ -279,7 +294,7 @@ const formatDate = (parts?: number[][]): string | null => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-const retractionRows = async (papers: Map<string, Paper>, rw: Map<string, RwRow[]>, counter: RequestCounter): Promise<WorkRow[]> => {
+const retractionRows = async (papers: Map<string, Paper>, rw: Map<string, RwNotice[]>, counter: RequestCounter): Promise<WorkRow[]> => {
   const rows: WorkRow[] = [];
   const observedAt = new Date().toISOString();
   for (const paper of papers.values()) {
@@ -318,7 +333,7 @@ const crossrefRow = (paper: Paper, doi: string, message: CrossrefMessage | undef
 
 const counters = (): Counters => ({ openalex: { count: 0 }, crossref: { count: 0 }, semantic: { count: 0 }, rw: { count: 0 }, opencitations: { count: 0 }, unresolvedCiting: 0 });
 
-const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: RwRow[], sha256: string, calls: Counters, skipped: string[], contextsFailed: number): Promise<void> => {
+const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: number, sha256: string, calls: Counters, skipped: string[], contextsFailed: number): Promise<void> => {
   const snapshotId = options.snapshotId ?? snapshotIdNow();
   const parent = join(options.out, 'snapshots');
   const directory = join(parent, snapshotId);
@@ -329,7 +344,7 @@ const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges
   const paperRows = [...papers.values()].map((paper) => paperRow(paper, new Date().toISOString()));
   const uniqueEdges = [...new Map(edges.map((edge) => [`${edge.citing_id}|${edge.cited_id}`, edge])).values()];
   const uniqueRetractions = [...new Map(retractions.map((row) => [`${row.paper_id}|${row.source}`, row])).values()];
-  const manifest = { snapshot_id: snapshotId, built_at: new Date().toISOString(), seeds: seeds.map((seed) => normalizeOpenAlexId(seed.id)).filter(Boolean), counts: { papers: paperRows.length, cites: uniqueEdges.length, retractions: uniqueRetractions.length, contexts: uniqueEdges.filter((edge) => edge.context_snippet).length }, sources: { openalex: { requests: calls.openalex.count, skipped_reference_batches: skipped, ...(options.citingSource === 'opencitations' ? { unresolved_citing: calls.unresolvedCiting } : {}) }, ...(options.citingSource === 'opencitations' ? { opencitations: { requests: calls.opencitations.count } } : {}), retraction_watch: { requests: calls.rw.count, rows: rwRows.length, sha256 }, crossref: { requests: calls.crossref.count }, semantic_scholar: { requests: calls.semantic.count } }, params: { max_depth: 2, citing_per_seed: options.citing, seeds: options.seeds, refresh: options.refresh, ...(options.citingSource === 'opencitations' ? { citing_source: options.citingSource, max_references: options.maxReferences, ref_concurrency: options.refConcurrency } : {}), semantic_min_interval_ms: semanticMinInterval(), semantic_max_pages: semanticMaxPages() }, contexts_failed: contextsFailed };
+  const manifest = { snapshot_id: snapshotId, built_at: new Date().toISOString(), seeds: seeds.map((seed) => normalizeOpenAlexId(seed.id)).filter(Boolean), counts: { papers: paperRows.length, cites: uniqueEdges.length, retractions: uniqueRetractions.length, contexts: uniqueEdges.filter((edge) => edge.context_snippet).length }, sources: { openalex: { requests: calls.openalex.count, skipped_reference_batches: skipped, ...(options.citingSource === 'opencitations' ? { unresolved_citing: calls.unresolvedCiting } : {}) }, ...(options.citingSource === 'opencitations' ? { opencitations: { requests: calls.opencitations.count } } : {}), retraction_watch: { requests: calls.rw.count, rows: rwRows, sha256 }, crossref: { requests: calls.crossref.count }, semantic_scholar: { requests: calls.semantic.count } }, params: { max_depth: 2, citing_per_seed: options.citing, seeds: options.seeds, refresh: options.refresh, ...(options.citingSource === 'opencitations' ? { citing_source: options.citingSource, max_references: options.maxReferences, ref_concurrency: options.refConcurrency } : {}), semantic_min_interval_ms: semanticMinInterval(), semantic_max_pages: semanticMaxPages }, contexts_failed: contextsFailed };
   try {
     await atomicWrite(join(temporary, 'papers.jsonl'), jsonl(paperRows, 'paper_id'));
     await atomicWrite(join(temporary, 'cites.jsonl'), jsonl(uniqueEdges, 'citing_id'));
@@ -350,19 +365,18 @@ const run = async (options: Options): Promise<void> => {
   const papers = new Map<string, Paper>();
   const worksCache = await loadWorksCache(options.out, papers);
   const rwFile = await cachedRwCsv(snapshotOptions, calls.rw);
-  const rw = parseRetractionWatchCsv(rwFile.csv);
-  const result = await harvestGraph(options, snapshotOptions, rw.byDoi, papers, worksCache, calls, startedAt);
+  const result = await harvestGraph(options, snapshotOptions, rwFile.byDoi, papers, worksCache, calls, startedAt);
   const { seeds, graph, references } = result;
   const edges = graph.edges;
   addReferenceEdges(papers, references.resolved, edges);
   const contextsFailed = await runSemanticIfEnabled(seeds, graph.citations, edges, calls.semantic);
-  const retractions = await retractionRows(papers, rw.byDoi, calls.crossref);
-  await writeSnapshot(snapshotOptions, papers, edges, retractions, seeds, rw.rows, rwFile.sha256, calls, references.skipped, contextsFailed);
+  const retractions = await retractionRows(papers, rwFile.byDoi, calls.crossref);
+  await writeSnapshot(snapshotOptions, papers, edges, retractions, seeds, rwFile.rowCount, rwFile.sha256, calls, references.skipped, contextsFailed);
   const snapshotId = snapshotOptions.snapshotId;
-  console.log(JSON.stringify({ snapshot_id: snapshotId, papers: papers.size, cites: edges.length, retractions: retractions.length, skipped_references: references.skipped.length, contexts_failed: contextsFailed, sources: { openalex: calls.openalex.count, ...(calls.openalex.lastOpenAlexRateLimit?.remainingUsd || calls.openalex.lastOpenAlexRateLimit?.reset ? { openalex_rate_limit: { ...(calls.openalex.lastOpenAlexRateLimit.remainingUsd ? { 'x-ratelimit-remaining-usd': calls.openalex.lastOpenAlexRateLimit.remainingUsd } : {}), ...(calls.openalex.lastOpenAlexRateLimit.reset ? { 'x-ratelimit-reset': calls.openalex.lastOpenAlexRateLimit.reset } : {}) } } : {}), ...(options.citingSource === 'opencitations' ? { opencitations: { requests: calls.opencitations.count }, unresolved_citing: calls.unresolvedCiting } : {}), retraction_watch: { rows: rw.rows.length, sha256: rwFile.sha256 }, crossref: calls.crossref.count, semantic_scholar: calls.semantic.count } }));
+  console.log(JSON.stringify({ snapshot_id: snapshotId, papers: papers.size, cites: edges.length, retractions: retractions.length, skipped_references: references.skipped.length, contexts_failed: contextsFailed, sources: { openalex: calls.openalex.count, ...(calls.openalex.lastOpenAlexRateLimit?.remainingUsd || calls.openalex.lastOpenAlexRateLimit?.reset ? { openalex_rate_limit: { ...(calls.openalex.lastOpenAlexRateLimit.remainingUsd ? { 'x-ratelimit-remaining-usd': calls.openalex.lastOpenAlexRateLimit.remainingUsd } : {}), ...(calls.openalex.lastOpenAlexRateLimit.reset ? { 'x-ratelimit-reset': calls.openalex.lastOpenAlexRateLimit.reset } : {}) } } : {}), ...(options.citingSource === 'opencitations' ? { opencitations: { requests: calls.opencitations.count }, unresolved_citing: calls.unresolvedCiting } : {}), retraction_watch: { rows: rwFile.rowCount, sha256: rwFile.sha256 }, crossref: calls.crossref.count, semantic_scholar: calls.semantic.count } }));
 };
 
-const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<string, RwRow[]>, papers: Map<string, Paper>, cache: string, calls: Counters, startedAt: number) => {
+const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<string, RwNotice[]>, papers: Map<string, Paper>, cache: string, calls: Counters, startedAt: number) => {
   const seeds = await selectSeeds(options, rw, papers, calls.openalex);
   const graph = await gatherGraph(options, snapshotOptions, seeds, papers, cache, calls);
   const references = await resolveGraphReferences(options, papers, graph, cache, calls.openalex, startedAt);
@@ -370,8 +384,8 @@ const harvestGraph = async (options: Options, snapshotOptions: Options, rw: Map<
   return { seeds, graph, references };
 };
 
-const selectSeeds = (options: Options, rw: Map<string, RwRow[]>, papers: Map<string, Paper>, counter: RequestCounter): Promise<OpenAlexWork[]> | OpenAlexWork[] =>
-  options.citingSource === 'openalex' ? chooseSeeds(options.seeds, rw, counter) : cachedRetractionSeeds(papers, options.seeds).map(workFromCache);
+const selectSeeds = async (options: Options, rw: Map<string, RwNotice[]>, papers: Map<string, Paper>, counter: RequestCounter): Promise<OpenAlexWork[]> =>
+  options.citingSource === 'openalex' ? chooseSeeds(options.seeds, rw, counter) : cachedRetractionSeeds(papers, options.seeds).map((paper) => workFromCache(paper));
 
 const gatherGraph = (options: Options, snapshotOptions: Options, seeds: OpenAlexWork[], papers: Map<string, Paper>, cache: string, calls: Counters) =>
   options.citingSource === 'openalex'

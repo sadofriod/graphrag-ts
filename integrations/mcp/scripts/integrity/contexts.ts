@@ -3,10 +3,11 @@ import { fetchSemanticPage, type OpenAlexWork, type RequestCounter, type Semanti
 
 export type ContextEdge = Record<string, unknown> & { citing_id: string; cited_id: string };
 
-const maxPages = (): number => {
-  const configured = Number(process.env.SEMANTIC_MAX_PAGES ?? 2);
-  return Number.isSafeInteger(configured) && configured > 0 ? configured : 2;
-};
+const configuredMaxPages = Number(process.env.SEMANTIC_MAX_PAGES ?? 2);
+if (!Number.isSafeInteger(configuredMaxPages) || configuredMaxPages < 1) {
+  throw new Error('SEMANTIC_MAX_PAGES must be a positive integer.');
+}
+export const semanticMaxPages = configuredMaxPages;
 
 export const semanticContexts = async (seeds: OpenAlexWork[], citations: Map<string, OpenAlexWork[]>, edges: ContextEdge[], counter: RequestCounter): Promise<number> => {
   let failed = 0;
@@ -43,7 +44,7 @@ const indexEdges = (id: string, works: OpenAlexWork[], edges: ContextEdge[]): Ma
 
 const readSemanticPages = async (doi: string, edges: Map<string, ContextEdge>, counter: RequestCounter): Promise<void> => {
   let offset = 0;
-  for (let page = 0; page < maxPages(); page += 1) {
+  for (let page = 0; page < semanticMaxPages; page += 1) {
     const response = await fetchSemanticPage(doi, offset, counter);
     for (const citation of response.data ?? []) applyCitation(citation, edges, doi);
     if (response.next == null || [...edges.values()].every((edge) => edge.context_snippet)) break;

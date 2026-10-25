@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeDoi } from './classify.ts';
+import { normalizeRetractionDate, type RwNotice } from './retractionwatch.ts';
 
 export type OpenAlexWork = {
   id: string;
@@ -19,7 +20,6 @@ export type RequestCounter = {
 };
 type OpenAlexResponse = { results: OpenAlexWork[]; meta?: { count?: number } };
 export type OpenCitationsCiting = { doi: string | null; openalexId: string | null };
-export type RwRow = Record<string, string>;
 
 const retryWait = (attempt: number): number => Math.min(500 * (2 ** (attempt - 1)), 4000);
 const isNonRetryableClientError = (error: unknown): error is Error =>
@@ -122,47 +122,85 @@ export const resolveWorks = (ids: readonly string[], counter: RequestCounter): P
 export const fetchRetractionWatch = (email: string, counter: RequestCounter): Promise<string> =>
   fetchText(`https://api.labs.crossref.org/data/retractionwatch?${encodeURIComponent(email)}`, counter);
 
-type CsvParserState = { rows: string[][]; row: string[]; field: string; quoted: boolean };
-const finishCsvRow = (state: CsvParserState): void => {
-  state.row.push(state.field); state.field = '';
-  if (state.row.some((cell) => cell.length > 0)) state.rows.push(state.row);
-  state.row = [];
+type CsvParser = { quoted: boolean; column: number; header: string[]; field: string; selected: Record<string, string>; rowCount: number; rowHasValue: boolean; byDoi: Map<string, RwNotice[]> };
+const selectedColumns = new Set(['OriginalPaperDOI', 'RetractionDate', 'Reason', 'RetractionNature']);
+
+const saveCsvField = (parser: CsvParser): void => {
+  if (parser.field.length > 0) parser.rowHasValue = true;
+  if (parser.rowCount === 0) parser.header.push(parser.field);
+  else {
+    const name = parser.header[parser.column];
+    if (name && selectedColumns.has(name)) parser.selected[name] = parser.field;
+  }
+  parser.field = '';
+  parser.column += 1;
 };
 
-const consumeQuotedCsvCharacter = (input: string, index: number, state: CsvParserState): number | undefined => {
-  if (input[index] !== '"') return undefined;
-  if (state.quoted && input[index + 1] === '"') { state.field += '"'; return index + 1; }
-  state.quoted = !state.quoted;
+const saveCsvRow = (parser: CsvParser): void => {
+  saveCsvField(parser);
+  if (parser.rowCount > 0 && !parser.rowHasValue) { resetCsvRow(parser); return; }
+  if (parser.rowCount === 0) parser.header = parser.header.map((field) => field.replace(/^\uFEFF/, ''));
+  else saveNotice(parser);
+  parser.rowCount += 1;
+  resetCsvRow(parser);
+};
+
+const resetCsvRow = (parser: CsvParser): void => {
+  parser.column = 0;
+  parser.selected = {};
+  parser.rowHasValue = false;
+};
+
+const saveNotice = (parser: CsvParser): void => {
+  const doi = normalizeDoi(parser.selected.OriginalPaperDOI);
+  if (!doi) return;
+  const row: RwNotice = {
+    date: normalizeRetractionDate(parser.selected.RetractionDate),
+    reason: parser.selected.Reason?.trim() || null,
+    nature: parser.selected.RetractionNature?.trim() || null,
+  };
+  const existing = parser.byDoi.get(doi);
+  if (existing) existing.push(row);
+  else parser.byDoi.set(doi, [row]);
+};
+
+const keepFieldCharacter = (parser: CsvParser): boolean => parser.rowCount === 0 || selectedColumns.has(parser.header[parser.column] ?? '');
+
+const consumeCsvCharacter = (csv: string, index: number, parser: CsvParser): number => {
+  const char = csv[index] ?? '';
+  if (char === '"' && parser.quoted && csv[index + 1] === '"') return consumeEscapedQuote(index, parser);
+  if (char === '"') parser.quoted = !parser.quoted;
+  else if (char === ',' && !parser.quoted) saveCsvField(parser);
+  else if ((char === '\r' || char === '\n') && !parser.quoted) return consumeLineBreak(csv, index, parser);
+  else {
+    parser.rowHasValue = true;
+    if (keepFieldCharacter(parser)) parser.field += char;
+  }
   return index;
 };
 
-const consumeCsvCharacter = (input: string, index: number, state: CsvParserState): number => {
-  const char = input[index] ?? '';
-  const quoteIndex = consumeQuotedCsvCharacter(input, index, state);
-  if (quoteIndex !== undefined) return quoteIndex;
-  if (char === ',' && !state.quoted) { state.row.push(state.field); state.field = ''; return index; }
-  if ((char === '\n' || char === '\r') && !state.quoted) {
-    if (char === '\r' && input[index + 1] === '\n') index += 1;
-    finishCsvRow(state); return index;
-  }
-  state.field += char; return index;
+const consumeEscapedQuote = (index: number, parser: CsvParser): number => {
+  parser.rowHasValue = true;
+  if (keepFieldCharacter(parser)) parser.field += '"';
+  return index + 1;
 };
-const splitCsv = (input: string): string[][] => {
-  const state: CsvParserState = { rows: [], row: [], field: '', quoted: false };
-  for (let index = 0; index < input.length; index += 1) index = consumeCsvCharacter(input, index, state);
-  if (state.field || state.row.length) { state.row.push(state.field); state.rows.push(state.row); }
-  return state.rows;
+
+const consumeLineBreak = (csv: string, index: number, parser: CsvParser): number => {
+  if (csv[index] === '\r' && csv[index + 1] === '\n') index += 1;
+  saveCsvRow(parser);
+  return index;
 };
-export const parseRetractionWatchCsv = (csv: string): { rows: RwRow[]; byDoi: Map<string, RwRow[]> } => {
-  const parsed = splitCsv(csv.replace(/^\uFEFF/, ''));
-  const headers = parsed.shift() ?? [];
-  const rows = parsed.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ''])));
-  const byDoi = new Map<string, RwRow[]>();
-  for (const row of rows) {
-    const doi = normalizeDoi(row.OriginalPaperDOI);
-    if (doi) byDoi.set(doi, [...(byDoi.get(doi) ?? []), row]);
-  }
-  return { rows, byDoi };
+
+const consumeCsv = (csv: string, parser: CsvParser): void => {
+  for (let index = 0; index < csv.length; index += 1) index = consumeCsvCharacter(csv, index, parser);
+  if (parser.field.length || parser.column || parser.selected.OriginalPaperDOI) saveCsvRow(parser);
+};
+
+export const parseRetractionWatchCsv = (csv: string): { rowCount: number; byDoi: Map<string, RwNotice[]> } => {
+  const parser: CsvParser = { quoted: false, column: 0, header: [], field: '', selected: {}, rowCount: 0, rowHasValue: false, byDoi: new Map() };
+  consumeCsv(csv, parser);
+  console.log(JSON.stringify({ step: 'memory', rss_mb: Number((process.memoryUsage().rss / 1_048_576).toFixed(1)) }));
+  return { rowCount: Math.max(0, parser.rowCount - 1), byDoi: parser.byDoi };
 };
 
 export type CrossrefMessage = { DOI?: string; 'updated-by'?: { DOI?: string; type?: string; label?: string; source?: string; updated?: { 'date-parts'?: number[][] }; 'record-id'?: string }[] };

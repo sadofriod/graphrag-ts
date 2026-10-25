@@ -1,4 +1,4 @@
-import type { RwRow } from './sources.ts';
+export type RwNotice = { date: string | null; reason: string | null; nature: string | null };
 
 export type SelectedRwNotice = { is_retracted: boolean; date: string | null; reason: string | null; nature: string | null };
 
@@ -23,22 +23,22 @@ export const normalizeRetractionDate = (raw: string | undefined): string | null 
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : null;
 };
 
-const isRetraction = (row: RwRow): boolean => {
-  const nature = row.RetractionNature?.trim() ?? '';
+const isRetraction = (row: RwNotice): boolean => {
+  const nature = row.nature?.trim() ?? '';
   return !/reinstatement/i.test(nature) && /retraction/i.test(nature);
 };
 
-const latestRow = (rows: readonly RwRow[]): RwRow | undefined =>
-  [...rows].sort((left, right) => dateValue(right.RetractionDate) - dateValue(left.RetractionDate))[0];
+const latestRow = (rows: readonly RwNotice[]): RwNotice | undefined =>
+  [...rows].sort((left, right) => dateValue(right.date ?? undefined) - dateValue(left.date ?? undefined))[0];
 
-export const selectRetractionWatchRow = (rows: readonly RwRow[]): SelectedRwNotice | undefined => {
+export const selectRetractionWatchRow = (rows: readonly RwNotice[]): SelectedRwNotice | undefined => {
   if (!rows.length) return undefined;
   const selected = latestRow(rows.filter(isRetraction)) ?? latestRow(rows);
   if (!selected) return undefined;
   return {
     is_retracted: rows.some(isRetraction),
-    date: normalizeRetractionDate(selected.RetractionDate),
-    reason: selected.Reason?.trim() || null,
-    nature: selected.RetractionNature?.trim() || null,
+    date: selected.date,
+    reason: selected.reason?.trim() || null,
+    nature: selected.nature?.trim() || null,
   };
 };

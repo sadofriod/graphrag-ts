@@ -33,14 +33,14 @@ const appendCachedPaper = async (cache: string, paper: HarvestPaper): Promise<vo
   await cacheWrite;
 };
 
-export const cachedRetractionSeeds = (papers: Map<string, HarvestPaper>, limit: number): OpenAlexWork[] => {
+export const cachedRetractionSeeds = (papers: Map<string, HarvestPaper>, limit: number): HarvestPaper[] => {
   const seeds = [...papers.values()].filter((paper) => paper.is_retracted)
     .sort((left, right) => (right.cited_by_count ?? 0) - (left.cited_by_count ?? 0)).slice(0, limit);
   if (!seeds.length) throw new Error('No retracted works with OpenAlex flags found in cache/works.jsonl.');
-  return seeds.map((paper) => ({ ...paper, id: openAlexEntityUri(paper.id) }));
+  return seeds;
 };
 
-export const workFromCache = (paper: HarvestPaper): OpenAlexWork => ({ ...paper, id: openAlexEntityUri(paper.id) });
+export const workFromCache = (paper: HarvestPaper): OpenAlexWork => ({ ...paper, id: openAlexEntityUri(paper.id), referenced_works: paper.referenced_works });
 
 export const gatherOpenCitations = async (seeds: OpenAlexWork[], cap: number, callbacks: PaperCallbacks, openalex: RequestCounter, opencitations: RequestCounter): Promise<GraphResult> => {
   const result: GraphResult = { citations: new Map(), edges: [], sourcePaperIds: new Set(), unresolvedCiting: 0 };
@@ -98,7 +98,7 @@ export const resolveReferenceEntities = async (papers: Map<string, HarvestPaper>
   skipped.push(...[...references].filter((id) => !papers.has(id) && !ids.includes(id)));
   if (Date.now() >= deadline && cursor < ids.length) {
     skipped.push(...ids.slice(cursor).filter((id) => !papers.has(id)));
-    process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+    reportReferenceStopped();
   }
   return { resolved, skipped: [...new Set(skipped)] };
 };
@@ -116,16 +116,30 @@ const getReferenceIds = (papers: Map<string, HarvestPaper>, sourceIds: Set<strin
 
 const resolveConcurrently = async (ids: string[], papers: Map<string, HarvestPaper>, concurrency: number, deadline: number, counter: RequestCounter, callbacks: PaperCallbacks, resolved: Set<string>, skipped: string[]): Promise<number> => {
   let cursor = 0;
+  let nextProgress = 100;
   const worker = async (): Promise<void> => {
     while (cursor < ids.length && Date.now() < deadline) {
       const id = ids[cursor++];
       if (!id) continue;
       await resolveOne(id, callbacks, counter, resolved, skipped);
-      if (cursor % concurrency === 0 || cursor === ids.length) process.stderr.write(`${JSON.stringify({ step: 'references', done: cursor, total: ids.length })}\n`);
+      if (cursor >= nextProgress || cursor === ids.length) {
+        reportReferenceProgress(cursor, ids.length);
+        nextProgress = Math.ceil((cursor + 1) / 100) * 100;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, ids.length) }, () => worker()));
   return cursor;
+};
+
+const reportReferenceProgress = (done: number, total: number): void => {
+  process.stderr.write(`${JSON.stringify({ step: 'references', done, total })}\n`);
+  process.stderr.write(`${JSON.stringify({ step: 'memory', rss_mb: Number((process.memoryUsage().rss / 1_048_576).toFixed(1)) })}\n`);
+};
+
+const reportReferenceStopped = (): void => {
+  process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+  process.stderr.write(`${JSON.stringify({ step: 'memory', rss_mb: Number((process.memoryUsage().rss / 1_048_576).toFixed(1)) })}\n`);
 };
 
 const resolveOne = async (id: string, callbacks: PaperCallbacks, counter: RequestCounter, resolved: Set<string>, skipped: string[]): Promise<void> => {
