@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { classifyContext, normalizeDoi, normalizeOpenAlexId } from './classify.ts';
 import {
   fetchCitingWorks, fetchCrossref, fetchRetractionWatch, fetchSemanticPage, findRetractedWorks,
-  resolveWorks, type CrossrefMessage, type OpenAlexWork, type RequestCounter, type SemanticCitation,
+  parseRetractionWatchCsv, resolveWorks, semanticMinInterval, type CrossrefMessage, type OpenAlexWork, type RequestCounter, type SemanticCitation,
 } from './sources.ts';
 
 type Options = { out: string; seeds: number; citing: number; snapshotId?: string; refresh: boolean };
@@ -59,64 +59,6 @@ const progress = (step: string, done: number, total: number): void => {
   process.stderr.write(`${JSON.stringify({ step, done, total })}\n`);
 };
 
-type CsvParserState = { rows: string[][]; row: string[]; field: string; quoted: boolean };
-
-const finishCsvRow = (state: CsvParserState): void => {
-  state.row.push(state.field);
-  state.field = '';
-  if (state.row.some((cell) => cell.length > 0)) state.rows.push(state.row);
-  state.row = [];
-};
-
-const isEscapedQuote = (input: string, index: number, state: CsvParserState): boolean =>
-  input[index] === '"' && state.quoted && input[index + 1] === '"';
-
-const consumeCsvCharacter = (input: string, index: number, state: CsvParserState): number => {
-  const char = input[index] ?? '';
-  if (isEscapedQuote(input, index, state)) {
-    state.field += '"';
-    return index + 1;
-  }
-  if (char === '"') {
-    state.quoted = !state.quoted;
-    return index;
-  }
-  if (char === ',' && !state.quoted) {
-    state.row.push(state.field);
-    state.field = '';
-    return index;
-  }
-  if ((char === '\n' || char === '\r') && !state.quoted) {
-    if (char === '\r' && input[index + 1] === '\n') index += 1;
-    finishCsvRow(state);
-    return index;
-  }
-  state.field += char;
-  return index;
-};
-
-const splitCsv = (input: string): string[][] => {
-  const state: CsvParserState = { rows: [], row: [], field: '', quoted: false };
-  for (let index = 0; index < input.length; index += 1) index = consumeCsvCharacter(input, index, state);
-  if (state.field || state.row.length) {
-    state.row.push(state.field);
-    state.rows.push(state.row);
-  }
-  return state.rows;
-};
-
-const readRwRows = (csv: string): { rows: CsvRow[]; byDoi: Map<string, RwInfo> } => {
-  const parsed = splitCsv(csv.replace(/^\uFEFF/, ''));
-  const headers = parsed.shift() ?? [];
-  const rows = parsed.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ''])));
-  const byDoi = new Map<string, RwInfo>();
-  for (const row of rows) {
-    const doi = normalizeDoi(row.OriginalPaperDOI);
-    if (doi) byDoi.set(doi, { date: row.RetractionDate || null, reason: row.Reason || null, nature: row.RetractionNature || null });
-  }
-  return { rows, byDoi };
-};
-
 const snapshotIdNow = (date = new Date()): string => {
   const pad = (value: number): string => String(value).padStart(2, '0');
   return `ri-${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}`;
@@ -158,6 +100,51 @@ const paperRow = (work: Paper, fetchedAt: string): WorkRow => ({
   source_uri: work.id, source_tier: 'C', extraction_confidence: 1.0, fetched_at: fetchedAt,
   reference_ids: work.referenced_works.map((id) => normalizeOpenAlexId(id)).filter(Boolean), reference_count: work.referenced_works.length,
 });
+
+const paperFromCacheRow = (row: Record<string, unknown>): Paper => {
+  const id = String(row.paper_id ?? '');
+  const venue = typeof row.venue === 'string' ? row.venue : null;
+  return {
+    id, doi: typeof row.doi === 'string' ? row.doi : null,
+    title: typeof row.title === 'string' ? row.title : null,
+    publication_year: typeof row.publication_year === 'number' ? row.publication_year : null,
+    cited_by_count: typeof row.cited_by_count === 'number' ? row.cited_by_count : null,
+    is_retracted: row.openalex_is_retracted === true,
+    referenced_works: [],
+    primary_location: venue ? { source: { display_name: venue } } : null,
+  };
+};
+
+const loadWorksCache = async (out: string, papers: Map<string, Paper>): Promise<string> => {
+  const cache = join(out, 'cache', 'works.jsonl');
+  await mkdir(join(out, 'cache'), { recursive: true });
+  try {
+    const lines = (await Bun.file(cache).text()).split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line) as Record<string, unknown>;
+        const paper = paperFromCacheRow(row);
+        if (!normalizeOpenAlexId(paper.id)) throw new Error('missing paper_id');
+        ensurePaper(papers, paper);
+      } catch (error) {
+        process.stderr.write(`${JSON.stringify({ step: 'cache', warning: `Skipping malformed works cache line ${index + 1}: ${String(error)}` })}\n`);
+      }
+    }
+  } catch { /* first run has no cache */ }
+  process.stderr.write(`${JSON.stringify({ step: 'cache', papers: papers.size })}\n`);
+  return cache;
+};
+
+const appendWorksCache = async (path: string, works: readonly Paper[]): Promise<void> => {
+  if (!works.length) return;
+  const fetchedAt = new Date().toISOString();
+  const content = `${works.map((work) => JSON.stringify(paperRow(work, fetchedAt))).join('\n')}\n`;
+  const file = await open(path, 'a');
+  try { await file.writeFile(content, 'utf8'); await file.sync(); }
+  finally { await file.close(); }
+};
 
 const ensurePaper = (map: Map<string, Paper>, work: OpenAlexWork): Paper | undefined => {
   const id = normalizeOpenAlexId(work.id);
@@ -214,22 +201,32 @@ const gatherWorksAndEdges = async (seeds: OpenAlexWork[], options: Options, pape
   return { citations, edges };
 };
 
-const resolveBatch = async (batch: readonly string[], papers: Map<string, Paper>, resolved: Set<string>, skipped: string[], counter: RequestCounter): Promise<void> => {
+const resolveBatch = async (batch: readonly string[], papers: Map<string, Paper>, resolved: Set<string>, skipped: string[], cache: string, counter: RequestCounter, deadline: number): Promise<void> => {
+  if (Date.now() >= deadline) { skipped.push(...batch); return; }
+  let response;
   try {
-    const response = await resolveWorks(batch, counter);
-    for (const work of response.results) {
-      const paper = ensurePaper(papers, work);
-      if (paper) resolved.add(paper.id);
-    }
+    response = await resolveWorks(batch, counter);
   } catch {
     if (batch.length === 1) { skipped.push(batch[0] ?? ''); return; }
     const midpoint = Math.ceil(batch.length / 2);
-    await resolveBatch(batch.slice(0, midpoint), papers, resolved, skipped, counter);
-    await resolveBatch(batch.slice(midpoint), papers, resolved, skipped, counter);
+    await resolveBatch(batch.slice(0, midpoint), papers, resolved, skipped, cache, counter, deadline);
+    await resolveBatch(batch.slice(midpoint), papers, resolved, skipped, cache, counter, deadline);
+    return;
   }
+  const resolvedWorks: Paper[] = [];
+  for (const work of response.results) {
+    const paper = ensurePaper(papers, work);
+    if (paper) { resolved.add(paper.id); resolvedWorks.push(paper); }
+  }
+  await appendWorksCache(cache, resolvedWorks);
 };
 
-const resolveReferences = async (papers: Map<string, Paper>, counter: RequestCounter): Promise<{ resolved: Set<string>; skipped: string[] }> => {
+const maxRunMinutes = (): number => {
+  const configured = Number(process.env.MAX_RUN_MINUTES ?? 45);
+  return Number.isFinite(configured) && configured > 0 ? configured : 45;
+};
+
+const resolveReferences = async (papers: Map<string, Paper>, cache: string, counter: RequestCounter, startedAt: number): Promise<{ resolved: Set<string>; skipped: string[] }> => {
   const references = new Set<string>();
   for (const paper of papers.values()) for (const id of paper.referenced_works) {
     const normalized = normalizeOpenAlexId(id);
@@ -238,9 +235,22 @@ const resolveReferences = async (papers: Map<string, Paper>, counter: RequestCou
   const ids = [...references].filter((id) => !papers.has(id));
   const resolved = new Set([...references].filter((id) => papers.has(id)));
   const skipped: string[] = [];
+  const deadline = startedAt + maxRunMinutes() * 60_000;
   for (let offset = 0; offset < ids.length; offset += 100) {
+    if (Date.now() >= deadline) {
+      const remaining = ids.slice(offset);
+      skipped.push(...remaining);
+      process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+      break;
+    }
     const batch = ids.slice(offset, offset + 100);
-    await resolveBatch(batch, papers, resolved, skipped, counter);
+    await resolveBatch(batch, papers, resolved, skipped, cache, counter, deadline);
+    if (Date.now() >= deadline && offset + batch.length < ids.length) {
+      const remaining = ids.slice(offset + batch.length);
+      skipped.push(...remaining);
+      process.stderr.write(`${JSON.stringify({ step: 'references', stopped: 'max_run_minutes' })}\n`);
+      break;
+    }
     progress('references', Math.min(offset + batch.length, ids.length), ids.length);
   }
   return { resolved, skipped };
@@ -305,7 +315,13 @@ const addContext = (edge: CiteRow, snippet: string, doi: string): void => {
   edge.context_source_uri = `https://api.semanticscholar.org/graph/v1/paper/DOI:${encodeURIComponent(doi)}/citations`;
 };
 
-const semanticContexts = async (seeds: OpenAlexWork[], citations: Map<string, OpenAlexWork[]>, edges: CiteRow[], counter: RequestCounter): Promise<void> => {
+const semanticMaxPages = (): number => {
+  const configured = Number(process.env.SEMANTIC_MAX_PAGES ?? 2);
+  return Number.isSafeInteger(configured) && configured > 0 ? configured : 2;
+};
+
+const semanticContexts = async (seeds: OpenAlexWork[], citations: Map<string, OpenAlexWork[]>, edges: CiteRow[], counter: RequestCounter): Promise<number> => {
+  let failed = 0;
   for (let index = 0; index < seeds.length; index += 1) {
     const seed = seeds[index];
     const doi = normalizeDoi(seed?.doi);
@@ -313,20 +329,30 @@ const semanticContexts = async (seeds: OpenAlexWork[], citations: Map<string, Op
     if (!doi || !id) continue;
     const works = citations.get(id) ?? [];
     if (!works.length) { progress('contexts', index + 1, seeds.length); continue; }
-    const edgesByDoi = new Map<string, CiteRow>();
-    for (const work of works) {
-      const edge = edges.find((candidate) => candidate.cited_id === id && candidate.citing_id === normalizeOpenAlexId(work.id));
-      const citingDoi = normalizeDoi(work.doi);
-      if (edge && citingDoi) edgesByDoi.set(citingDoi, edge);
-    }
-    await readSemanticPages(doi, edgesByDoi, counter);
+    failed += await collectSeedContexts(doi, id, works, edges, counter);
     progress('contexts', index + 1, seeds.length);
+  }
+  return failed;
+};
+
+const collectSeedContexts = async (doi: string, id: string, works: OpenAlexWork[], edges: CiteRow[], counter: RequestCounter): Promise<number> => {
+  const edgesByDoi = new Map<string, CiteRow>();
+  for (const work of works) {
+    const edge = edges.find((candidate) => candidate.cited_id === id && candidate.citing_id === normalizeOpenAlexId(work.id));
+    const citingDoi = normalizeDoi(work.doi);
+    if (edge && citingDoi) edgesByDoi.set(citingDoi, edge);
+  }
+  try { await readSemanticPages(doi, edgesByDoi, counter); return 0; }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${JSON.stringify({ step: 'contexts', seed: id, error: message })}\n`);
+    return 1;
   }
 };
 
 const readSemanticPages = async (doi: string, edges: Map<string, CiteRow>, counter: RequestCounter): Promise<void> => {
   let offset = 0;
-  while (true) {
+  for (let pageNumber = 0; pageNumber < semanticMaxPages(); pageNumber += 1) {
     const page = await fetchSemanticPage(doi, offset, counter);
     for (const citation of page.data ?? []) applySemanticCitation(citation, edges, doi);
     if (page.next === undefined || page.next === null || [...edges.values()].every((edge) => edge.context_snippet)) break;
@@ -343,7 +369,7 @@ const applySemanticCitation = (citation: SemanticCitation, edges: Map<string, Ci
 
 const counters = (): Counters => ({ openalex: { count: 0 }, crossref: { count: 0 }, semantic: { count: 0 }, rw: { count: 0 } });
 
-const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: CsvRow[], sha256: string, calls: Counters, skipped: string[]): Promise<void> => {
+const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges: CiteRow[], retractions: WorkRow[], seeds: OpenAlexWork[], rwRows: CsvRow[], sha256: string, calls: Counters, skipped: string[], contextsFailed: number): Promise<void> => {
   const snapshotId = options.snapshotId ?? snapshotIdNow();
   const parent = join(options.out, 'snapshots');
   const directory = join(parent, snapshotId);
@@ -354,7 +380,7 @@ const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges
   const paperRows = [...papers.values()].map((paper) => paperRow(paper, new Date().toISOString()));
   const uniqueEdges = [...new Map(edges.map((edge) => [`${edge.citing_id}|${edge.cited_id}`, edge])).values()];
   const uniqueRetractions = [...new Map(retractions.map((row) => [`${row.paper_id}|${row.source}`, row])).values()];
-  const manifest = { snapshot_id: snapshotId, built_at: new Date().toISOString(), seeds: seeds.map((seed) => normalizeOpenAlexId(seed.id)).filter(Boolean), counts: { papers: paperRows.length, cites: uniqueEdges.length, retractions: uniqueRetractions.length, contexts: uniqueEdges.filter((edge) => edge.context_snippet).length }, sources: { openalex: { requests: calls.openalex.count, skipped_reference_batches: skipped }, retraction_watch: { requests: calls.rw.count, rows: rwRows.length, sha256 }, crossref: { requests: calls.crossref.count }, semantic_scholar: { requests: calls.semantic.count } }, params: { max_depth: 2, citing_per_seed: options.citing, seeds: options.seeds, refresh: options.refresh } };
+  const manifest = { snapshot_id: snapshotId, built_at: new Date().toISOString(), seeds: seeds.map((seed) => normalizeOpenAlexId(seed.id)).filter(Boolean), counts: { papers: paperRows.length, cites: uniqueEdges.length, retractions: uniqueRetractions.length, contexts: uniqueEdges.filter((edge) => edge.context_snippet).length }, sources: { openalex: { requests: calls.openalex.count, skipped_reference_batches: skipped }, retraction_watch: { requests: calls.rw.count, rows: rwRows.length, sha256 }, crossref: { requests: calls.crossref.count }, semantic_scholar: { requests: calls.semantic.count } }, params: { max_depth: 2, citing_per_seed: options.citing, seeds: options.seeds, refresh: options.refresh, semantic_min_interval_ms: semanticMinInterval(), semantic_max_pages: semanticMaxPages() }, contexts_failed: contextsFailed };
   try {
     await atomicWrite(join(temporary, 'papers.jsonl'), jsonl(paperRows, 'paper_id'));
     await atomicWrite(join(temporary, 'cites.jsonl'), jsonl(uniqueEdges, 'citing_id'));
@@ -368,20 +394,23 @@ const writeSnapshot = async (options: Options, papers: Map<string, Paper>, edges
 }
 
 const run = async (options: Options): Promise<void> => {
+  const startedAt = Date.now();
+  process.stderr.write(`${JSON.stringify({ step: 'auth', openalex_api_key: Boolean(process.env.OPENALEX_API_KEY) })}\n`);
   const snapshotOptions = { ...options, snapshotId: options.snapshotId ?? snapshotIdNow() };
   const calls = counters();
-  const rwFile = await cachedRwCsv(snapshotOptions, calls.rw);
-  const rw = readRwRows(rwFile.csv);
-  const seeds = await chooseSeeds(options.seeds, rw.byDoi, calls.openalex);
   const papers = new Map<string, Paper>();
+  const worksCache = await loadWorksCache(options.out, papers);
+  const rwFile = await cachedRwCsv(snapshotOptions, calls.rw);
+  const rw = parseRetractionWatchCsv(rwFile.csv);
+  const seeds = await chooseSeeds(options.seeds, rw.byDoi, calls.openalex);
   const { edges, citations } = await gatherWorksAndEdges(seeds, snapshotOptions, papers, calls.openalex);
-  const references = await resolveReferences(papers, calls.openalex);
+  const references = await resolveReferences(papers, worksCache, calls.openalex, startedAt);
   addReferenceEdges(papers, references.resolved, edges);
-  await semanticContexts(seeds, citations, edges, calls.semantic);
+  const contextsFailed = await semanticContexts(seeds, citations, edges, calls.semantic);
   const retractions = await retractionRows(papers, rw.byDoi, calls.crossref);
-  await writeSnapshot(snapshotOptions, papers, edges, retractions, seeds, rw.rows, rwFile.sha256, calls, references.skipped);
+  await writeSnapshot(snapshotOptions, papers, edges, retractions, seeds, rw.rows, rwFile.sha256, calls, references.skipped, contextsFailed);
   const snapshotId = snapshotOptions.snapshotId;
-  console.log(JSON.stringify({ snapshot_id: snapshotId, papers: papers.size, cites: edges.length, retractions: retractions.length, skipped_references: references.skipped.length, sources: { openalex: calls.openalex.count, retraction_watch: { rows: rw.rows.length, sha256: rwFile.sha256 }, crossref: calls.crossref.count, semantic_scholar: calls.semantic.count } }));
+  console.log(JSON.stringify({ snapshot_id: snapshotId, papers: papers.size, cites: edges.length, retractions: retractions.length, skipped_references: references.skipped.length, contexts_failed: contextsFailed, sources: { openalex: calls.openalex.count, ...(calls.openalex.lastOpenAlexRateLimit?.remainingUsd || calls.openalex.lastOpenAlexRateLimit?.reset ? { openalex_rate_limit: { ...(calls.openalex.lastOpenAlexRateLimit.remainingUsd ? { 'x-ratelimit-remaining-usd': calls.openalex.lastOpenAlexRateLimit.remainingUsd } : {}), ...(calls.openalex.lastOpenAlexRateLimit.reset ? { 'x-ratelimit-reset': calls.openalex.lastOpenAlexRateLimit.reset } : {}) } } : {}), retraction_watch: { rows: rw.rows.length, sha256: rwFile.sha256 }, crossref: calls.crossref.count, semantic_scholar: calls.semantic.count } }));
 };
 
 if (import.meta.main) {
