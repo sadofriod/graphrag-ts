@@ -1,5 +1,12 @@
 FROM node:22-bookworm-slim AS build
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Prisma detects the openssl flavour at generate time; the runtime stage is
+# Debian 12 (openssl 3.0), so the build stage must match or the generated
+# query engine targets debian-openssl-1.1.x and fails to load.
 RUN npm i -g bun@1.3.14 pnpm@10.22.0
 
 WORKDIR /build
