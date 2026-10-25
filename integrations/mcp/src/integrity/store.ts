@@ -122,7 +122,8 @@ const coverage = async (pool: Pool, paperId: string): Promise<CoverageRecord> =>
   );
   const row = result.rows[0];
   const references = Number(row?.reference_count ?? 0); const resolved = Number(row?.resolved ?? 0);
-  return { references, resolved, ratio: references === 0 ? 1 : resolved / references };
+  const indexed = references > 0 && resolved >= 0;
+  return { references, resolved, ratio: indexed ? resolved / references : 0, indexed };
 };
 
 const pathsToRetracted = async (pool: Pool, paperId: string, maxDepth: number): Promise<readonly RetractionPath[]> => {

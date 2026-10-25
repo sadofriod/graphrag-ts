@@ -33,6 +33,15 @@ describe('integrity storage mappers and snapshot load', () => {
     expect(mapRetractionRow({ paper_id: 'W1', doi: null, source: 'crossref', source_tier: 'A', is_retracted: true, source_uri: 'uri', source_chunk_id: null, observed_at: '2025-01-01', retraction_date: null, reason: null, nature: null })).not.toHaveProperty('reason');
   });
 
+  test('marks empty reference lists as unindexed and zero-ratio', async () => {
+    const scripted = scriptedPool([], [{
+      match: /jsonb_array_length/,
+      rows: [{ reference_count: 0, resolved: 0 }],
+    }]);
+    const coverage = await createIntegrityStore(scripted.pool).coverage('W1');
+    expect(coverage).toEqual({ references: 0, resolved: 0, ratio: 0, indexed: false });
+  });
+
   test('loads rows in a single ordered transaction and activates the snapshot', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'integrity-store-'));
     try {

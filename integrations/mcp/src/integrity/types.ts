@@ -31,13 +31,16 @@ export type SnapshotManifest = {
   readonly sources: Readonly<Record<string, unknown>>; readonly params: Readonly<Record<string, unknown>>;
 };
 
+export type AbstentionReason = 'paper_not_in_snapshot' | 'reference_coverage_below_threshold' | 'single_aggregator_source' | 'target_references_not_indexed';
+
 export type JudgmentPayload = {
   readonly snapshot: { readonly id: string; readonly built_at: string };
   readonly target: { readonly paper_id: string; readonly doi: string | null; readonly title: string | null; readonly year: number | null; readonly source_tier: SourceTier | null };
   readonly verdict: 'CONTESTED' | 'SUPPORTED' | 'INSUFFICIENT_EVIDENCE'; readonly confidence: number;
+  readonly confidence_basis: 'retraction_evidence' | 'coverage';
   readonly retracted_roots: readonly RetractionRoot[]; readonly conflict_flags: readonly ConflictFlag[];
-  readonly coverage: { readonly references: number; readonly resolved: number; readonly ratio: number };
-  readonly abstention_reason: string | null; readonly dependence_acknowledged?: boolean;
+  readonly coverage: { readonly references: number; readonly resolved: number; readonly ratio: number; readonly indexed: boolean };
+  readonly abstention_reason: AbstentionReason | null; readonly dependence_acknowledged?: boolean;
   readonly evidence_path?: readonly EvidencePathItem[]; readonly tier_distribution?: Readonly<Record<SourceTier, number>>;
   readonly explain?: string;
 };
@@ -54,5 +57,5 @@ export type ConflictFlag = { readonly code: ConflictCode; readonly paper_id: str
 export type EvidencePathItem = { readonly from: string; readonly to: string; readonly depth: number; readonly edge: { readonly kind: 'CITES'; readonly tier: SourceTier; readonly uri: string; readonly context_class: ContextClass | null } };
 
 export type SnapshotRecord = { readonly id: string; readonly built_at: string | Date; readonly manifest: SnapshotManifest };
-export type CoverageRecord = { readonly references: number; readonly resolved: number; readonly ratio: number };
+export type CoverageRecord = { readonly references: number; readonly resolved: number; readonly ratio: number; readonly indexed: boolean };
 export type RetractionPath = { readonly paper: PaperRecord | null; readonly edges: readonly CiteEdge[]; readonly depth: number; readonly retractions: readonly RetractionRecord[] };

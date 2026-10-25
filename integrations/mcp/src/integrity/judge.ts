@@ -15,7 +15,7 @@ const resolveRef = async (store: IntegrityStore, ref: PaperRef): Promise<Resolve
 
 const classOf = (context: ContextClass | undefined): ContextClass => context ?? 'unknown';
 const isAcknowledging = (context: ContextClass | undefined): boolean => contextFactor(context) === 1;
-const emptyCoverage = { references: 0, resolved: 0, ratio: 0 };
+const emptyCoverage = { references: 0, resolved: 0, ratio: 0, indexed: false };
 const isoTimestamp = (value: Date | string): string => new Date(value).toISOString();
 
 const targetShape = (paper: PaperRecord) => ({ paper_id: paper.paper_id, doi: paper.doi, title: paper.title, year: paper.publication_year, source_tier: paper.source_tier });
@@ -76,22 +76,27 @@ const rootStatuses = (asserting: readonly RetractionRecord[]) => asserting.map((
   date: record.retraction_date ?? null, reason: record.reason ?? null, uri: record.source_uri,
 }));
 
-const collectConflicts = (roots: readonly RootData[], ratio: number, targetId: string): ConflictFlag[] => {
+const collectConflicts = (roots: readonly RootData[], coverage: JudgmentPayload['coverage'], targetId: string): ConflictFlag[] => {
   const conflicts = roots.flatMap((root) => detectConflicts(root.allStatuses, {
     ...(root.path.paper === null ? {} : { openAlexFlag: root.path.paper.openalex_is_retracted }),
     contexts: root.path.edges.map((edge) => edge.context_class ?? null),
   }));
-  if (ratio < 0.8) conflicts.push({ code: 'COVERAGE_GAP', paper_id: targetId, detail: 'Reference resolution coverage is below 0.8.' });
+  if (coverage.indexed && coverage.ratio < 0.8) conflicts.push({ code: 'COVERAGE_GAP', paper_id: targetId, detail: 'Reference resolution coverage is below 0.8.' });
   return conflicts;
 };
 
-const confidenceFor = (roots: readonly RootData[], ratio: number): number => {
+const confidenceFor = (verdict: JudgmentPayload['verdict'], roots: readonly RootData[], coverage: JudgmentPayload['coverage']): number => {
   const strongest = roots.reduce((best, root) => Math.max(best, evidenceWeight(root.statuses) * (root.path.depth <= 1 ? 1 : 0.75)), 0);
-  return Math.max(0, Math.min(1, strongest * (0.5 + 0.5 * ratio)));
+  const value = verdict === 'CONTESTED'
+    ? Math.min(1, strongest) * (coverage.indexed ? 0.5 + 0.5 * coverage.ratio : 0.5)
+    : verdict === 'SUPPORTED'
+      ? coverage.indexed ? 0.5 + 0.5 * coverage.ratio : 0.25
+      : coverage.indexed ? 0.5 * coverage.ratio : 0.25;
+  return Math.round(Math.max(0, Math.min(1, value)) * 1000) / 1000;
 };
 
-const verdictFor = (roots: readonly RootData[], coverageRatio: number): { verdict: JudgmentPayload['verdict']; reason: string | null } => {
-  if (coverageRatio < 0.5) return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'reference_coverage_below_threshold' };
+const verdictFor = (roots: readonly RootData[], coverage: JudgmentPayload['coverage']): { verdict: JudgmentPayload['verdict']; reason: JudgmentPayload['abstention_reason'] } => {
+  if (coverage.indexed && coverage.ratio < 0.5) return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'reference_coverage_below_threshold' };
   if (roots.some((root) => root.statuses.length > 0 && root.statuses.every((status) => status.source_tier === 'C'))) {
     return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'single_aggregator_source' };
   }
@@ -99,6 +104,7 @@ const verdictFor = (roots: readonly RootData[], coverageRatio: number): { verdic
     return { verdict: 'CONTESTED', reason: null };
   }
   if (roots.length > 0 && roots.every((root) => root.acknowledged)) return { verdict: 'SUPPORTED', reason: null };
+  if (roots.length === 0 && !coverage.indexed) return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'target_references_not_indexed' };
   if (roots.length === 0) return { verdict: 'SUPPORTED', reason: null };
   return { verdict: 'CONTESTED', reason: null };
 };
@@ -130,7 +136,7 @@ const explainPayload = (payload: Omit<JudgmentPayload, 'explain'>): string => {
   const codes = payload.conflict_flags.map((flag) => flag.code).sort().join(', ') || 'none';
   const selfRoot = payload.retracted_roots.find((root) => root.depth === 0);
   const prefix = selfRoot ? `Target is retracted (${selfRoot.agreement}): ` : `${payload.verdict}: `;
-  return `${prefix}${roots} retracted root(s); reference coverage ${payload.coverage.resolved}/${payload.coverage.references} (${payload.coverage.ratio.toFixed(2)}); confidence ${payload.confidence.toFixed(2)}; conflicts: ${codes}${payload.abstention_reason ? `; abstention: ${payload.abstention_reason}` : ''}.`;
+  return `${prefix}${roots} retracted root(s); reference coverage ${payload.coverage.resolved}/${payload.coverage.references} (${payload.coverage.ratio.toFixed(2)}); verdict confidence ${payload.confidence.toFixed(3)} (${payload.confidence_basis}); conflicts: ${codes}${payload.abstention_reason ? `; abstention: ${payload.abstention_reason}` : ''}.`;
 };
 
 const makeJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean): Promise<JudgmentPayload> => {
@@ -138,7 +144,7 @@ const makeJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean
   const snapshot = resolved.snapshot;
   if (!snapshot) throw new Error('No active integrity snapshot is available.');
   if (!resolved.paper) {
-    const payload: JudgmentPayload = { snapshot: { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) }, target: { paper_id: ref.paper_id ?? '', doi: ref.doi ?? null, title: null, year: null, source_tier: null }, verdict: 'INSUFFICIENT_EVIDENCE', confidence: 0, retracted_roots: [], conflict_flags: [], coverage: emptyCoverage, abstention_reason: 'paper_not_in_snapshot' };
+    const payload: JudgmentPayload = { snapshot: { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) }, target: { paper_id: ref.paper_id ?? '', doi: ref.doi ?? null, title: null, year: null, source_tier: null }, verdict: 'INSUFFICIENT_EVIDENCE', confidence: confidenceFor('INSUFFICIENT_EVIDENCE', [], emptyCoverage), confidence_basis: 'coverage', retracted_roots: [], conflict_flags: [], coverage: emptyCoverage, abstention_reason: 'paper_not_in_snapshot' };
     await store.recordJudgment({ snapshotId: snapshot.id, paperId: null, inputRef: ref.doi ?? ref.paper_id ?? '', judgmentType: audit ? 'evidence_audit' : 'retraction_propagation', payload });
     return audit ? { ...payload, evidence_path: [], tier_distribution: { A: 0, B: 0, C: 0, D: 0 }, explain: explainPayload(payload) } : payload;
   }
@@ -149,29 +155,37 @@ const chooseVerdict = (
   ownAsserting: readonly RetractionRecord[],
   selfRoot: RootData | undefined,
   ancestorRoots: readonly RootData[],
-  coverageRatio: number,
-): { verdict: JudgmentPayload['verdict']; reason: string | null } => {
+  coverage: JudgmentPayload['coverage'],
+): { verdict: JudgmentPayload['verdict']; reason: JudgmentPayload['abstention_reason'] } => {
   if (ownAsserting.some((status) => status.source_tier === 'A')) return { verdict: 'CONTESTED', reason: null };
   if (ownAsserting.length > 0 && ownAsserting.every((status) => status.source_tier === 'C')) {
     return { verdict: 'INSUFFICIENT_EVIDENCE', reason: 'single_aggregator_source' };
   }
   if (selfRoot) return { verdict: 'CONTESTED', reason: null };
-  return verdictFor(ancestorRoots, coverageRatio);
+  return verdictFor(ancestorRoots, coverage);
+};
+
+const targetRetraction = async (store: IntegrityStore, paper: PaperRecord): Promise<{ readonly asserting: readonly RetractionRecord[]; readonly root?: RootData }> => {
+  const statuses = await store.retractionStatuses([paper.paper_id]);
+  const records = statuses.get(paper.paper_id) ?? [];
+  const asserting = records.filter((status) => status.is_retracted);
+  return { asserting, ...(asserting.length === 0 ? {} : { root: targetRoot(paper, records) }) };
 };
 
 const buildPresentJudgment = async (store: IntegrityStore, ref: PaperRef, audit: boolean, snapshot: NonNullable<ResolvedRef['snapshot']>, paper: PaperRecord): Promise<JudgmentPayload> => {
   const coverage = await store.coverage(paper.paper_id);
-  const ownStatuses = await store.retractionStatuses([paper.paper_id]);
-  const ownAsserting = ownStatuses.get(paper.paper_id)?.filter((status) => status.is_retracted) ?? [];
-  const selfRoot = ownAsserting.length > 0 ? targetRoot(paper, ownStatuses.get(paper.paper_id) ?? []) : undefined;
+  const targetStatus = await targetRetraction(store, paper);
+  const { asserting: ownAsserting, root: selfRoot } = targetStatus;
   const paths = await store.pathsToRetracted(paper.paper_id, 2);
   const ancestorRoots = await rootsFor(store, paths);
   const roots = [...(selfRoot ? [selfRoot] : []), ...ancestorRoots];
-  const conflicts = await collectJudgmentConflicts(store, paper, roots, coverage.ratio);
-  const decision = chooseVerdict(ownAsserting, selfRoot, ancestorRoots, coverage.ratio);
+  const conflicts = await collectJudgmentConflicts(store, paper, roots, coverage);
+  const decision = chooseVerdict(ownAsserting, selfRoot, ancestorRoots, coverage);
+  const confidenceBasis = decision.verdict === 'CONTESTED' ? 'retraction_evidence' : 'coverage';
   const base = {
     snapshot: { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) }, target: targetShape(paper), verdict: decision.verdict,
-    confidence: confidenceFor(roots, coverage.ratio), retracted_roots: roots.map(rootPayload), conflict_flags: conflicts,
+    confidence: confidenceFor(decision.verdict, roots, coverage), confidence_basis: confidenceBasis,
+    retracted_roots: roots.map(rootPayload), conflict_flags: conflicts,
     coverage, abstention_reason: decision.reason,
     ...(roots.length > 0 && roots.every((root) => root.acknowledged) ? { dependence_acknowledged: true } : {}),
   } satisfies Omit<JudgmentPayload, 'evidence_path' | 'tier_distribution' | 'explain'>;
@@ -180,8 +194,8 @@ const buildPresentJudgment = async (store: IntegrityStore, ref: PaperRef, audit:
   return payload;
 };
 
-const collectJudgmentConflicts = async (store: IntegrityStore, paper: PaperRecord, roots: readonly RootData[], ratio: number): Promise<ConflictFlag[]> => {
-  const conflicts = collectConflicts(roots, ratio, paper.paper_id);
+const collectJudgmentConflicts = async (store: IntegrityStore, paper: PaperRecord, roots: readonly RootData[], coverage: JudgmentPayload['coverage']): Promise<ConflictFlag[]> => {
+  const conflicts = collectConflicts(roots, coverage, paper.paper_id);
   const acknowledged = (await store.dependencyContexts(paper.paper_id)).filter((edge) => isAcknowledging(edge.context_class));
   if (acknowledged.length === 0) return conflicts;
   const statuses = await store.retractionStatuses([...new Set(acknowledged.map((edge) => edge.cited_id))]);

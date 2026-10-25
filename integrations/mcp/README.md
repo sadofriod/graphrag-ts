@@ -88,6 +88,10 @@ The paid products are `retraction_propagation` ($0.02 per call) and `evidence_au
 
 Evidence records use four `source_tier` levels: A is an official notice, B is peer-reviewed citing text, C is an aggregator, and D is unverified/zero-weight evidence. Judgments return one of three verdicts: `CONTESTED`, `SUPPORTED`, or `INSUFFICIENT_EVIDENCE`.
 
+`confidence` is confidence in the emitted verdict, with `confidence_basis` identifying `retraction_evidence` or `coverage` as its basis.
+`coverage.indexed` is true only when the target has a non-empty reference list in the snapshot; otherwise its ratio is 0 and it is not treated as audited.
+When no self-retraction or ancestor root exists and the target references are not indexed, the judgment abstains with `target_references_not_indexed`.
+
 Load a versioned snapshot from the container with `bun scripts/integrity-load.ts <snapshotDir>`. The harvester that builds snapshots lives at `scripts/integrity/harvest.ts`.
 
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
