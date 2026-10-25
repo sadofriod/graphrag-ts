@@ -36,6 +36,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+# store.ensureGraphSchema() shells out to `node_modules/.bin/prisma db push`,
+# which needs a node binary in PATH; bun cannot execute that shim.
 COPY --from=build /usr/local/lib/node_modules/bun /usr/local/lib/node_modules/bun
 RUN ln -sf /usr/local/lib/node_modules/bun/bin/bun.exe /usr/local/bin/bun
 COPY --from=build /build /workspace
