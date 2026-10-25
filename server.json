@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sadofriod/graphrag-ts",
+  "title": "graphrag-ts citation provenance",
+  "description": "GraphRAG over Postgres+pgvector with source-tiered citation-provenance judgments for DOIs.",
+  "version": "0.1.21",
+  "repository": {
+    "url": "https://github.com/sadofriod/graphrag-ts",
+    "source": "github",
+    "id": "1351217626"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.ashesborn.cloud/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {api_key}",
+          "description": "API key issued by the operator; ask for a pilot key.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "authentication": "bearer",
+      "retrieval": "citation graph + retraction status over OpenAlex/Crossref/Retraction Watch",
+      "tools": [
+        "integrity_paper_status",
+        "retraction_propagation",
+        "integrity_evidence_audit",
+        "query_graph",
+        "query_graph_global",
+        "submit_index_job",
+        "remember_text",
+        "get_index_job"
+      ]
+    }
+  }
+}
