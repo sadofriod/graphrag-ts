@@ -30,7 +30,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /usr/local/lib/node_modules/bun /usr/local/lib/node_modules/bun
-RUN ln -sf /usr/local/lib/node_modules/bun/bin/bun /usr/local/bin/bun
+RUN ln -sf /usr/local/lib/node_modules/bun/bin/bun.exe /usr/local/bin/bun
 COPY --from=build /build /workspace
 COPY --from=build /app/datasets.json /app/datasets.json
 COPY --from=build /usr/local/bin/allinone-entrypoint.sh /usr/local/bin/allinone-entrypoint.sh
