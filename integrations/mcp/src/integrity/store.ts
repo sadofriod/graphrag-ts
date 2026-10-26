@@ -5,7 +5,8 @@ import type { CiteEdge, CoverageRecord, JudgmentPayload, PaperRecord, Retraction
 
 type PaperRow = Omit<PaperRecord, 'fetched_at' | 'reference_ids' | 'extraction_confidence'> & { fetched_at: Date | string; reference_ids: string[] | string; extraction_confidence: number | string };
 type CiteRow = { citing_id: string; cited_id: string; cited_doi: string | null; source_tier: SourceTier; source_uri: string; source_chunk_id: string | null; extraction_confidence: number | string; context_snippet: string | null; context_class: CiteEdge['context_class'] | null; context_source_tier: SourceTier | null; context_source_uri: string | null };
-type RetractionRow = Omit<RetractionRecord, 'observed_at' | 'retraction_date' | 'reason' | 'nature'> & { observed_at: Date | string; retraction_date: string | null; reason: string | null; nature: string | null };
+type RetractionRow = Omit<RetractionRecord, 'observed_at' | 'retraction_date'> & { observed_at: Date | string; retraction_date: string | null; reason: string | null; nature: string | null };
+type RetractionInput = Omit<RetractionRecord, 'retraction_date'> & { readonly retraction_date?: string | null; readonly reason?: string | null; readonly nature?: string | null };
 
 export const mapPaperRow = (row: PaperRow): PaperRecord => ({
   ...row, fetched_at: row.fetched_at, reference_ids: typeof row.reference_ids === 'string' ? JSON.parse(row.reference_ids) as string[] : row.reference_ids,
@@ -24,8 +25,7 @@ export const mapCiteRow = (row: CiteRow): CiteEdge => ({
 export const mapRetractionRow = (row: RetractionRow): RetractionRecord => ({
   paper_id: row.paper_id, doi: row.doi, source: row.source, source_tier: row.source_tier,
   is_retracted: row.is_retracted, source_uri: row.source_uri, source_chunk_id: row.source_chunk_id,
-  observed_at: row.observed_at, ...(row.retraction_date === null ? {} : { retraction_date: row.retraction_date }),
-  ...(row.reason === null ? {} : { reason: row.reason }), ...(row.nature === null ? {} : { nature: row.nature }),
+  observed_at: row.observed_at, retraction_date: row.retraction_date,
 });
 
 const parseJsonl = async <T>(path: string): Promise<T[]> => {
@@ -45,7 +45,7 @@ const deactivateSnapshots = async (client: PoolClient, snapshotId: string): Prom
   await client.query('UPDATE integrity_snapshots SET is_active=true WHERE snapshot_id=$1', [snapshotId]);
 };
 
-const loadSnapshotTransaction = async (pool: Pool, manifest: SnapshotManifest, rows: { papers: PaperRecord[]; cites: CiteEdge[]; retractions: RetractionRecord[] }): Promise<void> => {
+const loadSnapshotTransaction = async (pool: Pool, manifest: SnapshotManifest, rows: { papers: PaperRecord[]; cites: CiteEdge[]; retractions: RetractionInput[] }): Promise<void> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -87,7 +87,7 @@ const upsertCites = async (client: PoolClient, snapshotId: string, rows: readonl
   for (const row of rows) await upsertCite(client, snapshotId, row);
 };
 
-const upsertRetraction = async (client: PoolClient, snapshotId: string, row: RetractionRecord): Promise<void> => {
+const upsertRetraction = async (client: PoolClient, snapshotId: string, row: RetractionInput): Promise<void> => {
   await client.query(
     `INSERT INTO integrity_retractions (snapshot_id,paper_id,doi,source,source_tier,is_retracted,retraction_date,reason,nature,source_uri,source_chunk_id,observed_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
@@ -96,7 +96,7 @@ const upsertRetraction = async (client: PoolClient, snapshotId: string, row: Ret
   );
 };
 
-const upsertRetractions = async (client: PoolClient, snapshotId: string, rows: readonly RetractionRecord[]): Promise<void> => {
+const upsertRetractions = async (client: PoolClient, snapshotId: string, rows: readonly RetractionInput[]): Promise<void> => {
   for (const row of rows) await upsertRetraction(client, snapshotId, row);
 };
 
@@ -105,7 +105,7 @@ const normalizeDoi = (doi: string): string => doi.trim().replace(/^https?:\/\/do
 const loadSnapshot = async (pool: Pool, dir: string): Promise<{ readonly snapshot_id: string; readonly papers: number; readonly cites: number; readonly retractions: number }> => {
   const manifest = JSON.parse(await readFile(`${dir}/manifest.json`, 'utf8')) as SnapshotManifest;
   const [papers,cites,retractions] = await Promise.all([
-    parseJsonl<PaperRecord>(`${dir}/papers.jsonl`), parseJsonl<CiteEdge>(`${dir}/cites.jsonl`), parseJsonl<RetractionRecord>(`${dir}/retractions.jsonl`),
+    parseJsonl<PaperRecord>(`${dir}/papers.jsonl`), parseJsonl<CiteEdge>(`${dir}/cites.jsonl`), parseJsonl<RetractionInput>(`${dir}/retractions.jsonl`),
   ]);
   await loadSnapshotTransaction(pool, manifest, { papers, cites, retractions });
   return { snapshot_id: manifest.snapshot_id, papers: papers.length, cites: cites.length, retractions: retractions.length };

@@ -16,7 +16,12 @@ describe('Retraction Watch row selection', () => {
     ])).toEqual({ is_retracted: false, date: '2021-04-05', reason: 'data update', nature: 'Correction' });
   });
 
-  test('normalizes M/D/YYYY dates', () => {
+  test('normalizes Retraction Watch date formats and rejects empty or invalid dates', () => {
+    expect(normalizeRetractionDate('2010/07/01')).toBe('2010-07-01');
+    expect(normalizeRetractionDate('2010/7/1 0:00')).toBe('2010-07-01');
+    expect(normalizeRetractionDate('1998/02/28')).toBe('1998-02-28');
+    expect(normalizeRetractionDate('')).toBeNull();
+    expect(normalizeRetractionDate('2010/02/30')).toBeNull();
     expect(normalizeRetractionDate('2/6/2010')).toBe('2010-02-06');
   });
 });

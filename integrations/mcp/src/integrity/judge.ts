@@ -1,5 +1,5 @@
 import { agreementLabel, contextFactor, detectConflicts, evidenceWeight } from './tier.ts';
-import type { ContextClass, ConflictFlag, EvidencePathItem, JudgmentPayload, PaperRecord, RetractionPath, RetractionRecord, SourceTier } from './types.ts';
+import type { ContextClass, ConflictFlag, EvidencePathItem, JudgmentPayload, PaperRecord, PaperRetractionStatus, RetractionPath, RetractionRecord, SourceTier } from './types.ts';
 import type { IntegrityStore } from './store.ts';
 
 export type PaperRef = { readonly doi?: string; readonly paper_id?: string };
@@ -73,8 +73,18 @@ const rootIdentifiers = (paper: PaperRecord | null | undefined, asserting?: Retr
 
 const rootStatuses = (asserting: readonly RetractionRecord[]) => asserting.map((record) => ({
   source: record.source, tier: record.source_tier, is_retracted: record.is_retracted,
-  date: record.retraction_date ?? null, reason: record.reason ?? null, uri: record.source_uri,
+  retraction_date: record.retraction_date ?? null, uri: record.source_uri,
 }));
+
+const paperStatuses = (records: readonly RetractionRecord[]): PaperRetractionStatus[] => records.map((record) => ({
+  paper_id: record.paper_id, doi: record.doi, source: record.source, source_tier: record.source_tier,
+  is_retracted: record.is_retracted, retraction_date: record.retraction_date ?? null,
+  source_uri: record.source_uri, source_chunk_id: record.source_chunk_id, observed_at: record.observed_at,
+}));
+
+const buildPaperStatus = (paper: PaperRecord, records: readonly RetractionRecord[]) => ({
+  paper: targetShape(paper), statuses: paperStatuses(records),
+});
 
 const collectConflicts = (roots: readonly RootData[], coverage: JudgmentPayload['coverage'], targetId: string): ConflictFlag[] => {
   const conflicts = roots.flatMap((root) => detectConflicts(root.allStatuses, {
@@ -214,7 +224,7 @@ export const createJudge = (store: IntegrityStore) => ({
     if (!resolved.snapshot) throw new Error('No active integrity snapshot is available.');
     if (!resolved.paper) return { paper: null, statuses: [], abstention_reason: 'paper_not_in_snapshot' as const };
     const statuses = await store.retractionStatuses([resolved.paper.paper_id]);
-    return { paper: targetShape(resolved.paper), statuses: statuses.get(resolved.paper.paper_id) ?? [] };
+    return buildPaperStatus(resolved.paper, statuses.get(resolved.paper.paper_id) ?? []);
   },
   retractionPropagation: (ref: PaperRef) => makeJudgment(store, ref, false),
   evidenceAudit: (ref: PaperRef) => makeJudgment(store, ref, true),

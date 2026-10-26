@@ -20,9 +20,14 @@ export type CiteEdge = {
 
 export type RetractionRecord = {
   readonly paper_id: string; readonly doi: string | null; readonly source: 'crossref' | 'retraction_watch' | 'openalex';
-  readonly source_tier: SourceTier; readonly is_retracted: boolean; readonly retraction_date?: string;
-  readonly reason?: string; readonly nature?: string; readonly source_uri: string;
-  readonly source_chunk_id: string | null; readonly observed_at: string | Date;
+  readonly source_tier: SourceTier; readonly is_retracted: boolean; readonly retraction_date?: string | null;
+  readonly source_uri: string; readonly source_chunk_id: string | null; readonly observed_at: string | Date;
+};
+
+export type PaperRetractionStatus = {
+  readonly paper_id: string; readonly doi: string | null; readonly source: RetractionRecord['source'];
+  readonly source_tier: SourceTier; readonly is_retracted: boolean; readonly retraction_date: string | null;
+  readonly source_uri: string; readonly source_chunk_id: string | null; readonly observed_at: string | Date;
 };
 
 export type SnapshotManifest = {
@@ -47,9 +52,14 @@ export type JudgmentPayload = {
 
 export type RetractionRoot = {
   readonly paper_id: string; readonly doi: string | null; readonly title: string | null; readonly year: number | null;
-  readonly depth: number; readonly status: readonly { readonly source: RetractionRecord['source']; readonly tier: SourceTier; readonly is_retracted: boolean; readonly date: string | null; readonly reason: string | null; readonly uri: string }[]; readonly weight: number;
+  readonly depth: number; readonly status: readonly RetractionEvidenceStatus[]; readonly weight: number;
   readonly agreement: string; readonly dependence?: { readonly context_class: ContextClass; readonly snippet: string | null; readonly tier: SourceTier | null; readonly uri: string | null };
   readonly dependence_acknowledged?: boolean;
+};
+
+export type RetractionEvidenceStatus = {
+  readonly source: RetractionRecord['source']; readonly tier: SourceTier; readonly is_retracted: boolean;
+  readonly retraction_date: string | null; readonly uri: string;
 };
 
 export type ConflictCode = 'SOURCE_STATUS_CONFLICT' | 'AGGREGATOR_FALSE_NEGATIVE' | 'AGGREGATOR_ONLY_EVIDENCE' | 'RETRACTION_ACKNOWLEDGED_NOT_PROPAGATED' | 'COVERAGE_GAP';

@@ -37,6 +37,23 @@ const setup = (options: { readonly present?: boolean; readonly ratio?: number; r
 };
 
 describe('integrity judgment rules', () => {
+  test('serializes public status and judgment without Retraction Watch free text', async () => {
+    const rwStatus = { ...status('A', true, 'retraction_watch'), retraction_date: '2010-07-01', reason: 'Falsification of data', nature: 'Retraction' } as RetractionRecord;
+    const judge = setup({ statuses: [rwStatus], ownStatuses: [rwStatus] });
+    const paperStatus = await judge.paperStatus({ paper_id: 'Wtarget' });
+    const judgment = await judge.retractionPropagation({ paper_id: 'Wtarget' });
+    const serializedStatus = JSON.stringify(paperStatus);
+    const serializedJudgment = JSON.stringify(judgment);
+
+    expect(serializedStatus).not.toMatch(/"(?:reason|nature)"|Falsification/u);
+    expect(serializedJudgment).not.toMatch(/"(?:reason|nature)"|Falsification/u);
+    expect(paperStatus.statuses[0]).toHaveProperty('retraction_date', '2010-07-01');
+    expect(Object.keys(paperStatus.statuses[0] ?? {}).sort()).toEqual([
+      'doi', 'is_retracted', 'observed_at', 'paper_id', 'retraction_date', 'source', 'source_chunk_id', 'source_tier', 'source_uri',
+    ]);
+    expect(judgment.retracted_roots[0]?.status[0]).toHaveProperty('retraction_date', '2010-07-01');
+  });
+
   test('abstains for paper not in snapshot and low reference coverage in order', async () => {
     const missing = await setup({ present: false }).retractionPropagation({ paper_id: 'missing' });
     expect(missing.abstention_reason).toBe('paper_not_in_snapshot');

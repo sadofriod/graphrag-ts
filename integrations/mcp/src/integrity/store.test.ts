@@ -30,7 +30,8 @@ describe('integrity storage mappers and snapshot load', () => {
   test('maps database representations and omits absent optional context', () => {
     expect(mapPaperRow(paperRow as Parameters<typeof mapPaperRow>[0])).toMatchObject({ paper_id: 'W1', extraction_confidence: 0.9, reference_ids: ['W2'] });
     expect(mapCiteRow({ citing_id: 'W1', cited_id: 'W2', cited_doi: null, source_tier: 'C', source_uri: 'uri', source_chunk_id: null, extraction_confidence: '1', context_snippet: null, context_class: null, context_source_tier: null, context_source_uri: null })).not.toHaveProperty('context_class');
-    expect(mapRetractionRow({ paper_id: 'W1', doi: null, source: 'crossref', source_tier: 'A', is_retracted: true, source_uri: 'uri', source_chunk_id: null, observed_at: '2025-01-01', retraction_date: null, reason: null, nature: null })).not.toHaveProperty('reason');
+    const retraction = mapRetractionRow({ paper_id: 'W1', doi: null, source: 'crossref', source_tier: 'A', is_retracted: true, source_uri: 'uri', source_chunk_id: null, observed_at: '2025-01-01', retraction_date: null, reason: 'Falsification', nature: 'Retraction', });
+    expect(retraction).toEqual({ paper_id: 'W1', doi: null, source: 'crossref', source_tier: 'A', is_retracted: true, source_uri: 'uri', source_chunk_id: null, observed_at: '2025-01-01', retraction_date: null });
   });
 
   test('marks empty reference lists as unindexed and zero-ratio', async () => {
