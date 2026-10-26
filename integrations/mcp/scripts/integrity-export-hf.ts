@@ -108,18 +108,24 @@ tags:
   - research-integrity
 size_categories:
   - ${sizeCategory(paperCount)}
+# One config per file: the three tables have different columns, and a single
+# config with three splits forces the Hub to unify their features (CastError).
 source_datasets:
   - openalex
   - crossref
   - retraction-watch
 configs:
-  - config_name: default
+  - config_name: papers
     data_files:
-      - split: papers
+      - split: train
         path: data/papers.jsonl.gz
-      - split: cites
+  - config_name: cites
+    data_files:
+      - split: train
         path: data/cites.jsonl.gz
-      - split: retraction_status
+  - config_name: retraction_status
+    data_files:
+      - split: train
         path: data/retraction_status.jsonl.gz
 ---
 
