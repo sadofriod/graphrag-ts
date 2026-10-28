@@ -23,6 +23,11 @@ type ToolContext = {
 
 type IntegrityToolName = 'integrity_paper_status' | 'retraction_propagation' | 'integrity_evidence_audit';
 
+export const integrityToolPrices = {
+  'retraction-propagation': { product: 'retraction-propagation', usd: '$0.02', atomic: '20000' },
+  'retraction-evidence-audit': { product: 'retraction-evidence-audit', usd: '$0.10', atomic: '100000' },
+} as const;
+
 export const createQueryLimiter = (limit: number) => {
   let activeQueries = 0;
   return {
@@ -309,24 +314,20 @@ const registerIntegrityTools = (
     readonly description: string;
     readonly run: (reference: PaperRef) => Promise<unknown>;
     readonly status: boolean;
-    readonly payment?: {
-      readonly product: 'retraction-propagation' | 'retraction-evidence-audit';
-      readonly usd: '$0.02' | '$0.10';
-      readonly atomic: '20000' | '100000';
-    } | undefined;
+    readonly payment?: (typeof integrityToolPrices)[keyof typeof integrityToolPrices] | undefined;
   }[] = [
     { name: 'integrity_paper_status', description: 'Get retraction status and identity for a paper.', run: judge.paperStatus, status: true },
     {
       name: 'retraction_propagation',
-      description: 'Judge whether retraction evidence propagates to a paper. Paid: $0.02 per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.',
+      description: `Judge whether retraction evidence propagates to a paper. Paid: ${integrityToolPrices['retraction-propagation'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
       run: judge.retractionPropagation, status: false,
-      payment: { product: 'retraction-propagation', usd: '$0.02', atomic: '20000' },
+      payment: integrityToolPrices['retraction-propagation'],
     },
     {
       name: 'integrity_evidence_audit',
-      description: 'Audit the evidence path, source tiers, and conflicts for a paper. Paid: $0.10 per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.',
+      description: `Audit the evidence path, source tiers, and conflicts for a paper. Paid: ${integrityToolPrices['retraction-evidence-audit'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
       run: judge.evidenceAudit, status: false,
-      payment: { product: 'retraction-evidence-audit', usd: '$0.10', atomic: '100000' },
+      payment: integrityToolPrices['retraction-evidence-audit'],
     },
   ] as const;
 
