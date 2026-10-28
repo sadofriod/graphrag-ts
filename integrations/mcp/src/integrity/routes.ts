@@ -9,7 +9,11 @@ export const handleIntegrityRoute = async (request: Request, deps: PaidRouteDeps
   if (url.pathname !== '/api/v1/judge') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseJudgmentRequestBody(request);
-  return parsed.input ? handlePaidJudgment(request, parsed.input, deps) : errorResponse(400, parsed.error ?? 'Invalid request body.');
+  return parsed.input ? handlePaidJudgment(request, parsed.input, deps) : jsonResponse(400, {
+    error: parsed.error ?? 'invalid_request_body',
+    expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
+    docs: '/api/v1/openapi.json',
+  });
 };
 
 const handlePaperStatus = async (request: Request, url: URL, deps: PaidRouteDeps): Promise<Response> => {

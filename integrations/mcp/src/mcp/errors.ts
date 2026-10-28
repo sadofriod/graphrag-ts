@@ -13,6 +13,25 @@ export const toolErrorResult = (code: string, message: string) => ({
   isError: true,
 });
 
+export const paymentRequiredResult = (product: {
+  readonly product: 'retraction-propagation' | 'retraction-evidence-audit';
+  readonly usd: '$0.02' | '$0.10';
+  readonly atomic: '20000' | '100000';
+  readonly payEndpoint: string;
+  readonly docsUrl: string;
+}) => ({
+  content: [{ type: 'text' as const, text: JSON.stringify({
+    error: 'payment_required',
+    product: product.product,
+    price: { usd: product.usd, atomic: product.atomic },
+    scheme: 'x402',
+    network: 'base',
+    pay_endpoint: product.payEndpoint,
+    docs: product.docsUrl,
+  }) }],
+  isError: true,
+});
+
 export const inputFailure = (error: unknown, logger: Logger, tool: string) => {
   if (error instanceof InputError || error instanceof AccessError) {
     return toolErrorResult(error.code, error.message);

@@ -9,11 +9,10 @@ import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
 import { withQuerySlot, type QuerySlot } from '../x402/slot.ts';
 import { AccessError, type AccessGuard } from '../access.ts';
-import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
+import { ToolError, inputFailure, paymentRequiredResult, toolErrorResult } from './errors.ts';
 import { runSnapshotQuery, QueryServiceError } from '../queryService.ts';
 import type { Judge, PaperRef } from '../integrity/judge.ts';
 import type { IntegrityStore } from '../integrity/store.ts';
-import { publicTierPayload, type IntegrityToolName } from './publicTier.ts';
 
 type ToolContext = {
   readonly store: IndexStore;
@@ -21,6 +20,8 @@ type ToolContext = {
   readonly logger: Logger;
   readonly authorize?: AccessGuard;
 };
+
+type IntegrityToolName = 'integrity_paper_status' | 'retraction_propagation' | 'integrity_evidence_audit';
 
 export const createQueryLimiter = (limit: number) => {
   let activeQueries = 0;
@@ -285,16 +286,48 @@ export const integrityPaperRefSchema = z.object({
 });
 
 export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly judge: Judge };
-export type McpToolOptions = { readonly integrity?: McpIntegrityOptions; readonly tier?: 'public' | 'keyed' };
+export type McpToolOptions = {
+  readonly integrity?: McpIntegrityOptions;
+  readonly tier?: 'public' | 'keyed';
+  readonly paywallPayEndpoint?: string;
+  readonly paywallDocsUrl?: string;
+};
 
 const isPaperNotFound = (payload: unknown): boolean => typeof payload === 'object' && payload !== null
   && 'abstention_reason' in payload && payload.abstention_reason === 'paper_not_in_snapshot';
 
-const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger, publicTier: boolean): void => {
-  const definitions: readonly { readonly name: IntegrityToolName; readonly description: string; readonly run: (reference: PaperRef) => Promise<unknown>; readonly status: boolean }[] = [
+const registerIntegrityTools = (
+  server: McpServer,
+  judge: Judge,
+  logger: Logger,
+  publicTier: boolean,
+  payEndpoint: string,
+  docsUrl: string,
+): void => {
+  const definitions: readonly {
+    readonly name: IntegrityToolName;
+    readonly description: string;
+    readonly run: (reference: PaperRef) => Promise<unknown>;
+    readonly status: boolean;
+    readonly payment?: {
+      readonly product: 'retraction-propagation' | 'retraction-evidence-audit';
+      readonly usd: '$0.02' | '$0.10';
+      readonly atomic: '20000' | '100000';
+    } | undefined;
+  }[] = [
     { name: 'integrity_paper_status', description: 'Get retraction status and identity for a paper.', run: judge.paperStatus, status: true },
-    { name: 'retraction_propagation', description: 'Judge whether retraction evidence propagates to a paper.', run: judge.retractionPropagation, status: false },
-    { name: 'integrity_evidence_audit', description: 'Audit the evidence path, source tiers, and conflicts for a paper.', run: judge.evidenceAudit, status: false },
+    {
+      name: 'retraction_propagation',
+      description: 'Judge whether retraction evidence propagates to a paper. Paid: $0.02 per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.',
+      run: judge.retractionPropagation, status: false,
+      payment: { product: 'retraction-propagation', usd: '$0.02', atomic: '20000' },
+    },
+    {
+      name: 'integrity_evidence_audit',
+      description: 'Audit the evidence path, source tiers, and conflicts for a paper. Paid: $0.10 per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.',
+      run: judge.evidenceAudit, status: false,
+      payment: { product: 'retraction-evidence-audit', usd: '$0.10', atomic: '100000' },
+    },
   ] as const;
 
   for (const definition of definitions) {
@@ -302,6 +335,9 @@ const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger,
       definition.name,
       { description: definition.description, inputSchema: integrityPaperRefSchema },
       async (reference) => {
+        if (publicTier && definition.payment) {
+          return paymentRequiredResult({ ...definition.payment, payEndpoint, docsUrl });
+        }
         try {
           const payload = await definition.run({
             ...(reference.doi === undefined ? {} : { doi: reference.doi }),
@@ -311,8 +347,7 @@ const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger,
             logger.error('MCP tool failed.', { tool: definition.name, error_name: 'PaperNotFoundError' });
             return toolErrorResult('PAPER_NOT_FOUND', 'The paper is not present in the active integrity snapshot.');
           }
-          const result = publicTier ? publicTierPayload(definition.name, payload) : payload;
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
         } catch (error) {
           const errorName = error instanceof Error ? error.name : 'UnknownError';
           logger.error('MCP tool failed.', { tool: definition.name, error_name: errorName });
@@ -342,6 +377,10 @@ export const createMcpServer = (
     registerJobTool(server, context);
     registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
   }
-  if (options.integrity) registerIntegrityTools(server, options.integrity.judge, logger, options.tier === 'public');
+  if (options.integrity) registerIntegrityTools(
+    server, options.integrity.judge, logger, options.tier === 'public',
+    options.paywallPayEndpoint ?? config.MCP_PAYWALL_PAY_ENDPOINT,
+    options.paywallDocsUrl ?? config.MCP_PAYWALL_DOCS_URL,
+  );
   return server;
 };

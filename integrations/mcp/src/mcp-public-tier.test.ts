@@ -66,13 +66,18 @@ const rpcAnonymous = (app: Fixture, method: string, params: unknown, session?: s
 const responseRpc = async (response: Response) => {
   const text = await response.text();
   const data = text.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
-  return JSON.parse(data ?? text) as { result?: { tools?: { name: string }[]; content?: { text: string }[] } };
+  return JSON.parse(data ?? text) as {
+    result?: { tools?: { name: string; description?: string }[]; content?: { text: string }[]; isError?: boolean };
+  };
 };
 
-describe('anonymous public-tier judgment projections', () => {
-  test('serves exactly the three integrity tools to anonymous sessions', async () => {
+describe('anonymous public-tier judgment paywall', () => {
+  test('lists all integrity tools, gates paid judgments before invoking Judge, and keeps paper status free', async () => {
+    let paidCalls = 0;
     const judge = {
-      paperStatus: async () => ({}), retractionPropagation: async () => ({}), evidenceAudit: async () => ({}),
+      paperStatus: async () => ({ paper: { paper_id: 'p1' }, statuses: ['retracted'] }),
+      retractionPropagation: async () => { paidCalls++; return { verdict: 'SUPPORTED' }; },
+      evidenceAudit: async () => { paidCalls++; return { verdict: 'SUPPORTED' }; },
     } as unknown as Judge;
     const app = fixture(true, { mcpTools: { integrity: { store: {} as never, judge } } });
     try {
@@ -85,9 +90,35 @@ describe('anonymous public-tier judgment projections', () => {
       const session = init.headers.get('mcp-session-id');
       expect(session).toBeTruthy();
       const list = await rpcAnonymous(app, 'tools/list', {}, session ?? undefined);
-      expect((await responseRpc(list)).result?.tools?.map((tool) => tool.name).sort()).toEqual([
+      const tools = (await responseRpc(list)).result?.tools ?? [];
+      expect(tools.map((tool) => tool.name).sort()).toEqual([
         'integrity_evidence_audit', 'integrity_paper_status', 'retraction_propagation',
       ]);
+      expect(tools.find((tool) => tool.name === 'retraction_propagation')?.description).toContain('$0.02');
+      expect(tools.find((tool) => tool.name === 'integrity_evidence_audit')?.description).toContain('$0.10');
+      for (const [name, product, usd, atomic] of [
+        ['retraction_propagation', 'retraction-propagation', '$0.02', '20000'],
+        ['integrity_evidence_audit', 'retraction-evidence-audit', '$0.10', '100000'],
+      ] as const) {
+        const response = await rpcAnonymous(app, 'tools/call', {
+          name, arguments: { doi: '10.1234/anonymous' },
+        }, session ?? undefined);
+        const result = (await responseRpc(response)).result;
+        const refusal = JSON.parse(result?.content?.[0]?.text ?? '{}') as Record<string, unknown>;
+        expect(result?.isError).toBe(true);
+        expect(refusal).toEqual({
+          error: 'payment_required', product, price: { usd, atomic }, scheme: 'x402', network: 'base',
+          pay_endpoint: config.MCP_PAYWALL_PAY_ENDPOINT, docs: config.MCP_PAYWALL_DOCS_URL,
+        });
+        for (const key of ['verdict', 'confidence', 'coverage', 'retracted_roots']) expect(refusal).not.toHaveProperty(key);
+      }
+      const free = await rpcAnonymous(app, 'tools/call', {
+        name: 'integrity_paper_status', arguments: { doi: '10.1234/anonymous' },
+      }, session ?? undefined);
+      expect(JSON.parse((await responseRpc(free)).result?.content?.[0]?.text ?? '{}')).toMatchObject({
+        paper: { paper_id: 'p1' }, statuses: ['retracted'],
+      });
+      expect(paidCalls).toBe(0);
       const unknown = await rpcAnonymous(app, 'tools/call', { name: 'remember_text', arguments: { text: 'nope' } }, session ?? undefined);
       expect(JSON.stringify(await responseRpc(unknown))).toMatch(/unknown|not found/i);
     } finally { await app.close(); }
@@ -119,7 +150,7 @@ describe('anonymous public-tier judgment projections', () => {
     } finally { await app.close(); }
   });
 
-  test('omits evidence paths from public evidence audits while preserving the audit summary', async () => {
+  test('refuses public evidence audits without invoking the judge', async () => {
     const auditPayload = {
       verdict: 'SUPPORTED', confidence: 0.9, coverage: 0.8, conflict_flags: ['source_conflict'],
       tier_distribution: { A: 1, B: 2, C: 0, D: 0 }, evidence_path: [{ from: 'p1', to: 'p2' }], explain: 'summary',
@@ -139,17 +170,18 @@ describe('anonymous public-tier judgment projections', () => {
       }, sessionId ?? undefined);
       const result = await responseRpc(response);
       const output = JSON.parse(result.result?.content?.[0]?.text ?? '{}');
+      expect(result.result?.isError).toBe(true);
       expect(output).toEqual({
-        verdict: 'SUPPORTED', confidence: 0.9, coverage: 0.8, conflict_flags: ['source_conflict'],
-        tier_distribution: { A: 1, B: 2, C: 0, D: 0 }, evidence_path_omitted: true,
-        evidence_path_count: 1, explain: 'summary',
-        upgrade: { route: 'POST /api/v1/judge', dataset: 'retraction-evidence-audit', price_usd: '0.10' },
+        error: 'payment_required', product: 'retraction-evidence-audit', price: { usd: '$0.10', atomic: '100000' },
+        scheme: 'x402', network: 'base', pay_endpoint: config.MCP_PAYWALL_PAY_ENDPOINT, docs: config.MCP_PAYWALL_DOCS_URL,
       });
-      expect(output).not.toHaveProperty('evidence_path');
+      for (const key of ['verdict', 'confidence', 'coverage', 'tier_distribution', 'evidence_path', 'explain']) {
+        expect(output).not.toHaveProperty(key);
+      }
     } finally { await app.close(); }
   });
 
-  test('omits the retraction root list from public propagation judgments while keeping the verdict', async () => {
+  test('refuses public propagation judgments without invoking the judge', async () => {
     const propagationPayload = {
       verdict: 'CONTESTED', confidence: 0.96, confidence_basis: 'retraction_evidence',
       retracted_roots: [{ paper_id: 'p1' }, { paper_id: 'p2' }], conflict_flags: [],
@@ -170,13 +202,41 @@ describe('anonymous public-tier judgment projections', () => {
       }, sessionId ?? undefined);
       const result = await responseRpc(response);
       const output = JSON.parse(result.result?.content?.[0]?.text ?? '{}');
-      expect(output).toMatchObject({
-        verdict: 'CONTESTED', confidence: 0.96, confidence_basis: 'retraction_evidence', conflict_flags: [],
-        coverage: { ratio: 0.92 }, abstention_reason: null,
-        retracted_roots_omitted: true, retracted_roots_count: 2,
-        upgrade: { route: 'POST /api/v1/judge', dataset: 'retraction-propagation', price_usd: '0.02' },
+      expect(result.result?.isError).toBe(true);
+      expect(output).toEqual({
+        error: 'payment_required', product: 'retraction-propagation', price: { usd: '$0.02', atomic: '20000' },
+        scheme: 'x402', network: 'base', pay_endpoint: config.MCP_PAYWALL_PAY_ENDPOINT, docs: config.MCP_PAYWALL_DOCS_URL,
       });
-      expect(output).not.toHaveProperty('retracted_roots');
+      for (const key of ['verdict', 'confidence', 'coverage', 'retracted_roots', 'explain']) expect(output).not.toHaveProperty(key);
+    } finally { await app.close(); }
+  });
+
+  test('keyed MCP sessions receive the full paid judgment payload', async () => {
+    const judgment = { verdict: 'CONTESTED', confidence: 0.96, retracted_roots: [{ paper_id: 'p1' }] };
+    const judge = {
+      paperStatus: async () => ({}), retractionPropagation: async () => judgment, evidenceAudit: async () => ({}),
+    } as unknown as Judge;
+    const app = fixture(true, { mcpTools: { integrity: { store: {} as never, judge } } });
+    try {
+      const init = await app.request('/mcp', tokens.alpha, {
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+          protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'keyed-test', version: '1' },
+        } }),
+      });
+      const session = init.headers.get('mcp-session-id');
+      expect(init.status).toBe(200);
+      const response = await app.request('/mcp', tokens.alpha, {
+        method: 'POST', headers: {
+          'content-type': 'application/json', accept: 'application/json, text/event-stream',
+          ...(session ? { 'mcp-session-id': session } : {}),
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: {
+          name: 'retraction_propagation', arguments: { doi: '10.1234/keyed' },
+        } }),
+      });
+      const output = JSON.parse((await responseRpc(response)).result?.content?.[0]?.text ?? '{}');
+      expect(output).toEqual(judgment);
     } finally { await app.close(); }
   });
 });

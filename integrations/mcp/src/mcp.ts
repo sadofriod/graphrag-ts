@@ -9,6 +9,7 @@ import type { IndexStore } from './store.ts';
 import { authenticate, createAccessGuard, loadAccessPolicy, PUBLIC_ACCOUNT, type AccessAccount, type AccessPolicy } from './access.ts';
 import { dashboardResponse, httpError } from './dashboard.ts';
 import type { createPaidQueryRoute } from './x402/gateway.ts';
+import { handleOpenApi } from './x402/routes/openapi.ts';
 import { x402Settings } from './x402/settings.ts';
 import { loadDatasetRegistry } from './x402/datasets.ts';
 import { createFacilitatorClient } from './x402/facilitator.ts';
@@ -257,6 +258,8 @@ export const createHttpHandler = (
     if (health) {
       return health;
     }
+    const openApi = handleOpenApi(request);
+    if (openApi) return openApi;
     const paidResponse = await paidRouteResponse(request, paidRoute);
     if (paidResponse) return paidResponse;
     const discovery = wellKnownResponse(request, publicBaseUrl ? { publicBaseUrl } : undefined);
@@ -351,7 +354,11 @@ export const startMcpServer = async (
   assertCdpCredentialsPaired(config);
   const queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES);
   const judge = createJudge(store.integrityStore);
-  const mcpTools: McpToolOptions = { integrity: { store: store.integrityStore, judge } };
+  const mcpTools: McpToolOptions = {
+    integrity: { store: store.integrityStore, judge },
+    paywallPayEndpoint: config.MCP_PAYWALL_PAY_ENDPOINT,
+    paywallDocsUrl: config.MCP_PAYWALL_DOCS_URL,
+  };
   if (config.MCP_ACCESS_FILE && config.MCP_TRANSPORT === 'stdio') {
     throw new Error('MCP_ACCESS_FILE requires HTTP transport; stdio cannot authenticate individual callers.');
   }

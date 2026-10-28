@@ -59,7 +59,7 @@ export const parseJudgmentRequestBody = async (request: Request): Promise<{ inpu
     return { input: judgmentBodySchema.parse(JSON.parse(text) as unknown) };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid request body.';
-    return { error: ['Request body must be JSON.', 'Request body exceeds 8192 bytes.'].includes(message) ? message : 'Invalid request body.' };
+    return { error: ['Request body must be JSON.', 'Request body exceeds 8192 bytes.'].includes(message) ? message : 'invalid_request_body' };
   }
 };
 

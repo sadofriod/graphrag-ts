@@ -12,6 +12,14 @@ const environmentSchema = z.object({
     z.string().trim().min(1).optional(),
   ),
   MCP_PUBLIC_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  MCP_PAYWALL_PAY_ENDPOINT: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().url().default('https://pay.ashesborn.cloud/api/v1/judge'),
+  ),
+  MCP_PAYWALL_DOCS_URL: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().url().default('https://blog.ashesborn.cloud/datasets'),
+  ),
   MAX_HTTP_SESSIONS: z.coerce.number().int().min(1).max(1000).default(100),
   HTTP_SESSION_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(900_000),
   MCP_PUBLIC_TIER: z.preprocess((value) => value === true || value === 'true' || value === '1' || value === 'yes', z.boolean()).default(false),
@@ -56,6 +64,8 @@ export type AppConfig = Omit<ParsedConfig,
     readonly X402_DATASETS_FILE?: string | undefined;
     readonly X402_PUBLIC_BASE_URL?: string | undefined;
     readonly MCP_PUBLIC_BASE_URL?: string | undefined;
+    readonly MCP_PAYWALL_PAY_ENDPOINT: string;
+    readonly MCP_PAYWALL_DOCS_URL: string;
     readonly CDP_API_KEY_ID?: string | undefined;
     readonly CDP_API_KEY_SECRET?: string | undefined;
   };
