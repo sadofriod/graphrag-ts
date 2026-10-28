@@ -49,11 +49,11 @@ code_bogus=$(curl -sS -m 60 -o "$TMP/bogus.json" -w '%{http_code}' -X POST "$BAS
   -d '{"jsonrpc":"2.0","id":6,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"paywall-check","version":"1"}}}')
 
 # ---- 7. the paid HTTP surface still asks for payment ------------------------
-code_pay=$(curl -sS -m 60 -o /dev/null -D "$TMP/pay.h" -w '%{http_code}' -X POST "$PAY/api/v1/judge" \
-  -H 'Content-Type: application/json' -d "{\"doi\":\"$DOI\"}")
+code_pay=$(curl -sS -m 60 -o "$TMP/pay.json" -D "$TMP/pay.h" -w '%{http_code}' -X POST "$PAY/api/v1/judge" \
+  -H 'Content-Type: application/json' -d "{\"dataset_id\":\"retraction-propagation\",\"doi\":\"$DOI\"}")
 
 python3 - "$TMP" "$code" "$code_bogus" "$code_pay" "$JSON" <<'PY'
-import json, os, re, sys
+import base64, json, os, re, sys
 
 tmp, init_code, bogus_code, pay_code, as_json = sys.argv[1:6]
 
@@ -80,6 +80,24 @@ def text_of(body):
 def is_error(body):
     return bool((body or {}).get('result', {}).get('isError')) or bool((body or {}).get('error'))
 
+def payment_challenge(path):
+    with open(path) as headers:
+        value = next((line.split(':', 1)[1].strip() for line in headers
+                      if line.lower().startswith('payment-required:')), None)
+    if not value:
+        return None
+    try:
+        return json.loads(base64.b64decode(value, validate=True))
+    except (ValueError, json.JSONDecodeError):
+        return None
+
+def has_amount(value):
+    if isinstance(value, dict):
+        return value.get('amount') == '20000' or any(has_amount(item) for item in value.values())
+    if isinstance(value, list):
+        return any(has_amount(item) for item in value)
+    return False
+
 tools = payload(f'{tmp}/tools.json')
 free = payload(f'{tmp}/free.json')
 prop = payload(f'{tmp}/prop.json')
@@ -94,7 +112,15 @@ checks.append(('tools/list exposed', bool(names), ', '.join(names) or 'none'))
 checks.append(('free tool answers with data', bool(text_of(free)) and 'statuses' in text_of(free), text_of(free)[:60] or 'empty'))
 checks.append(('propagation is NOT free', is_error(prop), 'payment_required' if is_error(prop) else 'LEAKED verdict=' + str(prop.get('result', {}).get('content', [{}])[0].get('text', ''))[:60]))
 checks.append(('evidence audit is NOT free', is_error(audit), 'payment_required' if is_error(audit) else 'LEAKED'))
-checks.append(('paid HTTP surface challenges', pay_code in ('402', '400'), f'HTTP {pay_code}'))
+try:
+    with open(f'{tmp}/pay.json') as response_body:
+        pay_body = json.load(response_body)
+except (OSError, json.JSONDecodeError):
+    pay_body = None
+challenge = payment_challenge(f'{tmp}/pay.h')
+checks.append(('paid HTTP surface challenges',
+               pay_code == '402' and pay_body == {} and has_amount(challenge),
+               f'HTTP {pay_code}'))
 
 failed = [c for c in checks if not c[1]]
 if as_json == '1':

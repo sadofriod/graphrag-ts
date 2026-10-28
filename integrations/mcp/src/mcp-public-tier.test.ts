@@ -63,12 +63,39 @@ const rpcAnonymous = (app: Fixture, method: string, params: unknown, session?: s
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
 
-const responseRpc = async (response: Response) => {
-  const text = await response.text();
-  const data = text.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
-  return JSON.parse(data ?? text) as {
-    result?: { tools?: { name: string; description?: string }[]; content?: { text: string }[]; isError?: boolean };
-  };
+const sseData = (text: string) => text.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
+const parseJsonBody = (text: string) => JSON.parse(sseData(text) ?? text) as {
+  result?: { tools?: { name: string; description?: string }[]; content?: { text: string }[]; isError?: boolean };
+};
+const responseRpc = async (response: Response) => parseJsonBody(await response.text());
+
+const expectPublicIntegrityTools = async (app: Fixture, session?: string) => {
+  const list = await rpcAnonymous(app, 'tools/list', {}, session);
+  const tools = (await responseRpc(list)).result?.tools ?? [];
+  expect(tools.map((tool) => tool.name).sort()).toEqual([
+    'integrity_evidence_audit', 'integrity_paper_status', 'retraction_propagation',
+  ]);
+  expect(tools.find((tool) => tool.name === 'retraction_propagation')?.description).toContain('$0.02');
+  expect(tools.find((tool) => tool.name === 'integrity_evidence_audit')?.description).toContain('$0.10');
+};
+
+const expectPaidToolsGated = async (app: Fixture, session?: string) => {
+  for (const [name, product, usd, atomic] of [
+    ['retraction_propagation', 'retraction-propagation', '$0.02', '20000'],
+    ['integrity_evidence_audit', 'retraction-evidence-audit', '$0.10', '100000'],
+  ] as const) {
+    const response = await rpcAnonymous(app, 'tools/call', {
+      name, arguments: { doi: '10.1234/anonymous' },
+    }, session);
+    const result = (await responseRpc(response)).result;
+    const refusal = JSON.parse(result?.content?.[0]?.text ?? '{}') as Record<string, unknown>;
+    expect(result?.isError).toBe(true);
+    expect(refusal).toEqual({
+      error: 'payment_required', product, price: { usd, atomic }, scheme: 'x402', network: 'base',
+      pay_endpoint: config.MCP_PAYWALL_PAY_ENDPOINT, docs: config.MCP_PAYWALL_DOCS_URL,
+    });
+    for (const key of ['verdict', 'confidence', 'coverage', 'retracted_roots']) expect(refusal).not.toHaveProperty(key);
+  }
 };
 
 describe('anonymous public-tier judgment paywall', () => {
@@ -89,29 +116,8 @@ describe('anonymous public-tier judgment paywall', () => {
       expect(init.headers.get('x-ashesborn-tier')).toBe('public');
       const session = init.headers.get('mcp-session-id');
       expect(session).toBeTruthy();
-      const list = await rpcAnonymous(app, 'tools/list', {}, session ?? undefined);
-      const tools = (await responseRpc(list)).result?.tools ?? [];
-      expect(tools.map((tool) => tool.name).sort()).toEqual([
-        'integrity_evidence_audit', 'integrity_paper_status', 'retraction_propagation',
-      ]);
-      expect(tools.find((tool) => tool.name === 'retraction_propagation')?.description).toContain('$0.02');
-      expect(tools.find((tool) => tool.name === 'integrity_evidence_audit')?.description).toContain('$0.10');
-      for (const [name, product, usd, atomic] of [
-        ['retraction_propagation', 'retraction-propagation', '$0.02', '20000'],
-        ['integrity_evidence_audit', 'retraction-evidence-audit', '$0.10', '100000'],
-      ] as const) {
-        const response = await rpcAnonymous(app, 'tools/call', {
-          name, arguments: { doi: '10.1234/anonymous' },
-        }, session ?? undefined);
-        const result = (await responseRpc(response)).result;
-        const refusal = JSON.parse(result?.content?.[0]?.text ?? '{}') as Record<string, unknown>;
-        expect(result?.isError).toBe(true);
-        expect(refusal).toEqual({
-          error: 'payment_required', product, price: { usd, atomic }, scheme: 'x402', network: 'base',
-          pay_endpoint: config.MCP_PAYWALL_PAY_ENDPOINT, docs: config.MCP_PAYWALL_DOCS_URL,
-        });
-        for (const key of ['verdict', 'confidence', 'coverage', 'retracted_roots']) expect(refusal).not.toHaveProperty(key);
-      }
+      await expectPublicIntegrityTools(app, session ?? undefined);
+      await expectPaidToolsGated(app, session ?? undefined);
       const free = await rpcAnonymous(app, 'tools/call', {
         name: 'integrity_paper_status', arguments: { doi: '10.1234/anonymous' },
       }, session ?? undefined);
