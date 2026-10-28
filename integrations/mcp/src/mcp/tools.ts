@@ -13,6 +13,7 @@ import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
 import { runSnapshotQuery, QueryServiceError } from '../queryService.ts';
 import type { Judge, PaperRef } from '../integrity/judge.ts';
 import type { IntegrityStore } from '../integrity/store.ts';
+import { publicTierPayload, type IntegrityToolName } from './publicTier.ts';
 
 type ToolContext = {
   readonly store: IndexStore;
@@ -285,7 +286,9 @@ export const integrityPaperRefSchema = z.object({
 
 export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly judge: Judge };
 export type McpToolOptions = { readonly integrity?: McpIntegrityOptions; readonly tier?: 'public' | 'keyed' };
-type IntegrityToolName = 'integrity_paper_status' | 'retraction_propagation' | 'integrity_evidence_audit';
+
+const isPaperNotFound = (payload: unknown): boolean => typeof payload === 'object' && payload !== null
+  && 'abstention_reason' in payload && payload.abstention_reason === 'paper_not_in_snapshot';
 
 const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger, publicTier: boolean): void => {
   const definitions: readonly { readonly name: IntegrityToolName; readonly description: string; readonly run: (reference: PaperRef) => Promise<unknown>; readonly status: boolean }[] = [
@@ -304,24 +307,11 @@ const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger,
             ...(reference.doi === undefined ? {} : { doi: reference.doi }),
             ...(reference.paper_id === undefined ? {} : { paper_id: reference.paper_id }),
           });
-          if (definition.status && typeof payload === 'object' && payload !== null
-            && 'abstention_reason' in payload && payload.abstention_reason === 'paper_not_in_snapshot') {
+          if (definition.status && isPaperNotFound(payload)) {
             logger.error('MCP tool failed.', { tool: definition.name, error_name: 'PaperNotFoundError' });
             return toolErrorResult('PAPER_NOT_FOUND', 'The paper is not present in the active integrity snapshot.');
           }
-          const result = publicTier && definition.name === 'integrity_evidence_audit'
-            && typeof payload === 'object' && payload !== null
-            ? (() => {
-              const publicPayload = { ...payload } as Record<string, unknown>;
-              const evidencePath = publicPayload.evidence_path;
-              delete publicPayload.evidence_path;
-              return {
-                ...publicPayload,
-                evidence_path_omitted: true,
-                evidence_path_count: Array.isArray(evidencePath) ? evidencePath.length : 0,
-              };
-            })()
-            : payload;
+          const result = publicTier ? publicTierPayload(definition.name, payload) : payload;
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } catch (error) {
           const errorName = error instanceof Error ? error.name : 'UnknownError';

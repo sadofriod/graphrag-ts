@@ -17,7 +17,7 @@
         {
           "name": "Authorization",
           "value": "Bearer {api_key}",
-          "description": "Optional. Without a key you get the public read tier: integrity_paper_status, retraction_propagation and integrity_evidence_audit (evidence paths omitted), 20 requests/minute per IP. A key unlocks the full tool set.",
+          "description": "Optional. Without a key you get the public read tier: integrity_paper_status, plus retraction_propagation and integrity_evidence_audit with their evidence detail withheld (root list, evidence path) and an upgrade hint naming the paid HTTP price. 20 requests/minute per IP. A key unlocks the full tool set.",
           "isRequired": false,
           "isSecret": true
         }
