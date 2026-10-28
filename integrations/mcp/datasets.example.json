@@ -1,0 +1,28 @@
+{
+  "datasets": [
+    {
+      "id": "web3-security",
+      "workspace_id": "web3-security",
+      "title": "Synthetic smart-contract security relations",
+      "description": "Entity/relationship graph over a synthetic audit corpus, with source excerpts.",
+      "synthetic": true,
+      "license": {
+        "spdx": "MIT",
+        "url": "https://github.com/sadofriod/graphrag-ts/blob/main/LICENSE"
+      },
+      "pricing": {
+        "local": "$0.02",
+        "global": {
+          "scheme": "upto",
+          "upto": "$0.10",
+          "base": "$0.02",
+          "per_map_answer": "$0.01"
+        }
+      },
+      "tags": [
+        "graphrag",
+        "security"
+      ]
+    }
+  ]
+}

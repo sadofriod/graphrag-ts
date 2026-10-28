@@ -18,7 +18,12 @@ const accounts: AccessAccount[] = Object.entries(tokens).map(([id, token]) => ({
 const logger = createLogger('error');
 const config = loadConfig({ DATABASE_URL: 'postgresql://localhost/unused' });
 
-const fixture = (hosted = true, overrides: Partial<IndexStore> = {}) => {
+const fixture = (
+  hosted = true,
+  overrides: Partial<IndexStore> = {},
+  paidHostname?: string,
+  paidRoute?: Parameters<typeof createHttpHandler>[6],
+) => {
   const usage = new Map<string, number>();
   let enqueued = 0;
   const store: IndexStore = {
@@ -45,7 +50,7 @@ const fixture = (hosted = true, overrides: Partial<IndexStore> = {}) => {
   };
   const sessions = new Map<string, McpSession>();
   const handler = createHttpHandler(store, config, logger, sessions, undefined,
-    hosted ? parseAccessPolicy({ accounts }) : undefined);
+    hosted ? parseAccessPolicy({ accounts }) : undefined, paidRoute, paidHostname);
   const request = (path: string, token?: string, init: RequestInit = {}) => handler(new Request(`http://localhost${path}`, {
     ...init,
     headers: { host: 'localhost', ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers },
@@ -114,6 +119,26 @@ describe('hosted HTTP boundary and MCP protocol', () => {
         expect((await app.request(path, 'x'.repeat(40))).status).toBe(401);
       }
       expect((await app.request('/api/workspaces', tokens.alpha, { headers: { host: 'mcp.example.com' } })).status).toBe(200);
+    } finally { await app.close(); }
+  });
+
+  test('restricts the paid hostname to the public payment routes', async () => {
+    const paidRoute = async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      return path === '/api/v1/query' ? new Response('challenge', { status: 402 })
+        : path === '/.well-known/x402' ? new Response('discovery', { status: 200 }) : undefined;
+    };
+    const app = fixture(true, {}, 'pay.example.com', paidRoute);
+    const onHost = (hostname: string, path: string) => app.handler(new Request(`https://${hostname}${path}`, {
+      headers: { host: hostname, authorization: ['Bearer ', tokens.alpha].join('') },
+    }));
+    try {
+      for (const path of ['/mcp', '/api/usage', '/api/workspaces/alpha', '/healthz']) {
+        expect((await onHost('pay.example.com', path)).status).toBe(404);
+      }
+      expect((await onHost('pay.example.com', '/api/v1/query')).status).toBe(402);
+      expect((await onHost('pay.example.com', '/.well-known/x402')).status).toBe(200);
+      expect((await onHost('mcp.example.com', '/api/workspaces/alpha/graph')).status).toBe(200);
     } finally { await app.close(); }
   });
 

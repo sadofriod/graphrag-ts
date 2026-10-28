@@ -2,16 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig } from '../config.ts';
-import { retrieve, retrieveGlobal } from '../graph-rag.ts';
 import { normalizeSourceLabel, pathInputs, textInput } from '../input.ts';
 import { formatGlobalQueryOutput, formatQueryOutput } from '../output.ts';
 import type { Logger } from '../log.ts';
 import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
+import { withQuerySlot, type QuerySlot } from '../x402/slot.ts';
 import { AccessError, type AccessGuard } from '../access.ts';
 import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
-import { queryFailure } from './query-activity.ts';
-import { createActivityLogger } from './queryActivity.ts';
+import { runSnapshotQuery, QueryServiceError } from '../queryService.ts';
 
 type ToolContext = {
   readonly store: IndexStore;
@@ -19,14 +18,6 @@ type ToolContext = {
   readonly logger: Logger;
   readonly authorize?: AccessGuard;
 };
-
-type QueryResult = Awaited<ReturnType<typeof retrieve>> | Awaited<ReturnType<typeof retrieveGlobal>>;
-
-type QueryOutcome =
-  | { readonly status: 'completed'; readonly result: QueryResult }
-  | { readonly status: 'failed'; readonly error: unknown };
-
-type QueryLease = NonNullable<Awaited<ReturnType<IndexStore['acquireActiveVersionLease']>>>;
 
 export const createQueryLimiter = (limit: number) => {
   let activeQueries = 0;
@@ -54,61 +45,28 @@ export const globalCommunityLevelSchema = z.union([
   z.literal('leaf'),
 ]).optional();
 
-const startRetrieval = (
-  query: string,
-  mode: 'local' | 'global',
-  maxResults: number,
-  communityLevel: number | 'leaf' | undefined,
-  lease: QueryLease,
-  signal: AbortSignal,
-): Promise<QueryOutcome> => {
-  const retrieval = mode === 'global'
-    ? retrieveGlobal(query, lease.namespace, communityLevel, signal)
-    : retrieve(query, lease.namespace, maxResults, communityLevel === 'leaf' ? undefined : communityLevel, signal);
-  return retrieval.then(
-    (result): QueryOutcome => ({ status: 'completed', result }),
-    (error: unknown): QueryOutcome => ({ status: 'failed', error }),
-  );
+const queryErrorResponses = {
+  INDEX_NOT_READY: ['INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.'],
+  QUERY_TIMEOUT: ['QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.'],
+} as const;
+
+const queryFailureResponse = (error: QueryServiceError) => {
+  const known = queryErrorResponses[error.code as keyof typeof queryErrorResponses];
+  if (known) return toolErrorResult(known[0], known[1]);
+  return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
 };
 
-const renewLeaseWhileQuerying = (
-  store: IndexStore,
-  logger: Logger,
-  leaseId: string,
-  leaseDurationMs: number,
-): ReturnType<typeof setInterval> => setInterval(() => {
-  void store.renewQueryLease(leaseId, leaseDurationMs).catch((error: unknown) => {
-    logger.warn('Could not renew active query snapshot lease.', {
-      error_name: error instanceof Error ? error.name : 'UnknownError',
-    });
-  });
-}, Math.max(1_000, Math.floor(leaseDurationMs / 3)));
-
-const formatQueryOutcome = (
-  outcome: QueryOutcome,
-  lease: QueryLease,
-  maxOutputChars: number,
-) => {
-  if (outcome.status === 'failed') {
-    throw outcome.error;
+const handleQueryError = (error: unknown, logger: Logger, mode: 'local' | 'global') => {
+  if (error instanceof QueryServiceError) {
+    if (error.code === 'QUERY_FAILED') {
+      logger.error('MCP tool failed.', { tool: mode === 'global' ? 'query_graph_global' : 'query_graph', error_name: error.cause instanceof Error ? error.cause.name : 'UnknownError' });
+      return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
+    }
+    return queryFailureResponse(error);
   }
-  if ('communityLevel' in outcome.result) {
-    return {
-      content: [{
-        type: 'text' as const,
-        text: formatGlobalQueryOutput(outcome.result, lease, maxOutputChars),
-      }],
-    };
-  }
-  if ('communities' in outcome.result) {
-    return {
-      content: [{
-        type: 'text' as const,
-        text: formatQueryOutput(outcome.result, lease, maxOutputChars),
-      }],
-    };
-  }
-  return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
+  if (error instanceof ToolError) return toolErrorResult(error.code, error.message);
+  logger.error('MCP tool failed.', { tool: mode === 'global' ? 'query_graph_global' : 'query_graph', error_name: error instanceof Error ? error.name : 'UnknownError' });
+  return toolErrorResult('UPSTREAM_ERROR', 'GraphRAG retrieval failed. Check the configured model service and server logs.');
 };
 
 const executeQuery = async (
@@ -118,67 +76,23 @@ const executeQuery = async (
   mode: 'local' | 'global',
   maxResults: number,
   communityLevel: number | 'leaf' | undefined,
-  releaseQuerySlot: () => void,
+  slot: QuerySlot,
 ) => {
   const operationId = randomUUID();
-  const startedAt = Date.now();
-  const logActivity = createActivityLogger(store, logger, workspaceId, operationId);
-  let lease: QueryLease | null = null;
-  let workStarted = false;
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  let leaseRenewalHandle: ReturnType<typeof setInterval> | undefined;
-  const leaseDurationMs = Math.max(config.QUERY_TIMEOUT_MS * 2, 60_000);
-
   try {
-    await logActivity('info', 'Retrieval started.', {
-      mode,
-      query_length: query.length,
-      community_level: communityLevel ?? null,
+    const snapshot = await runSnapshotQuery({ store, config, logger }, {
+      workspaceId, query, mode, maxResults, ...(communityLevel === undefined ? {} : { communityLevel }), operationId,
     });
-    lease = await store.acquireActiveVersionLease(workspaceId, leaseDurationMs);
-    if (!lease) {
-      await logActivity('warn', 'Retrieval unavailable: no index is published.', { mode });
-      return toolErrorResult('INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.');
+    if ('communityLevel' in snapshot.result) {
+      return { content: [{ type: 'text' as const, text: formatGlobalQueryOutput(snapshot.result, snapshot.version, config.MAX_OUTPUT_CHARS) }] };
     }
-    const activeLease = lease;
-    const abortController = new AbortController();
-    leaseRenewalHandle = renewLeaseWhileQuerying(store, logger, activeLease.leaseId, leaseDurationMs);
-    const work = startRetrieval(query, mode, maxResults, communityLevel, activeLease, abortController.signal)
-      .finally(async () => {
-        if (leaseRenewalHandle) {
-          clearInterval(leaseRenewalHandle);
-        }
-        await store.releaseQueryLease(activeLease.leaseId).catch((error: unknown) => {
-          logger.warn('Could not release active query snapshot lease.', {
-            error_name: error instanceof Error ? error.name : 'UnknownError',
-          });
-        });
-        releaseQuerySlot();
-      });
-    workStarted = true;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timeoutHandle = setTimeout(() => {
-        const error = new ToolError('QUERY_TIMEOUT', 'The GraphRAG query exceeded its configured time limit.');
-        abortController.abort(error);
-        reject(error);
-      }, config.QUERY_TIMEOUT_MS);
-    });
-    const outcome = await Promise.race([work, timeout]);
-    const formatted = formatQueryOutcome(outcome, activeLease, config.MAX_OUTPUT_CHARS);
-    await logActivity('info', 'Retrieval completed.', { mode, duration_ms: Date.now() - startedAt });
-    return formatted;
+    if ('communities' in snapshot.result) {
+      return { content: [{ type: 'text' as const, text: formatQueryOutput(snapshot.result, snapshot.version, config.MAX_OUTPUT_CHARS) }] };
+    }
+    return toolErrorResult('INTERNAL_ERROR', 'GraphRAG returned an unexpected result shape.');
   } catch (error) {
-    return queryFailure(error, logger, logActivity, mode, startedAt);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-    if (!workStarted) {
-      if (lease) {
-        await store.releaseQueryLease(lease.leaseId).catch(() => undefined);
-      }
-      releaseQuerySlot();
-    }
+    if (error instanceof QueryServiceError && error.completion) slot.releaseAfter(error.completion);
+    return handleQueryError(error, logger, mode);
   }
 };
 
@@ -198,11 +112,11 @@ const createQuerySnapshot = (
     } catch (error) {
       return inputFailure(error, context.logger, 'query_graph');
     }
-    const releaseQuerySlot = queryLimiter.tryAcquire();
-    if (!releaseQuerySlot) {
-      return toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.');
-    }
-    return executeQuery(context, workspaceId, query, mode, maxResults, communityLevel, releaseQuerySlot);
+    return withQuerySlot(
+      queryLimiter,
+      () => toolErrorResult('QUERY_CAPACITY', 'The server has reached its active query limit. Try again shortly.'),
+      async (slot) => executeQuery(context, workspaceId, query, mode, maxResults, communityLevel, slot),
+    );
   };
 };
 

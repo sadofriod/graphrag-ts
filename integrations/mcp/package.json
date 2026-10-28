@@ -12,7 +12,11 @@
     "dev": "bun --watch src/index.ts",
     "db:push": "bun src/db-push.ts",
     "test": "bun test",
-    "benchmark": "bun scripts/benchmark.ts"
+    "benchmark": "bun scripts/benchmark.ts",
+    "export:dataset": "bun scripts/export-dataset.ts",
+    "verify:dataset": "bun scripts/verify-dataset.ts",
+    "check:credentials": "bun scripts/check-credentials.ts",
+    "report:beta": "bun scripts/beta-report.ts"
   },
   "dependencies": {
     "@ashes_born/graph-rag-ts": "workspace:*",

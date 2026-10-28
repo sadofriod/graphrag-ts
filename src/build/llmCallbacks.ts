@@ -16,6 +16,11 @@ const readCorrelation = (): Record<string, string | number | undefined> => ({
 
 const runs = new Map<string, { startedAt: number; promptChars: number }>();
 
+// performance.now() is monotonic, so a wall-clock adjustment cannot produce a
+// negative duration the way `Date.now() - startedAt` did. The clamp also covers a
+// reused runId, which would otherwise report the newer run's elapsed time.
+const elapsedMs = (startedAt: number): number => Math.max(0, Math.round(performance.now() - startedAt));
+
 const modelNameOf = (llm: unknown): string | undefined =>
   (llm as { modelName?: string }).modelName ?? (llm as { model?: string }).model;
 
@@ -27,7 +32,7 @@ export const createLLMCallLogger = (): BaseCallbackHandler =>
         (sum: number, prompt: string) => sum + (prompt?.length ?? 0),
         0,
       );
-      runs.set(runId, { startedAt: Date.now(), promptChars });
+      runs.set(runId, { startedAt: performance.now(), promptChars });
       logger.info(
         { ...readCorrelation(), event: 'llm.start', model: modelNameOf(llm), promptChars },
         'llm call started',
@@ -42,7 +47,7 @@ export const createLLMCallLogger = (): BaseCallbackHandler =>
           ...readCorrelation(),
           event: 'llm.end',
           ok: true,
-          latencyMs: start ? Date.now() - start.startedAt : undefined,
+          latencyMs: start ? elapsedMs(start.startedAt) : undefined,
           tokensIn: message?.usage_metadata?.input_tokens,
           tokensOut: message?.usage_metadata?.output_tokens,
         },
@@ -57,7 +62,7 @@ export const createLLMCallLogger = (): BaseCallbackHandler =>
           ...readCorrelation(),
           event: 'llm.error',
           ok: false,
-          latencyMs: start ? Date.now() - start.startedAt : undefined,
+          latencyMs: start ? elapsedMs(start.startedAt) : undefined,
           err,
         },
         'llm call failed',
