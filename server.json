@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.sadofriod/graphrag-ts",
   "title": "graphrag-ts citation provenance",
-  "description": "GraphRAG over Postgres+pgvector with source-tiered citation-provenance judgments for DOIs.",
-  "version": "0.1.21",
+  "description": "Source-tiered retraction and citation judgments for DOIs; abstains when evidence is thin.",
+  "version": "0.1.22",
   "repository": {
     "url": "https://github.com/sadofriod/graphrag-ts",
     "source": "github",
@@ -17,8 +17,8 @@
         {
           "name": "Authorization",
           "value": "Bearer {api_key}",
-          "description": "API key issued by the operator; ask for a pilot key.",
-          "isRequired": true,
+          "description": "Optional. Without a key you get the public read tier: integrity_paper_status, retraction_propagation and integrity_evidence_audit (evidence paths omitted), 20 requests/minute per IP. A key unlocks the full tool set.",
+          "isRequired": false,
           "isSecret": true
         }
       ]
@@ -26,7 +26,7 @@
   ],
   "_meta": {
     "io.modelcontextprotocol.registry/publisher-provided": {
-      "authentication": "bearer",
+      "authentication": "none for the public read tier; bearer for the full tool set",
       "retrieval": "citation graph + retraction status over OpenAlex/Crossref/Retraction Watch",
       "tools": [
         "integrity_paper_status",
