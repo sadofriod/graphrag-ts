@@ -7,6 +7,18 @@ const jsonResponse = (request: Request, status: number, body: unknown): Response
   },
 });
 
+export const requestOrigin = (request: Request, publicBaseUrl?: string): string => {
+  if (publicBaseUrl) return new URL(publicBaseUrl).origin;
+
+  const url = new URL(request.url);
+  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim();
+  const host = forwardedHost || url.host;
+  const forwardedProto = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
+  const localHost = /^(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(host);
+  const scheme = forwardedProto || (localHost ? 'http' : 'https');
+  return `${scheme}://${host}`;
+};
+
 export const wellKnownResponse = (
   request: Request,
   options?: { publicBaseUrl?: string },
@@ -19,7 +31,7 @@ export const wellKnownResponse = (
     return response;
   }
 
-  const origin = options?.publicBaseUrl ? new URL(options.publicBaseUrl).origin : url.origin;
+  const origin = requestOrigin(request, options?.publicBaseUrl);
   if (url.pathname === '/.well-known/oauth-protected-resource'
     || url.pathname === '/.well-known/oauth-protected-resource/mcp') {
     const resource = url.pathname.endsWith('/mcp') ? `${origin}/mcp` : origin;

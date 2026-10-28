@@ -298,6 +298,17 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     } finally { await app.close(); }
   });
 
+  test('uses forwarded HTTPS origin for protected resource metadata', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/.well-known/oauth-protected-resource', undefined, {
+        headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'mcp.example.com' },
+      });
+      expect(response.status).toBe(200);
+      expect((await response.json()).resource).toBe('https://mcp.example.com');
+    } finally { await app.close(); }
+  });
+
   test('serves MCP-specific protected resource metadata anonymously', async () => {
     const app = fixture();
     try {
@@ -322,6 +333,20 @@ describe('hosted HTTP boundary and MCP protocol', () => {
       expect(response.status).toBe(401);
       expect(response.headers.get('www-authenticate')).toContain('realm="graphrag"');
       expect(response.headers.get('www-authenticate')).toContain('resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"');
+    } finally { await app.close(); }
+  });
+
+  test('uses forwarded HTTPS origin in MCP authentication challenges', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/mcp', undefined, {
+        method: 'POST',
+        headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'mcp.example.com' },
+      });
+      expect(response.status).toBe(401);
+      expect(response.headers.get('www-authenticate')).toContain(
+        'resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/mcp"',
+      );
     } finally { await app.close(); }
   });
 

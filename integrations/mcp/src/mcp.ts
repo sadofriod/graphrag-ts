@@ -15,7 +15,7 @@ import { createFacilitatorClient } from './x402/facilitator.ts';
 import { createCdpFacilitatorClient } from './x402/cdp.ts';
 import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supported.ts';
 import { createJudge } from './integrity/judge.ts';
-import { wellKnownResponse } from './well-known.ts';
+import { requestOrigin, wellKnownResponse } from './well-known.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -86,7 +86,7 @@ const returnAuthError = (
   const account = policy ? authenticate(request, policy) : undefined;
   if (policy && !account) {
     const response = httpError(401, 'A valid, unexpired bearer credential is required.');
-    const origin = publicBaseUrl ? new URL(publicBaseUrl).origin : new URL(request.url).origin;
+    const origin = requestOrigin(request, publicBaseUrl);
     const resourcePath = new URL(request.url).pathname === '/mcp'
       ? '/.well-known/oauth-protected-resource/mcp'
       : '/.well-known/oauth-protected-resource';
