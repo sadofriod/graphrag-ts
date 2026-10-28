@@ -15,6 +15,7 @@ import { createFacilitatorClient } from './x402/facilitator.ts';
 import { createCdpFacilitatorClient } from './x402/cdp.ts';
 import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supported.ts';
 import { createJudge } from './integrity/judge.ts';
+import { wellKnownResponse } from './well-known.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -74,6 +75,7 @@ const returnAuthError = (
   request: Request,
   policy: AccessPolicy | undefined,
   publicEnabled: boolean,
+  publicBaseUrl?: string,
 ): { response?: Response; account?: AccessAccount; tier: 'public' | 'keyed' } => {
   if (policy && publicEnabled && new URL(request.url).pathname === '/mcp' && !request.headers.has('authorization')) {
     return { account: PUBLIC_ACCOUNT, tier: 'public' };
@@ -84,7 +86,11 @@ const returnAuthError = (
   const account = policy ? authenticate(request, policy) : undefined;
   if (policy && !account) {
     const response = httpError(401, 'A valid, unexpired bearer credential is required.');
-    response.headers.set('www-authenticate', 'Bearer realm="graphrag"');
+    const origin = publicBaseUrl ? new URL(publicBaseUrl).origin : new URL(request.url).origin;
+    const resourcePath = new URL(request.url).pathname === '/mcp'
+      ? '/.well-known/oauth-protected-resource/mcp'
+      : '/.well-known/oauth-protected-resource';
+    response.headers.set('www-authenticate', `Bearer realm="graphrag", resource_metadata="${origin}${resourcePath}"`);
     return { response, tier: 'keyed' };
   }
   return { ...(account ? { account } : {}), tier: 'keyed' };
@@ -235,6 +241,7 @@ export const createHttpHandler = (
   paidHostname?: string,
   mcpTools: McpToolOptions = {},
   requestIp?: (request: Request) => string | undefined,
+  publicBaseUrl?: string,
 ) => {
   let pendingSessions = 0;
   let pendingPublicSessions = 0;
@@ -252,6 +259,8 @@ export const createHttpHandler = (
     }
     const paidResponse = await paidRouteResponse(request, paidRoute);
     if (paidResponse) return paidResponse;
+    const discovery = wellKnownResponse(request, publicBaseUrl ? { publicBaseUrl } : undefined);
+    if (discovery) return discovery;
     const pathname = new URL(request.url).pathname;
     const isMcpRoute = pathname === '/mcp';
     const isDashboardRoute = pathname === '/api/usage' || pathname === '/api/workspaces'
@@ -259,7 +268,7 @@ export const createHttpHandler = (
     if (policy && config.MCP_PUBLIC_TIER && isDashboardRoute && !request.headers.has('authorization')) {
       return httpError(404, 'Not found.');
     }
-    const auth = returnAuthError(request, policy, config.MCP_PUBLIC_TIER);
+    const auth = returnAuthError(request, policy, config.MCP_PUBLIC_TIER, publicBaseUrl);
     if (auth.response) return auth.response;
     const account = auth.account;
     const dashboard = auth.tier === 'public' ? undefined : await dashboardResponse(request, store, account);
@@ -357,7 +366,7 @@ export const startMcpServer = async (
   const { settings, route: paidRoute } = await createPaidRoute(store, config, logger, queryLimiter, judge);
   const sessions: SessionMap = new Map();
   const createHandler = createHttpHandler(store, config, logger, sessions, queryLimiter, policy, paidRoute,
-    settings?.publicBaseUrl ? new URL(settings.publicBaseUrl).hostname : undefined, mcpTools);
+    settings?.publicBaseUrl ? new URL(settings.publicBaseUrl).hostname : undefined, mcpTools, undefined, config.MCP_PUBLIC_BASE_URL);
   const closeIdleSessionsHandle = setInterval(() => {
     void closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
   }, Math.min(config.HTTP_SESSION_IDLE_TIMEOUT_MS, 60_000));

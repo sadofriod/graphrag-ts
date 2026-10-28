@@ -287,6 +287,53 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     } finally { await app.close(); }
   });
 
+  test('serves protected resource metadata anonymously', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/.well-known/oauth-protected-resource');
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toMatchObject({ resource: 'http://localhost', bearer_methods_supported: ['header'] });
+      expect(body).not.toHaveProperty('authorization_servers');
+    } finally { await app.close(); }
+  });
+
+  test('serves MCP-specific protected resource metadata anonymously', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/.well-known/oauth-protected-resource/mcp');
+      expect(response.status).toBe(200);
+      expect((await response.json()).resource).toMatch(/\/mcp$/);
+    } finally { await app.close(); }
+  });
+
+  test('returns not found for unsupported OAuth and MCP discovery documents', async () => {
+    const app = fixture();
+    try {
+      expect((await app.request('/.well-known/oauth-authorization-server')).status).toBe(404);
+      expect((await app.request('/.well-known/mcp')).status).toBe(404);
+    } finally { await app.close(); }
+  });
+
+  test('includes MCP protected resource metadata in unauthenticated challenges', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/mcp', undefined, { method: 'POST' });
+      expect(response.status).toBe(401);
+      expect(response.headers.get('www-authenticate')).toContain('realm="graphrag"');
+      expect(response.headers.get('www-authenticate')).toContain('resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"');
+    } finally { await app.close(); }
+  });
+
+  test('rejects non-read methods for discovery documents', async () => {
+    const app = fixture();
+    try {
+      const response = await app.request('/.well-known/oauth-protected-resource', undefined, { method: 'POST' });
+      expect(response.status).toBe(405);
+      expect(response.headers.get('allow')).toBe('GET, HEAD');
+    } finally { await app.close(); }
+  });
+
   test('restricts the paid hostname to the public payment routes', async () => {
     const paidRoute = async (request: Request) => {
       const path = new URL(request.url).pathname;

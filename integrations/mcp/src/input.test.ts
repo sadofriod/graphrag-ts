@@ -11,6 +11,7 @@ const configFor = (inputRoot: string): AppConfig => ({
   MCP_TRANSPORT: 'stdio',
   MCP_HOST: '127.0.0.1',
   MCP_PORT: 3000,
+  MCP_PUBLIC_BASE_URL: undefined,
   MAX_HTTP_SESSIONS: 100,
   HTTP_SESSION_IDLE_TIMEOUT_MS: 900_000,
   MCP_PUBLIC_TIER: false,
