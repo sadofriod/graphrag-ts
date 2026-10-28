@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.22 — 2026-10-28
+
+- **feat(x402)**: authenticate against the Coinbase CDP facilitator
+- **feat(mcp)**: make the paid API discoverable by agents, keep it out of shared config
+- **feat(mcp)**: add x402 paid query API, dataset bundles and pilot tooling
+- **fix(x402)**: address payment recovery review feedback
+- **fix(obs)**: monotonic LLM latency and a server-timing header on paid routes
+- **fix(mcp)**: bind exports to their dataset, lease the snapshot, catch prefixed keys
+- **fix(x402)**: authenticate replays and never lose a paid settlement
+- **fix(x402)**: make upto requirements payable by standard clients
+- **fix(x402)**: treat CDP invalid-payment responses as 402, not a facilitator outage
+- **fix(x402)**: reject a payee address the facilitator cannot settle to
+- **refactor(x402)**: one pricing rule, a recoverable settle state, a shared slot
+- **docs(x402)**: say what rolling back actually costs after migration 009
+- **docs(x402)**: paid hostname serves only the paid paths
+- **docs(x402)**: note that facilitator upto addresses rotate
+- **docs(x402)**: deployment runbook and the two MCP hostnames
+- **docs(x402)**: payee is chain-agnostic, asset and facilitator support are not
+- **chore**: fix the glued .gitignore line
+- **chore(mcp)**: drop the throwaway smoke harness from the branch
+- **test(x402)**: cover the ledger SQL, the JWT path and the route table
+- Merge pull request #19 from sadofriod/feat/x402-paid-query
+
 ## 0.1.21 — 2026-10-22
 
 
