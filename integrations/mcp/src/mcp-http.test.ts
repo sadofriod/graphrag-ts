@@ -8,6 +8,8 @@ import { loadConfig } from './config.ts';
 import { createHttpHandler, startMcpServer, type McpSession } from './mcp.ts';
 import { createStore, type IndexStore } from './store.ts';
 import { createLogger } from './log.ts';
+import type { McpToolOptions } from './mcp/tools.ts';
+import type { Judge } from './integrity/judge.ts';
 
 const tokens = { alpha: 'alpha-test-credential-1234567890123456', beta: 'beta-test-credential-12345678901234567' };
 const accounts: AccessAccount[] = Object.entries(tokens).map(([id, token]) => ({
@@ -23,11 +25,13 @@ const fixture = (
   overrides: Partial<IndexStore> = {},
   paidHostname?: string,
   paidRoute?: Parameters<typeof createHttpHandler>[6],
+  options: { config?: typeof config; mcpTools?: McpToolOptions } = {},
 ) => {
+  const appConfig = options.config ?? config;
   const usage = new Map<string, number>();
   let enqueued = 0;
   const store: IndexStore = {
-    ...createStore(config.DATABASE_URL),
+    ...createStore(appConfig.DATABASE_URL),
     ping: async () => undefined,
     consumeUsage: async (id, operation, limit) => {
       const key = `${id}:${operation}`;
@@ -49,14 +53,14 @@ const fixture = (
     ...overrides,
   };
   const sessions = new Map<string, McpSession>();
-  const handler = createHttpHandler(store, config, logger, sessions, undefined,
-    hosted ? parseAccessPolicy({ accounts }) : undefined, paidRoute, paidHostname);
+  const handler = createHttpHandler(store, appConfig, logger, sessions, undefined,
+    hosted ? parseAccessPolicy({ accounts }) : undefined, paidRoute, paidHostname, options.mcpTools);
   const request = (path: string, token?: string, init: RequestInit = {}) => handler(new Request(`http://localhost${path}`, {
     ...init,
     headers: { host: 'localhost', ...(token ? { authorization: `Bearer ${token}` } : {}), ...init.headers },
   }));
   return {
-    request, handler, store, enqueued: () => enqueued, usage,
+    request, handler, store, sessions, enqueued: () => enqueued, usage,
     close: async () => { await Promise.all([...sessions.values()].map((session) => session.server.close())); await store.close(); },
   };
 };
@@ -72,6 +76,27 @@ const rpc = (app: Fixture, token: string, method: string, params: unknown, sessi
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   });
 
+const rpcAnonymous = (app: Fixture, method: string, params: unknown, session?: string, headers: HeadersInit = {}) =>
+  app.request('/mcp', undefined, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers,
+      ...(session ? { 'mcp-session-id': session } : {}),
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  });
+
+type RpcResponse = {
+  result?: { tools?: { name: string }[]; content?: { text: string }[] };
+  error?: { message?: string };
+};
+
+const responseRpc = async (response: Response): Promise<RpcResponse> => {
+  const text = await response.text();
+  const data = text.split('\n').find((line) => line.startsWith('data: '))?.slice(6);
+  return JSON.parse(data ?? text);
+};
+
 const initialize = async (app: Fixture, token: string): Promise<string> => {
   const response = await rpc(app, token, 'initialize', {
     protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' },
@@ -84,9 +109,149 @@ const initialize = async (app: Fixture, token: string): Promise<string> => {
 };
 
 describe('hosted HTTP boundary and MCP protocol', () => {
+  test('serves an anonymous public session with exactly the integrity tools', async () => {
+    const judge = { paperStatus: async () => ({}), retractionPropagation: async () => ({}), evidenceAudit: async () => ({}) } as unknown as Judge;
+    const app = fixture(true, {}, undefined, undefined, {
+      config: { ...config, MCP_PUBLIC_TIER: true },
+      mcpTools: { integrity: { store: {} as never, judge } },
+    });
+    try {
+      const init = await rpcAnonymous(app, 'initialize', {
+        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'public-test', version: '1' },
+      });
+      expect(init.status).toBe(200);
+      expect(init.headers.get('www-authenticate')).toBeNull();
+      expect(init.headers.get('x-ashesborn-tier')).toBe('public');
+      const session = init.headers.get('mcp-session-id');
+      expect(session).toBeTruthy();
+      const list = await rpcAnonymous(app, 'tools/list', {}, session ?? undefined);
+      expect((await responseRpc(list)).result?.tools?.map((tool) => tool.name).sort()).toEqual([
+        'integrity_evidence_audit', 'integrity_paper_status', 'retraction_propagation',
+      ]);
+      const unknown = await rpcAnonymous(app, 'tools/call', { name: 'remember_text', arguments: { text: 'nope' } }, session ?? undefined);
+      expect(JSON.stringify(await responseRpc(unknown))).toMatch(/unknown|not found/i);
+    } finally { await app.close(); }
+  });
+
+  test('keeps keyed MCP sessions on the authenticated tool set and marks the tier', async () => {
+    const app = fixture(true, {}, undefined, undefined, { config: { ...config, MCP_PUBLIC_TIER: true } });
+    try {
+      const response = await rpc(app, tokens.alpha, 'initialize', {
+        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'keyed-test', version: '1' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('x-ashesborn-tier')).toBe('keyed');
+      const session = response.headers.get('mcp-session-id');
+      const listed = await rpc(app, tokens.alpha, 'tools/list', {}, session ?? undefined);
+      expect((await responseRpc(listed)).result?.tools?.map((tool) => tool.name)).toContain('remember_text');
+    } finally { await app.close(); }
+  });
+
+  test('returns 404 for anonymous dashboard routes when the public tier and access policy are enabled', async () => {
+    const app = fixture(true, {}, undefined, undefined, { config: { ...config, MCP_PUBLIC_TIER: true } });
+    try {
+      expect((await app.request('/api/workspaces')).status).toBe(404);
+      expect((await app.request('/api/workspaces/default/graph')).status).toBe(404);
+    } finally { await app.close(); }
+  });
+
+  test('requires an access policy before public MCP access is granted', async () => {
+    const app = fixture(false, {}, undefined, undefined, { config: { ...config, MCP_PUBLIC_TIER: true } });
+    try {
+      const response = await app.request('/mcp', undefined, {
+        method: 'POST',
+        headers: {
+          host: 'mcp.example.com', 'content-type': 'application/json', accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'initialize',
+          params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'anonymous', version: '1' } },
+        }),
+      });
+      expect(response.status).toBe(403);
+      expect(response.headers.get('mcp-session-id')).toBeNull();
+    } finally { await app.close(); }
+  });
+
+  test('omits evidence paths from public evidence audits while preserving the audit summary', async () => {
+    const auditPayload = {
+      verdict: 'SUPPORTED', confidence: 0.9, coverage: 0.8, conflict_flags: ['source_conflict'],
+      tier_distribution: { A: 1, B: 2, C: 0, D: 0 }, evidence_path: [{ from: 'p1', to: 'p2' }], explain: 'summary',
+    };
+    const judge = {
+      paperStatus: async () => ({}), retractionPropagation: async () => ({}), evidenceAudit: async () => auditPayload,
+    } as unknown as Judge;
+    const app = fixture(true, {}, undefined, undefined, {
+      config: { ...config, MCP_PUBLIC_TIER: true },
+      mcpTools: { integrity: { store: {} as never, judge } },
+    });
+    try {
+      const initialized = await rpcAnonymous(app, 'initialize', {
+        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'public-audit-two', version: '1' },
+      });
+      const sessionId = initialized.headers.get('mcp-session-id');
+      expect(initialized.status).toBe(200);
+      const response = await rpcAnonymous(app, 'tools/call', {
+        name: 'integrity_evidence_audit', arguments: { doi: '10.1234/public' },
+      }, sessionId ?? undefined);
+      const result = await responseRpc(response);
+      const output = JSON.parse(result.result?.content?.[0]?.text ?? '{}');
+      expect(output).toEqual({
+        verdict: 'SUPPORTED', confidence: 0.9, coverage: 0.8, conflict_flags: ['source_conflict'],
+        tier_distribution: { A: 1, B: 2, C: 0, D: 0 }, evidence_path_omitted: true,
+        evidence_path_count: 1, explain: 'summary',
+      });
+      expect(output).not.toHaveProperty('evidence_path');
+    } finally { await app.close(); }
+  });
+
+  test('limits public MCP requests per IP with a retry-after response', async () => {
+    const app = fixture(true, {}, undefined, undefined, {
+      config: { ...config, MCP_PUBLIC_TIER: true, MCP_PUBLIC_RATE_PER_MIN: 2 },
+    });
+    const initParams = {
+      protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'rate-test', version: '1' },
+    };
+    try {
+      expect((await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.10, 10.0.0.1' })).status).toBe(200);
+      expect((await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.10, 10.0.0.1' })).status).toBe(200);
+      const limited = await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.10, 10.0.0.1' });
+      expect(limited.status).toBe(429);
+      expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
+      expect(await limited.json()).toHaveProperty('error');
+    } finally { await app.close(); }
+  });
+
+  test('bounds public sessions independently and expires them after 60 seconds idle', async () => {
+    const app = fixture(true, {}, undefined, undefined, {
+      config: { ...config, MCP_PUBLIC_TIER: true, MCP_PUBLIC_MAX_SESSIONS: 1, MAX_HTTP_SESSIONS: 1 },
+    });
+    const initParams = {
+      protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'session-limit', version: '1' },
+    };
+    try {
+      const publicInit = await rpcAnonymous(app, 'initialize', initParams);
+      expect(publicInit.status).toBe(200);
+      const publicSession = publicInit.headers.get('mcp-session-id');
+      const rejectedPublic = await rpcAnonymous(app, 'initialize', initParams);
+      expect(rejectedPublic.status).toBe(503);
+      expect(rejectedPublic.headers.get('x-ashesborn-tier')).toBe('public');
+
+      const keyedInit = await rpc(app, tokens.alpha, 'initialize', initParams);
+      expect(keyedInit.status).toBe(200);
+      expect(keyedInit.headers.get('x-ashesborn-tier')).toBe('keyed');
+
+      const session = app.sessions.get(publicSession ?? '');
+      expect(session).toBeDefined();
+      if (session) session.lastActivityAt = Date.now() - 60_001;
+      const expired = await rpcAnonymous(app, 'tools/list', {}, publicSession ?? undefined);
+      expect(expired.status).toBe(404);
+    } finally { await app.close(); }
+  });
+
   test('supports the official SDK over loopback HTTP through session termination', async () => {
     const app = fixture();
-    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: app.handler });
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: (request) => app.handler(request) });
     const client = new Client({ name: 'hosted-smoke-test', version: '1' });
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${server.port}/mcp`), {
       requestInit: { headers: { Authorization: `Bearer ${tokens.alpha}` } },

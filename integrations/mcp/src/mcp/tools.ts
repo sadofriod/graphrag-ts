@@ -284,10 +284,10 @@ export const integrityPaperRefSchema = z.object({
 });
 
 export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly judge: Judge };
-export type McpToolOptions = { readonly integrity?: McpIntegrityOptions };
+export type McpToolOptions = { readonly integrity?: McpIntegrityOptions; readonly tier?: 'public' | 'keyed' };
 type IntegrityToolName = 'integrity_paper_status' | 'retraction_propagation' | 'integrity_evidence_audit';
 
-const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger): void => {
+const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger, publicTier: boolean): void => {
   const definitions: readonly { readonly name: IntegrityToolName; readonly description: string; readonly run: (reference: PaperRef) => Promise<unknown>; readonly status: boolean }[] = [
     { name: 'integrity_paper_status', description: 'Get retraction status and identity for a paper.', run: judge.paperStatus, status: true },
     { name: 'retraction_propagation', description: 'Judge whether retraction evidence propagates to a paper.', run: judge.retractionPropagation, status: false },
@@ -309,7 +309,20 @@ const registerIntegrityTools = (server: McpServer, judge: Judge, logger: Logger)
             logger.error('MCP tool failed.', { tool: definition.name, error_name: 'PaperNotFoundError' });
             return toolErrorResult('PAPER_NOT_FOUND', 'The paper is not present in the active integrity snapshot.');
           }
-          return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+          const result = publicTier && definition.name === 'integrity_evidence_audit'
+            && typeof payload === 'object' && payload !== null
+            ? (() => {
+              const publicPayload = { ...payload } as Record<string, unknown>;
+              const evidencePath = publicPayload.evidence_path;
+              delete publicPayload.evidence_path;
+              return {
+                ...publicPayload,
+                evidence_path_omitted: true,
+                evidence_path_count: Array.isArray(evidencePath) ? evidencePath.length : 0,
+              };
+            })()
+            : payload;
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
         } catch (error) {
           const errorName = error instanceof Error ? error.name : 'UnknownError';
           logger.error('MCP tool failed.', { tool: definition.name, error_name: errorName });
@@ -333,10 +346,12 @@ export const createMcpServer = (
 ): McpServer => {
   const server = new McpServer({ name: 'graphrag-mcp-server', version: '0.1.0' });
   const context = { store, config, logger, ...(authorize ? { authorize } : {}) };
-  registerPathInputTool(server, context);
-  registerTextInputTool(server, context);
-  registerJobTool(server, context);
-  registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
-  if (options.integrity) registerIntegrityTools(server, options.integrity.judge, logger);
+  if (options.tier !== 'public') {
+    registerPathInputTool(server, context);
+    registerTextInputTool(server, context);
+    registerJobTool(server, context);
+    registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
+  }
+  if (options.integrity) registerIntegrityTools(server, options.integrity.judge, logger, options.tier === 'public');
   return server;
 };

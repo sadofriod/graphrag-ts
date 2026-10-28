@@ -26,6 +26,16 @@ const accountSchema = z.object({
 export type AccessAccount = z.infer<typeof accountSchema>;
 export type AccessPolicy = { readonly accounts: readonly AccessAccount[] };
 
+export const PUBLIC_ACCOUNT: AccessAccount = {
+  id: 'public',
+  plan: 'public',
+  api_key_sha256: '0'.repeat(64),
+  workspaces: ['default'],
+  operations: ['read'],
+  monthly_limits: { index: 0, query: 0, global_query: 0 },
+  expires_at: '9999-12-31T23:59:59Z',
+};
+
 export class AccessError extends Error {
   constructor(readonly code: 'FORBIDDEN' | 'QUOTA_EXCEEDED', message: string) {
     super(message);

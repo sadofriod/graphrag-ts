@@ -6,7 +6,7 @@ import type { AppConfig } from './config.ts';
 import { createMcpServer, createQueryLimiter, type McpToolOptions } from './mcp/tools.ts';
 import type { Logger } from './log.ts';
 import type { IndexStore } from './store.ts';
-import { authenticate, createAccessGuard, loadAccessPolicy, type AccessAccount, type AccessPolicy } from './access.ts';
+import { authenticate, createAccessGuard, loadAccessPolicy, PUBLIC_ACCOUNT, type AccessAccount, type AccessPolicy } from './access.ts';
 import { dashboardResponse, httpError } from './dashboard.ts';
 import type { createPaidQueryRoute } from './x402/gateway.ts';
 import { x402Settings } from './x402/settings.ts';
@@ -51,6 +51,7 @@ export type McpSession = {
   lastActivityAt: number;
   activeRequests: number;
   readonly accountId: string | undefined;
+  readonly tier: 'public' | 'keyed';
 };
 
 type SessionMap = Map<string, McpSession>;
@@ -69,17 +70,38 @@ const healthResponse = async (request: Request, store: IndexStore): Promise<Resp
   }
 };
 
-const returnAuthError = (request: Request, policy: AccessPolicy | undefined): { response?: Response; account?: AccessAccount } => {
+const returnAuthError = (
+  request: Request,
+  policy: AccessPolicy | undefined,
+  publicEnabled: boolean,
+): { response?: Response; account?: AccessAccount; tier: 'public' | 'keyed' } => {
+  if (policy && publicEnabled && new URL(request.url).pathname === '/mcp' && !request.headers.has('authorization')) {
+    return { account: PUBLIC_ACCOUNT, tier: 'public' };
+  }
   if (!policy && !isLocalHost(request)) {
-    return { response: httpError(403, 'Only localhost clients are allowed without MCP_ACCESS_FILE.') };
+    return { response: httpError(403, 'Only localhost clients are allowed without MCP_ACCESS_FILE.'), tier: 'keyed' };
   }
   const account = policy ? authenticate(request, policy) : undefined;
   if (policy && !account) {
     const response = httpError(401, 'A valid, unexpired bearer credential is required.');
     response.headers.set('www-authenticate', 'Bearer realm="graphrag"');
-    return { response };
+    return { response, tier: 'keyed' };
   }
-  return { ...(account ? { account } : {}) };
+  return { ...(account ? { account } : {}), tier: 'keyed' };
+};
+
+const withTierHeader = (response: Response, tier: 'public' | 'keyed'): Response => {
+  const headers = new Headers(response.headers);
+  headers.set('x-ashesborn-tier', tier);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+};
+
+const clientIp = (request: Request, requestIp?: (request: Request) => string | undefined): string => {
+  const cloudflare = request.headers.get('cf-connecting-ip')?.trim();
+  if (cloudflare) return cloudflare;
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  if (forwarded) return forwarded;
+  return requestIp?.(request)?.trim() || 'unknown';
 };
 
 const paidRouteResponse = async (
@@ -105,9 +127,10 @@ const handleExistingSession = async (
   sessions: SessionMap,
   logger: Logger,
   account?: AccessAccount,
+  tier: 'public' | 'keyed' = 'keyed',
 ): Promise<Response> => {
   const session = sessions.get(sessionId);
-  if (!session || session.accountId !== account?.id) {
+  if (!session || session.accountId !== account?.id || session.tier !== tier) {
     return httpError(404, 'MCP session not found.');
   }
   session.lastActivityAt = Date.now();
@@ -138,7 +161,7 @@ const closeIdleSessions = async (
 ): Promise<void> => {
   const now = Date.now();
   const expired = [...sessions.entries()].filter(([, session]) =>
-    session.activeRequests === 0 && now - session.lastActivityAt >= idleTimeoutMs,
+    session.activeRequests === 0 && now - session.lastActivityAt >= (session.tier === 'public' ? 60_000 : idleTimeoutMs),
   );
   for (const [sessionId] of expired) {
     sessions.delete(sessionId);
@@ -163,6 +186,7 @@ const startSession = async (
   queryLimiter: ReturnType<typeof createQueryLimiter>,
   mcpTools: McpToolOptions,
   account?: AccessAccount,
+  tier: 'public' | 'keyed' = 'keyed',
 ): Promise<Response> => {
   if (request.method !== 'POST') {
     return httpError(400, 'Initialize an MCP session before sending requests.');
@@ -185,7 +209,7 @@ const startSession = async (
     const response = await transport.handleRequest(request);
     newSessionId = transport.sessionId;
     if (newSessionId) {
-      sessions.set(newSessionId, { server, transport, lastActivityAt: Date.now(), activeRequests: 0, accountId: account?.id });
+      sessions.set(newSessionId, { server, transport, lastActivityAt: Date.now(), activeRequests: 0, accountId: account?.id, tier });
     } else {
       await server.close();
     }
@@ -210,9 +234,12 @@ export const createHttpHandler = (
   paidRoute?: ReturnType<typeof createPaidQueryRoute>,
   paidHostname?: string,
   mcpTools: McpToolOptions = {},
+  requestIp?: (request: Request) => string | undefined,
 ) => {
   let pendingSessions = 0;
-  return async (request: Request): Promise<Response> => {
+  let pendingPublicSessions = 0;
+  const publicRequests = new Map<string, number[]>();
+  return async (request: Request, runtimeRequestIp?: (request: Request) => string | undefined): Promise<Response> => {
     if (paidHostname && isPaidHostname(request, paidHostname)) {
       const path = new URL(request.url).pathname;
       if (!path.startsWith('/api/v1/') && path !== '/.well-known/x402') {
@@ -225,29 +252,64 @@ export const createHttpHandler = (
     }
     const paidResponse = await paidRouteResponse(request, paidRoute);
     if (paidResponse) return paidResponse;
-    const auth = returnAuthError(request, policy);
+    const pathname = new URL(request.url).pathname;
+    const isMcpRoute = pathname === '/mcp';
+    const isDashboardRoute = pathname === '/api/usage' || pathname === '/api/workspaces'
+      || pathname.startsWith('/api/workspaces/');
+    if (policy && config.MCP_PUBLIC_TIER && isDashboardRoute && !request.headers.has('authorization')) {
+      return httpError(404, 'Not found.');
+    }
+    const auth = returnAuthError(request, policy, config.MCP_PUBLIC_TIER);
     if (auth.response) return auth.response;
     const account = auth.account;
-    const dashboard = await dashboardResponse(request, store, account);
+    const dashboard = auth.tier === 'public' ? undefined : await dashboardResponse(request, store, account);
     if (dashboard) {
       return dashboard;
     }
-    if (new URL(request.url).pathname !== '/mcp') {
+    if (!isMcpRoute) {
       return httpError(404, 'Not found.');
     }
     await closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
+    const tier = auth.tier;
+    if (tier === 'public') {
+      const ip = clientIp(request, runtimeRequestIp ?? requestIp);
+      const now = Date.now();
+      for (const [trackedIp, timestamps] of publicRequests) {
+        const activeTimestamps = timestamps.filter((timestamp) => now - timestamp < 60_000);
+        if (activeTimestamps.length === 0) publicRequests.delete(trackedIp);
+        else if (activeTimestamps.length !== timestamps.length) publicRequests.set(trackedIp, activeTimestamps);
+      }
+      const recent = (publicRequests.get(ip) ?? []).filter((timestamp) => now - timestamp < 60_000);
+      if (recent.length >= config.MCP_PUBLIC_RATE_PER_MIN) {
+        publicRequests.set(ip, recent);
+        const retryAfter = Math.max(1, Math.ceil((recent[0]! + 60_000 - now) / 1_000));
+        const response = httpError(429, 'The public MCP request limit has been reached.');
+        response.headers.set('retry-after', String(retryAfter));
+        return withTierHeader(response, tier);
+      }
+      recent.push(now);
+      publicRequests.set(ip, recent);
+    }
     const sessionId = request.headers.get('mcp-session-id');
     if (sessionId) {
-      return handleExistingSession(request, sessionId, sessions, logger, account);
+      return withTierHeader(await handleExistingSession(request, sessionId, sessions, logger, account, tier), tier);
     }
-    if (sessions.size + pendingSessions >= config.MAX_HTTP_SESSIONS) {
-      return httpError(503, 'The server has reached its MCP session limit.');
+    const publicSessionCount = [...sessions.values()].filter((session) => session.tier === 'public').length;
+    const keyedSessionCount = sessions.size - publicSessionCount;
+    if (tier === 'public' && publicSessionCount + pendingPublicSessions >= config.MCP_PUBLIC_MAX_SESSIONS) {
+      return withTierHeader(httpError(503, 'The server has reached its public MCP session limit.'), tier);
     }
-    pendingSessions += 1;
+    if (tier === 'keyed' && keyedSessionCount + pendingSessions >= config.MAX_HTTP_SESSIONS) {
+      return withTierHeader(httpError(503, 'The server has reached its MCP session limit.'), tier);
+    }
+    if (tier === 'public') pendingPublicSessions += 1;
+    else pendingSessions += 1;
     try {
-       return await startSession(request, store, config, logger, sessions, queryLimiter, mcpTools, account);
+       return withTierHeader(await startSession(request, store, config, logger, sessions, queryLimiter,
+         { ...mcpTools, tier }, account, tier), tier);
     } finally {
-      pendingSessions -= 1;
+      if (tier === 'public') pendingPublicSessions -= 1;
+      else pendingSessions -= 1;
     }
   };
 };
@@ -303,9 +365,9 @@ export const startMcpServer = async (
     hostname: config.MCP_HOST,
     port: config.MCP_PORT,
     idleTimeout: Math.min(255, Math.ceil(config.QUERY_TIMEOUT_MS / 1_000) + 5),
-    fetch: async (request) => {
+    fetch: async (request, server) => {
       try {
-        return await createHandler(request);
+        return await createHandler(request, (input) => server.requestIP(input)?.address);
       } catch (error) {
         logger.error('HTTP request failed.', { error_name: error instanceof Error ? error.name : 'UnknownError' });
         return httpError(503, 'The operation is unavailable. Check the server logs.');
