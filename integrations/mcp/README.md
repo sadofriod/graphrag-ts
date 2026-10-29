@@ -105,7 +105,6 @@ Evidence records use four `source_tier` levels: A is an official notice, B is pe
 When no self-retraction or ancestor root exists and the target references are not indexed, the judgment abstains with `target_references_not_indexed`.
 
 Load a versioned snapshot from the container with `bun scripts/integrity-load.ts <snapshotDir>`. The harvester that builds snapshots lives at `scripts/integrity/harvest.ts`.
-(docs(mcp): document the anonymous read tier and its three settings)
 
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
 

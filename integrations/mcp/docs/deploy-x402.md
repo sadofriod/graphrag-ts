@@ -1,5 +1,7 @@
 # Deploying the paid API on a Docker host
 
+> Client-side wire format for this flow (402 challenge, PAYMENT-SIGNATURE payload, EIP-3009 signing, error paths): <https://blog.ashesborn.cloud/blog/x402-integration-http-and-mcp>
+
 This is the runbook used to put `POST /api/v1/query` on a real host behind a Cloudflare Tunnel.
 It was executed end to end on a macOS machine with Colima as the Docker runtime; the same steps work
 on any Docker host, only the `docker-compose` invocation may differ (`docker compose` v2 vs
