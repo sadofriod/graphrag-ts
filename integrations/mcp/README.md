@@ -86,18 +86,6 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 
 The paid products are `retraction_propagation` ($0.02 per call) and `evidence_audit` ($0.10 per call), available via `POST /api/v1/judge`. Paper status is free via `GET /api/v1/judge/paper?doi=`. MCP clients can use `integrity_paper_status`, `retraction_propagation`, and `integrity_evidence_audit`; each accepts exactly one of `doi` or `paper_id`.
 
-### Anonymous read tier
-
-`MCP_PUBLIC_TIER=1` turns on a public read tier for deployments that need to be usable without a key. An unauthenticated `POST /mcp` then maps to a read-only account, and only when an access policy is loaded, the path is `/mcp`, and no `Authorization` header is present. Public sessions register the three integrity tools and nothing else, so `index`, `query_graph`, `query_graph_global`, and the job tools are unreachable even by name. `integrity_evidence_audit` drops `evidence_path` for this tier and returns `evidence_path_omitted: true` plus `evidence_path_count`.
-
-Rate limiting is per IP over a 60-second window keyed on `cf-connecting-ip`, then `x-forwarded-for`, then the socket address; over the limit returns 429 with `retry-after`. Public sessions have their own concurrency budget (`MCP_PUBLIC_MAX_SESSIONS`, default 40) and a 60-second idle expiry, so anonymous traffic cannot occupy the keyed session pool. Dashboard routes answer 404 on this tier because the public account carries `read`. With the flag off, the previous 401 behaviour is unchanged.
-
-| Variable | Default | Effect |
-|:---|:---|:---|
-| `MCP_PUBLIC_TIER` | `false` | enable the anonymous read tier |
-| `MCP_PUBLIC_RATE_PER_MIN` | `20` | per-IP requests per 60-second window |
-| `MCP_PUBLIC_MAX_SESSIONS` | `40` | concurrent anonymous sessions |
-
 Evidence records use four `source_tier` levels: A is an official notice, B is peer-reviewed citing text, C is an aggregator, and D is unverified/zero-weight evidence. Judgments return one of three verdicts: `CONTESTED`, `SUPPORTED`, or `INSUFFICIENT_EVIDENCE`.
 
 `confidence` is confidence in the emitted verdict, with `confidence_basis` identifying `retraction_evidence` or `coverage` as its basis.
