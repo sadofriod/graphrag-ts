@@ -84,7 +84,12 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 
 ### Anonymous read tier
 
-`MCP_PUBLIC_TIER=1` adds a read-only tier for deployments that must be usable without a key. An unauthenticated `POST /mcp` then maps to a public account, and only when an access policy is loaded, the path is `/mcp`, and no `Authorization` header is present. Public sessions register the integrity tools and nothing else, so `submit_index_job`, `remember_text`, `query_graph` and `query_graph_global` are unreachable even by name. `integrity_evidence_audit` drops `evidence_path` on this tier and returns `evidence_path_omitted: true` with `evidence_path_count` instead.
+`MCP_PUBLIC_TIER=1` adds a read-only tier for deployments that must be usable without a key. An unauthenticated `POST /mcp` then maps to a public account, and only when an access policy is loaded, the path is `/mcp`, and no `Authorization` header is present. Public sessions register the three integrity tools and nothing else, so `submit_index_job`, `remember_text`, `query_graph` and `query_graph_global` are unreachable even by name.
+
+The tier is a discovery surface, not a free judgment service:
+
+- `integrity_paper_status` runs: it returns the paper identity and each source's retraction assertion.
+- `retraction_propagation` and `integrity_evidence_audit` return `isError: true` with `{"error":"payment_required","product":…,"price":{…},"scheme":"x402","network":"base","pay_endpoint":…,"docs":…}` instead of a verdict. The same judgment is available by paying the x402 route, or by presenting a bearer key on the MCP session.
 
 Rate limiting is per IP over a 60-second window, keyed on `cf-connecting-ip`, then the first `x-forwarded-for` entry, then the socket address; requests over the limit get 429 with `retry-after`. Public sessions have a separate concurrency budget and a 60-second idle expiry, so anonymous traffic cannot occupy the keyed session pool, and dashboard routes answer 404 on this tier. With the flag off, the previous 401 behaviour is unchanged.
 

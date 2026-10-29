@@ -8,7 +8,7 @@
 > [English report](examples/output/final-benchmark-report.en.md) · [中文报告](examples/output/final-benchmark-report.md)
 
 > **Hosted endpoint** / 托管端点
-> `https://mcp.ashesborn.cloud/mcp` (anonymous read tier; paid calls settle through x402) · free DOI status: `https://pay.ashesborn.cloud/api/v1/judge/paper?doi=` · [x402 wire format](https://blog.ashesborn.cloud/blog/x402-integration-http-and-mcp)
+> `https://mcp.ashesborn.cloud/mcp` (anonymous tier: free `integrity_paper_status`, the two judgments answer with an x402 payment requirement; a keyed session unlocks them) · free DOI status: `https://pay.ashesborn.cloud/api/v1/judge/paper?doi=` · [x402 wire format](https://blog.ashesborn.cloud/blog/x402-integration-http-and-mcp)
 
 ## Overview
 
