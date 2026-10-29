@@ -82,6 +82,18 @@ Values supplied in `.vscode/mcp.json` take precedence over matching model settin
 - `query_graph(workspace_id, query)`: perform local hybrid retrieval against that workspace's latest published snapshot, optionally filtered by `community_level`.
 - `query_graph_global(workspace_id, query, community_level)`: perform corpus-wide Map-Reduce retrieval over terminal community summaries by default. Set `community_level` to a non-negative integer to use exactly that hierarchy level, or `"leaf"` to explicitly select all terminal communities across uneven branches.
 
+### Anonymous read tier
+
+`MCP_PUBLIC_TIER=1` adds a read-only tier for deployments that must be usable without a key. An unauthenticated `POST /mcp` then maps to a public account, and only when an access policy is loaded, the path is `/mcp`, and no `Authorization` header is present. Public sessions register the integrity tools and nothing else, so `submit_index_job`, `remember_text`, `query_graph` and `query_graph_global` are unreachable even by name. `integrity_evidence_audit` drops `evidence_path` on this tier and returns `evidence_path_omitted: true` with `evidence_path_count` instead.
+
+Rate limiting is per IP over a 60-second window, keyed on `cf-connecting-ip`, then the first `x-forwarded-for` entry, then the socket address; requests over the limit get 429 with `retry-after`. Public sessions have a separate concurrency budget and a 60-second idle expiry, so anonymous traffic cannot occupy the keyed session pool, and dashboard routes answer 404 on this tier. With the flag off, the previous 401 behaviour is unchanged.
+
+| Variable | Default | Effect |
+|:---|:---|:---|
+| `MCP_PUBLIC_TIER` | `false` | enable the anonymous read tier |
+| `MCP_PUBLIC_RATE_PER_MIN` | `20` | per-IP requests per 60-second window |
+| `MCP_PUBLIC_MAX_SESSIONS` | `40` | concurrent anonymous sessions |
+
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
 
 Use the same workspace ID when submitting, polling, and querying:
