@@ -1,5 +1,7 @@
 # Agent discovery for the paid query API
 
+> Client-side wire format for this flow (402 challenge, PAYMENT-SIGNATURE payload, EIP-3009 signing, error paths): <https://blog.ashesborn.cloud/blog/x402-integration-http-and-mcp>
+
 An agent can only buy a resource it can find. This service publishes its paid endpoint three ways,
 and only the first one is automatic:
 
