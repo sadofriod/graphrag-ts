@@ -2,6 +2,8 @@
 
 > TypeScript GraphRAG for Markdown corpora. Build a knowledge graph, detect communities, and answer with evidence-backed retrieval.
 
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/sadofriod/graphrag-ts)
+
 > **Benchmarks / 基准报告**
 > [English report](examples/output/final-benchmark-report.en.md) · [中文报告](examples/output/final-benchmark-report.md)
 
@@ -15,6 +17,21 @@
 - MCP server with isolated workspaces and a local browser showcase
 
 See [the architecture guide](docs/architecture.md) for the pipeline and module details.
+
+## Hosted endpoint
+
+A hosted instance runs at `https://mcp.ashesborn.cloud/mcp` (streamable HTTP) and is registered in the official MCP Registry as `io.github.sadofriod/graphrag-ts`. It serves the integrity judgment tools described in [the MCP guide](integrations/mcp/README.md#integrity-judgment-products); the library, the Compose stack, and this endpoint are separate things, and only the first two are a contract.
+
+Anonymous clients get a read-only tier: `initialize`, `tools/list`, and the three integrity tools (`integrity_paper_status`, `retraction_propagation`, `integrity_evidence_audit`), limited to 20 requests per minute per IP with a `retry-after` on the 429. `integrity_evidence_audit` omits the per-hop `evidence_path` on this tier and returns `evidence_path_omitted` with a count instead. A bearer key unlocks the remaining tools; `index`, `query_graph`, `query_graph_global`, and the job tools are never registered for anonymous sessions.
+
+```bash
+curl -s -X POST https://mcp.ashesborn.cloud/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}'
+```
+
+A successful handshake returns 200 with an `mcp-session-id` header; `tools/list` with that header returns exactly the three tools above. Availability of this instance is best-effort. Self-host with the Compose stack below if you need something that does not depend on a third party.
 
 ## Quick start
 
@@ -61,6 +78,7 @@ To run the three-question Docker smoke benchmark, use `pnpm benchmark:docker:qui
 - [integrations/mcp/docs/hosted-beta.md](integrations/mcp/docs/hosted-beta.md): hosted pilot operations checklist
 - [integrations/mcp/docs/x402-discovery.md](integrations/mcp/docs/x402-discovery.md): how agents discover the paid API (Bazaar, .well-known/x402)
 - [integrations/mcp/docs/deploy-x402.md](integrations/mcp/docs/deploy-x402.md): deploying the paid API on a Docker/Colima host behind Cloudflare Tunnel
+- Background: [retraction propagation judgments over a citation graph](https://blog.ashesborn.cloud/blog/retraction-propagation-judgment) · [x402 payments on an MCP server](https://blog.ashesborn.cloud/blog/x402-mcp-payments)
 - [CONTRIBUTING.md](CONTRIBUTING.md): contribution guide
 
 ## Contributing
