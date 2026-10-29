@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.25 — 2026-10-29
+
+- **docs(x402)**: link the client-side wire format walkthrough
+
 ## 0.1.24 — 2026-10-29
 
 - **docs(mcp)**: document the anonymous read tier and its three settings
