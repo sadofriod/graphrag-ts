@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.24 — 2026-10-29
+
+- **docs(mcp)**: document the anonymous read tier and its three settings
+
 ## 0.1.23 — 2026-10-29
 
 - **docs(readme)**: add mcpservers.org listing badge and hosted endpoint pointer
