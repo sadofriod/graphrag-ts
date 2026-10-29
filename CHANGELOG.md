@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.23 — 2026-10-29
+
+- **docs(readme)**: add mcpservers.org listing badge and hosted endpoint pointer
+
 ## 0.1.22 — 2026-10-28
 
 - **feat(x402)**: authenticate against the Coinbase CDP facilitator
