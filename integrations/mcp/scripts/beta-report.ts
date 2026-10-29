@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 import { buildBetaReport, formatBetaReportMarkdown, type JobMetricRow, type PaymentMetricRow, type RetrievalMetricRow } from '../src/ops/betaMetrics.ts';
-import { loadDatasetRegistry } from '../src/x402/datasets.ts';
+import { isJudgmentDataset, loadDatasetRegistry } from '../src/x402/datasets.ts';
 
 type Args = { days: number; json: boolean; databaseUrl: string | undefined };
 
@@ -38,7 +38,7 @@ const main = async (): Promise<void> => {
     const interval = `${args.days} days`;
     const registryPath = process.env.X402_DATASETS_FILE;
     const registry = registryPath === undefined ? undefined : await loadDatasetRegistry(registryPath);
-    const workspaceByDataset = new Map(registry?.datasets.map((dataset) => [dataset.id, dataset.workspaceId]));
+    const workspaceByDataset = new Map(registry?.datasets.filter((dataset) => !isJudgmentDataset(dataset)).map((dataset) => [dataset.id, dataset.workspaceId]));
     const [retrievalResult, jobResult, paymentResult] = await Promise.all([
       pool.query<RetrievalMetricRow>(
         `SELECT workspace_id, date_trunc('week', created_at)::text AS week,

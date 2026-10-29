@@ -11,8 +11,20 @@ const environmentSchema = z.object({
     (value) => value === '' ? undefined : value,
     z.string().trim().min(1).optional(),
   ),
+  MCP_PUBLIC_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  MCP_PAYWALL_PAY_ENDPOINT: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().url().default('https://pay.ashesborn.cloud/api/v1/judge'),
+  ),
+  MCP_PAYWALL_DOCS_URL: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().url().default('https://blog.ashesborn.cloud/datasets'),
+  ),
   MAX_HTTP_SESSIONS: z.coerce.number().int().min(1).max(1000).default(100),
   HTTP_SESSION_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(900_000),
+  MCP_PUBLIC_TIER: z.preprocess((value) => value === true || value === 'true' || value === '1' || value === 'yes', z.boolean()).default(false),
+  MCP_PUBLIC_RATE_PER_MIN: z.coerce.number().int().min(1).max(100_000).default(20),
+  MCP_PUBLIC_MAX_SESSIONS: z.coerce.number().int().min(1).max(1000).default(40),
   MAX_FILES_PER_JOB: z.coerce.number().int().min(1).max(1000).default(100),
   MAX_FILE_BYTES: z.coerce.number().int().min(1).default(2_000_000),
   MAX_JOB_BYTES: z.coerce.number().int().min(1).default(10_000_000),
@@ -40,7 +52,7 @@ type ParsedConfig = z.infer<typeof environmentSchema>;
 export type AppConfig = Omit<ParsedConfig,
   'X402_ENABLED' | 'X402_FACILITATOR_URL' | 'X402_NETWORK' | 'X402_ASSET' | 'X402_ASSET_NAME'
   | 'X402_ASSET_VERSION' | 'X402_PAY_TO' | 'X402_MAX_TIMEOUT_SECONDS' | 'X402_DATASETS_FILE' | 'X402_PUBLIC_BASE_URL'
-  | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET'> & {
+  | 'MCP_PUBLIC_BASE_URL' | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET'> & {
     readonly X402_ENABLED?: boolean | undefined;
     readonly X402_FACILITATOR_URL?: string | undefined;
     readonly X402_NETWORK?: string | undefined;
@@ -51,6 +63,9 @@ export type AppConfig = Omit<ParsedConfig,
     readonly X402_MAX_TIMEOUT_SECONDS?: number | undefined;
     readonly X402_DATASETS_FILE?: string | undefined;
     readonly X402_PUBLIC_BASE_URL?: string | undefined;
+    readonly MCP_PUBLIC_BASE_URL?: string | undefined;
+    readonly MCP_PAYWALL_PAY_ENDPOINT: string;
+    readonly MCP_PAYWALL_DOCS_URL: string;
     readonly CDP_API_KEY_ID?: string | undefined;
     readonly CDP_API_KEY_SECRET?: string | undefined;
   };

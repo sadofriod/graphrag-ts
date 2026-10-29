@@ -10,6 +10,7 @@ import { createUsageStore } from './usage.ts';
 import { cloneGraphNamespace } from './snapshotCopy.ts';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
 import { createPaymentStore } from './x402/payments.ts';
+import { createIntegrityStore } from './integrity/store.ts';
 
 export type { GraphSnapshot } from './graphSnapshot.ts';
 export type { ActivityLogInput, ActivityLogRecord } from './jobOperations.ts';
@@ -134,6 +135,8 @@ const migrate = async (pool: Pool): Promise<void> => {
     '007_global_query_cache.sql',
     '008_x402_payments.sql',
     '009_x402_settlement_recovery.sql',
+    '010_x402_scoped_nonces.sql',
+    '011_integrity_judgment.sql',
   ]) {
     const migrationPath = fileURLToPath(new URL(`../migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(migrationPath, 'utf8'));
@@ -344,6 +347,7 @@ export const createStore = (databaseUrl: string) => {
     ...createActivityOperations(pool),
     ...createUsageStore(pool),
     paymentStore: createPaymentStore(pool),
+    integrityStore: createIntegrityStore(pool),
   ...createJobOperations(pool, transaction, deleteGraphNamespace),
     getGraphSnapshot: (workspaceId: WorkspaceId) => getGraphSnapshot(pool, workspaceId),
     ...createSnapshotQueries(pool, transaction),

@@ -94,6 +94,18 @@ Rate limiting is per IP over a 60-second window, keyed on `cf-connecting-ip`, th
 | `MCP_PUBLIC_RATE_PER_MIN` | `20` | per-IP requests per 60-second window |
 | `MCP_PUBLIC_MAX_SESSIONS` | `40` | concurrent anonymous sessions |
 
+## Integrity judgment products
+
+The paid products are `retraction_propagation` ($0.02 per call) and `evidence_audit` ($0.10 per call), available via `POST /api/v1/judge`. Paper status is free via `GET /api/v1/judge/paper?doi=`. MCP clients can use `integrity_paper_status`, `retraction_propagation`, and `integrity_evidence_audit`; each accepts exactly one of `doi` or `paper_id`.
+
+Evidence records use four `source_tier` levels: A is an official notice, B is peer-reviewed citing text, C is an aggregator, and D is unverified/zero-weight evidence. Judgments return one of three verdicts: `CONTESTED`, `SUPPORTED`, or `INSUFFICIENT_EVIDENCE`.
+
+`confidence` is confidence in the emitted verdict, with `confidence_basis` identifying `retraction_evidence` or `coverage` as its basis.
+`coverage.indexed` is true when `references > 0` and `resolved >= 0`; otherwise `ratio` is 0 and no reference audit is claimed.
+When no self-retraction or ancestor root exists and the target references are not indexed, the judgment abstains with `target_references_not_indexed`.
+
+Load a versioned snapshot from the container with `bun scripts/integrity-load.ts <snapshotDir>`. The harvester that builds snapshots lives at `scripts/integrity/harvest.ts`.
+
 `workspace_id` is a logical, lowercase slug (1-63 characters: letters, digits, and hyphens; it must start with a letter or digit). Each workspace has an independent job queue position, source set, active snapshot, query leases, and snapshot-retention window. Snapshot namespaces remain server-generated and are not accepted as tool arguments or returned as workspace selectors. A workspace ID is a routing/isolation key, not an authentication credential; deployments serving mutually untrusted users must enforce identity-to-workspace authorization at the MCP gateway.
 
 Use the same workspace ID when submitting, polling, and querying:

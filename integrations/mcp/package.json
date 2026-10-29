@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
     "db:push": "bun src/db-push.ts",

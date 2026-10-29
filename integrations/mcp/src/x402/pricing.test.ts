@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import type { Dataset } from './datasets.ts';
+import type { GraphDataset } from './datasets.ts';
 import { authorizationFor, settleAmountFor } from './pricing.ts';
 
-const dataset = (local: number, upto: number, base: number, perMapAnswer: number, scheme: 'exact' | 'upto' = 'upto'): Dataset => ({
-  id: 'dataset', workspaceId: 'workspace', title: 'Dataset', description: '', synthetic: true,
+const dataset = (local: number, upto: number, base: number, perMapAnswer: number, scheme: 'exact' | 'upto' = 'upto'): GraphDataset => ({
+  product: 'graph', id: 'dataset', workspaceId: 'workspace', title: 'Dataset', description: '', synthetic: true,
   license: { spdx: 'MIT', url: 'https://example.test/license' }, tags: [],
   pricing: {
     local: { usd: '', atomic: String(local) },

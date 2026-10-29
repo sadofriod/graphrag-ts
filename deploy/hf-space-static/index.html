@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retraction status — citation provenance</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; padding: 40px 20px;
+    font: 16px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial;
+    background: radial-gradient(1200px 600px at 20% -10%, #1e293b 0%, #0b1120 55%, #070b14 100%);
+    color: #e2e8f0;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: #94a3b8; margin: 0 0 26px; font-size: 0.95rem; }
+  .card {
+    background: rgba(148,163,184,0.07); border: 1px solid rgba(148,163,184,0.18);
+    border-radius: 14px; padding: 20px; margin-bottom: 18px;
+  }
+  label { display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin-bottom: 6px; }
+  input {
+    width: 100%; padding: 11px 12px; border-radius: 9px; border: 1px solid rgba(148,163,184,0.3);
+    background: #0b1120; color: #e2e8f0; font-size: 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  input:focus { outline: 2px solid #38bdf8; outline-offset: 1px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 260px; }
+  button {
+    margin-top: 16px; padding: 11px 20px; border-radius: 9px; border: 0; cursor: pointer;
+    background: linear-gradient(180deg,#38bdf8,#0ea5e9); color: #06202b; font-weight: 650; font-size: 0.98rem;
+  }
+  button:disabled { opacity: .55; cursor: progress; }
+  .hint { color: #64748b; font-size: 0.82rem; margin-top: 10px; }
+  #out { display: none; }
+  .paper-title { font-size: 1.12rem; font-weight: 600; margin: 0 0 4px; }
+  .meta { color: #94a3b8; font-size: 0.86rem; font-family: ui-monospace, Menlo, monospace; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(148,163,184,0.15); }
+  th { color: #94a3b8; font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .yes { color: #fca5a5; font-weight: 650; }
+  .no { color: #86efac; }
+  .tier { display: inline-block; min-width: 1.6em; text-align: center; padding: 1px 7px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; }
+  .tier.A { background: rgba(56,189,248,.18); color: #7dd3fc; }
+  .tier.B { background: rgba(167,139,250,.18); color: #c4b5fd; }
+  .tier.C { background: rgba(148,163,184,.18); color: #cbd5e1; }
+  .summary { margin-top: 14px; font-weight: 600; }
+  .err { color: #fca5a5; margin-top: 14px; }
+  footer { color: #64748b; font-size: 0.85rem; line-height: 1.6; margin-top: 6px; }
+  footer a { color: #7dd3fc; text-decoration: none; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:rgba(148,163,184,.16); font-size:.75rem; color:#cbd5e1; margin-left:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Retraction status <span class="pill">free</span></h1>
+  <p class="sub">Look a paper up in a citation graph built from OpenAlex, Crossref and Retraction&nbsp;Watch.
+     Every row is a source-attributed fact, not a verdict.</p>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <label for="doi">DOI</label>
+        <input id="doi" placeholder="10.1016/S0140-6736(97)11096-0" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="pid">or OpenAlex paper ID</label>
+        <input id="pid" placeholder="W2117847125" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <button id="go">Check status</button>
+    <p class="hint">Exactly one field. Try Wakefield 1998 with the DOI above.</p>
+  </section>
+
+  <section class="card" id="out">
+    <div class="paper-title" id="ptitle"></div>
+    <div class="meta" id="pmeta"></div>
+    <div id="tableWrap"></div>
+    <div class="summary" id="summary"></div>
+    <div class="err" id="err"></div>
+  </section>
+
+  <footer>
+    Full verdict (<code>CONTESTED</code> / <code>SUPPORTED</code> / <code>INSUFFICIENT_EVIDENCE</code>),
+    confidence and the hop-by-hop evidence path come from the paid endpoint
+    <a href="https://pay.ashesborn.cloud/api/v1/judge">/api/v1/judge</a> — $0.02 per judgment,
+    $0.10 with the full evidence audit, settled per call over x402.<br>
+    Underlying dataset: <a href="https://huggingface.co/datasets/ashesborn6/integrity-citation-retraction-graph">ashesborn6/integrity-citation-retraction-graph</a> ·
+    Code: <a href="https://github.com/sadofriod/graphrag-ts">graphrag-ts</a>
+  </footer>
+</main>
+<script>
+const API = "https://pay.ashesborn.cloud/api/v1/judge/paper";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function reset() {
+  $("out").style.display = "block";
+  $("ptitle").textContent = "";
+  $("pmeta").textContent = "";
+  $("tableWrap").innerHTML = "";
+  $("summary").textContent = "";
+  $("err").textContent = "";
+}
+
+function renderTable(statuses) {
+  const order = { A: 0, B: 1, C: 2, D: 3 };
+  const rows = statuses
+    .filter((s) => s && typeof s === "object")
+    .sort((a, b) => (order[a.source_tier] ?? 4) - (order[b.source_tier] ?? 4) || String(a.source).localeCompare(String(b.source)));
+  if (!rows.length) { $("tableWrap").innerHTML = '<p class="hint">No source reports a status for this paper.</p>'; return []; }
+  const body = rows.map((s) => {
+    const tier = esc(s.source_tier || "?");
+    return `<tr>
+      <td>${esc(s.source)}</td>
+      <td><span class="tier ${tier}">${tier}</span></td>
+      <td class="${s.is_retracted ? "yes" : "no"}">${s.is_retracted ? "retracted" : "no retraction"}</td>
+      <td>${esc(s.retraction_date || "—")}</td>
+    </tr>`;
+  }).join("");
+  $("tableWrap").innerHTML = `<table><thead><tr><th>Source</th><th>Tier</th><th>Status</th><th>Date</th></tr></thead><tbody>${body}</tbody></table>`;
+  return rows;
+}
+
+async function lookup() {
+  const doi = $("doi").value.trim();
+  const pid = $("pid").value.trim();
+  reset();
+  if (Boolean(doi) === Boolean(pid)) { $("err").textContent = "Enter exactly one: a DOI or an OpenAlex paper ID."; return; }
+  const url = `${API}?${doi ? "doi=" + encodeURIComponent(doi) : "paper_id=" + encodeURIComponent(pid)}`;
+  $("go").disabled = true;
+  try {
+    const res = await fetch(url, { headers: { accept: "application/json" } });
+    if (res.status === 404) { $("err").textContent = "This paper is not in the published snapshot."; return; }
+    if (res.status === 503) { $("err").textContent = "No snapshot is active right now — try again later."; return; }
+    if (!res.ok) { $("err").textContent = `Unexpected response (${res.status}).`; return; }
+    const data = await res.json();
+    const p = data.paper || {};
+    if (!p.paper_id) { $("err").textContent = "This paper is not in the published snapshot."; return; }
+    $("ptitle").textContent = p.title || "Untitled";
+    $("pmeta").textContent = [p.year, p.doi].filter(Boolean).join(" · ");
+    const statuses = Array.isArray(data.statuses) ? data.statuses : [];
+    const rows = renderTable(statuses);
+    const sources = new Set(rows.map((r) => r.source));
+    const asserting = new Set(rows.filter((r) => r.is_retracted).map((r) => r.source));
+    $("summary").textContent = rows.length
+      ? `${asserting.size} of ${sources.size} independent sources assert a retraction.`
+      : "";
+  } catch (e) {
+    $("err").textContent = "The status service could not be reached. Try again in a moment.";
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+$("go").addEventListener("click", lookup);
+["doi", "pid"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") lookup(); }));
+</script>
+</body>
+</html>

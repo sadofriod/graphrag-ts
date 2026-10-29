@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { QueryServiceError, runSnapshotQuery } from '../queryService.ts';
-import type { Dataset } from './datasets.ts';
-import { findDataset } from './datasets.ts';
+import type { GraphDataset } from './datasets.ts';
+import { findDataset, isJudgmentDataset } from './datasets.ts';
 import { buildChallenge, matchesRequirements, requirementsFor } from './challenge.ts';
 import { errorResponse, jsonResponse } from './http.ts';
 import { nonceFromPayload, parsePaymentPayload, requestHash, validIdempotencyKey, type QueryInput } from './payload.ts';
@@ -46,7 +46,7 @@ const canonicalPayer = (payer: string | undefined, fallback?: string): string | 
 
 const settleRetrievedAnswer = async (
   deps: PaidRouteDeps,
-  dataset: Dataset,
+  dataset: GraphDataset,
   mode: QueryInput['mode'],
   requirements: PaymentRequirements,
   payload: PaymentPayload,
@@ -84,7 +84,7 @@ const settleRetrievedAnswer = async (
 
 const retrieveAndSettle = async (
   deps: PaidRouteDeps,
-  dataset: Dataset,
+  dataset: GraphDataset,
   input: QueryInput,
   requirements: PaymentRequirements,
   payload: PaymentPayload,
@@ -109,7 +109,7 @@ const retrieveAndSettle = async (
 
 const completeSuccess = async (
   deps: PaidRouteDeps,
-  dataset: Dataset,
+  dataset: GraphDataset,
   mode: 'local' | 'global',
   record: PaymentRecord,
   requestId: string,
@@ -145,7 +145,7 @@ const completeSuccess = async (
 
 const handleRejectedPayment = async (
   request: Request,
-  dataset: Dataset,
+  dataset: GraphDataset,
   input: QueryInput,
   payload: PaymentPayload,
   fingerprint: string,
@@ -167,7 +167,7 @@ const handleRejectedPayment = async (
 
 const replayResponseForRequest = async (
   deps: PaidRouteDeps,
-  dataset: Dataset,
+  dataset: GraphDataset,
   input: QueryInput,
   fingerprint: string,
   bodyHash: string,
@@ -187,7 +187,7 @@ const replayResponseForRequest = async (
 
 export const handlePaidQuery = async (request: Request, input: QueryInput, deps: PaidRouteDeps): Promise<Response> => {
   const dataset = findDataset(deps.registry, input.dataset_id);
-  if (!dataset) return errorResponse(404, 'Unknown dataset.');
+  if (!dataset || isJudgmentDataset(dataset)) return errorResponse(404, 'Unknown dataset.');
   const requirements = requirementsFor(dataset, input.mode, deps.settings);
   const signature = request.headers.get('PAYMENT-SIGNATURE');
   if (!signature) return buildChallenge(request, dataset, input.mode, requirements, deps.settings);
@@ -236,7 +236,7 @@ const verifyPaymentPayer = async (
 const authenticatedPaidQuery = async (
   deps: PaidRouteDeps,
   request: Request,
-  dataset: Dataset,
+  dataset: GraphDataset,
   input: QueryInput,
   requirements: PaymentRequirements,
   payload: PaymentPayload,

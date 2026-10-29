@@ -1,9 +1,49 @@
 import { createHash } from 'node:crypto';
 import { requestHash } from './payload.ts';
+import { handleOpenApi } from './routes/openapi.ts';
 import { decodePaymentHeader, type PaymentPayload, type PaymentRequirements } from './types.ts';
 import { describe, expect, settings, setup, test } from './testSupport.ts';
 
 describe('x402 paid query gateway', () => {
+  test('serves a public OpenAPI document and structured validation errors for judgment requests', async () => {
+    const openApi = handleOpenApi(new Request('https://public.test/api/v1/openapi.json'));
+    expect(openApi?.status).toBe(200);
+    expect(openApi?.headers.get('content-type')).toContain('application/json');
+    expect(openApi?.headers.get('cache-control')).toBe('public, max-age=60');
+    const document = await openApi?.json() as { openapi: string; paths: Record<string, unknown> };
+    expect(document.openapi).toBe('3.1.0');
+    expect(document.paths).toHaveProperty('/api/v1/judge');
+    expect(document.paths).toHaveProperty('/api/v1/judge/paper');
+
+    const app = setup({ includeJudgment: true });
+    const routedOpenApi = await app.route(new Request('https://internal.test/api/v1/openapi.json'));
+    expect(routedOpenApi?.status).toBe(200);
+    expect((await routedOpenApi?.json() as { paths: Record<string, unknown> }).paths).toHaveProperty('/api/v1/judge');
+    const invalid = await app.route(new Request('https://internal.test/api/v1/judge', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doi: '10.1234/missing-dataset' }),
+    }));
+    expect(invalid?.status).toBe(400);
+    expect(await invalid?.json()).toEqual({
+      error: 'invalid_request_body',
+      expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
+      docs: '/api/v1/openapi.json',
+    });
+    for (const [headers, body, expectedError] of [
+      [{ 'content-type': 'text/plain' }, '{"dataset_id":"demo","doi":"10.1234/example"}', 'Request body must be JSON.'],
+      [{ 'content-type': 'application/json' }, 'x'.repeat(8193), 'Request body exceeds 8192 bytes.'],
+    ] as const) {
+      const response = await app.route(new Request('https://internal.test/api/v1/judge', {
+        method: 'POST', headers, body,
+      }));
+      expect(response?.status).toBe(400);
+      expect(await response?.json()).toEqual({
+        error: expectedError,
+        expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
+        docs: '/api/v1/openapi.json',
+      });
+    }
+  });
+
   test('reports application time in server-timing on every paid response', async () => {
     const app = setup();
     // No PAYMENT-SIGNATURE: the challenge response is what carries the header a
@@ -84,7 +124,9 @@ describe('x402 paid query gateway', () => {
     expect(manifest?.headers.get('cache-control')).toBe('public, max-age=300');
     expect(manifest?.headers.get('content-type')).toContain('application/json');
     expect(manifest?.headers.get('access-control-allow-origin')).toBe('*');
-    expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [{ url: 'https://api.example.test/api/v1/query' }] });
+    expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [
+      { url: 'https://api.example.test/api/v1/query', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge', method: 'POST' },
+    ] });
     const discovery = await app.route(new Request('https://internal.test/api/v1/discovery'));
     expect(discovery?.status).toBe(200);
     expect(await discovery?.json()).toMatchObject({
@@ -92,6 +134,23 @@ describe('x402 paid query gateway', () => {
       items: [{ resource: 'https://api.example.test/api/v1/query', accepts: [{ scheme: 'exact', amount: '20000' }] }],
       pagination: { limit: 20, offset: 0, total: 1 },
     });
+  });
+
+  test('advertises judgment products as paid judge resources', async () => {
+    const app = setup({ includeJudgment: true });
+    const response = await app.route(new Request('https://internal.test/api/v1/discovery'));
+    const body = await response?.json() as { items: { id: string; resource: string; accepts: PaymentRequirements[] }[] };
+    const judgmentItems = body.items.filter((item) => item.resource.endsWith('/api/v1/judge'));
+    expect(judgmentItems).toHaveLength(2);
+    expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000']);
+  });
+
+  test('serves the free paper existence endpoint and validates its required identifier', async () => {
+    const app = setup({ includeJudgment: true });
+    const found = await app.route(new Request('https://internal.test/api/v1/judge/paper?doi=10.1234/example'));
+    expect(found?.status).toBe(200);
+    expect(await found?.json()).toMatchObject({ paper: { paper_id: 'W123' } });
+    expect((await app.route(new Request('https://internal.test/api/v1/judge/paper')))?.status).toBe(400);
   });
 
   test('serves the x402 exchange over real HTTP headers', async () => {

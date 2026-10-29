@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   CORPUS_SCOPE_QUERIES,
@@ -161,7 +162,7 @@ const main = async (): Promise<void> => {
   const transport = new StreamableHTTPClientTransport(new URL(endpoint));
 
   try {
-    await client.connect(transport);
+    await client.connect(transport as Transport);
 
     let buildDurationMs: number | undefined;
     if (skipBuild) {

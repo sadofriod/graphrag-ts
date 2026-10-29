@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sadofriod/graphrag-ts",
+  "title": "graphrag-ts citation provenance",
+  "description": "Source-tiered retraction and citation judgments for DOIs; abstains when evidence is thin.",
+  "version": "0.1.22",
+  "repository": {
+    "url": "https://github.com/sadofriod/graphrag-ts",
+    "source": "github",
+    "id": "1351217626"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.ashesborn.cloud/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {api_key}",
+          "description": "Optional. Without a key you get the public read tier: integrity_paper_status answers for free, while retraction_propagation ($0.02) and integrity_evidence_audit ($0.10) return payment_required and are paid per call with x402 at POST /api/v1/judge. 20 requests/minute per IP. A key unlocks the full tool set.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "authentication": "none for the public read tier; bearer for the full tool set",
+      "retrieval": "citation graph + retraction status over OpenAlex/Crossref/Retraction Watch",
+      "tools": [
+        "integrity_paper_status",
+        "retraction_propagation",
+        "integrity_evidence_audit",
+        "query_graph",
+        "query_graph_global",
+        "submit_index_job",
+        "remember_text",
+        "get_index_job"
+      ]
+    }
+  }
+}

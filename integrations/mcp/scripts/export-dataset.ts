@@ -7,7 +7,7 @@ import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import path from 'node:path';
 import { Pool } from 'pg';
 import { buildDatasetBundle, type DatasetBundleInput } from '../src/dataset/bundle.ts';
-import { findDataset, loadDatasetRegistry } from '../src/x402/datasets.ts';
+import { findDataset, isJudgmentDataset, loadDatasetRegistry } from '../src/x402/datasets.ts';
 import { createStore } from '../src/store.ts';
 import { workspaceIdSchema } from '../src/workspace.ts';
 
@@ -112,7 +112,7 @@ const loadRegistryDataset = async (args: Arguments) => {
   const registryPath = args.datasetFile ?? process.env.X402_DATASETS_FILE;
   const registry = registryPath === undefined ? undefined : await loadDatasetRegistry(registryPath);
   const registryDataset = registry === undefined ? undefined : findDataset(registry, args.dataset);
-  if (registryDataset !== undefined && registryDataset.workspaceId !== args.workspace) {
+  if (registryDataset !== undefined && !isJudgmentDataset(registryDataset) && registryDataset.workspaceId !== args.workspace) {
     throw new Error(`Dataset "${args.dataset}" belongs to workspace "${registryDataset.workspaceId}", not requested workspace "${args.workspace}".`);
   }
   return registryDataset;

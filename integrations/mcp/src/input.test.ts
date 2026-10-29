@@ -3,16 +3,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
 import type { AppConfig } from './config.ts';
+import { loadConfig } from './config.ts';
 import { InputError, normalizeSourceLabel, pathInputs, textInput } from './input.ts';
 
+const paywallConfig = loadConfig({ DATABASE_URL: 'postgresql://localhost/test' });
 const configFor = (inputRoot: string): AppConfig => ({
   DATABASE_URL: 'postgresql://localhost/test',
   INPUT_ROOT: inputRoot,
   MCP_TRANSPORT: 'stdio',
   MCP_HOST: '127.0.0.1',
   MCP_PORT: 3000,
+  MCP_PUBLIC_BASE_URL: undefined,
+  MCP_PAYWALL_PAY_ENDPOINT: paywallConfig.MCP_PAYWALL_PAY_ENDPOINT,
+  MCP_PAYWALL_DOCS_URL: paywallConfig.MCP_PAYWALL_DOCS_URL,
   MAX_HTTP_SESSIONS: 100,
   HTTP_SESSION_IDLE_TIMEOUT_MS: 900_000,
+  MCP_PUBLIC_TIER: false,
+  MCP_PUBLIC_RATE_PER_MIN: 20,
+  MCP_PUBLIC_MAX_SESSIONS: 40,
   MAX_FILES_PER_JOB: 3,
   MAX_FILE_BYTES: 8,
   MAX_JOB_BYTES: 12,

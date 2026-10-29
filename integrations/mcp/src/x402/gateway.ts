@@ -4,6 +4,8 @@ import { handlePaidQuery } from './paymentFlow.ts';
 import { corsHeaders, errorResponse, withServerTiming } from './http.ts';
 import { handleCatalogue } from './routes/catalogue.ts';
 import { handleDiscovery } from './routes/discovery.ts';
+import { handleOpenApi } from './routes/openapi.ts';
+import { handleIntegrityRoute } from '../integrity/routes.ts';
 
 export type { PaidRouteDeps } from './routeTypes.ts';
 
@@ -23,10 +25,14 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
       'access-control-max-age': '600',
     } });
   }
+  const openApi = handleOpenApi(request);
+  if (openApi) return openApi;
   const catalogue = handleCatalogue(request, deps.registry);
   if (catalogue) return catalogue;
   const discovery = handleDiscovery(request, deps);
   if (discovery) return discovery;
+  const integrity = await handleIntegrityRoute(request, deps);
+  if (integrity) return integrity;
   if (path !== '/api/v1/query') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseRequestBody(request);

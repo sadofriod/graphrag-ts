@@ -9,8 +9,10 @@ import type { IndexStore } from '../store.ts';
 import { workspaceIdSchema } from '../workspace.ts';
 import { withQuerySlot, type QuerySlot } from '../x402/slot.ts';
 import { AccessError, type AccessGuard } from '../access.ts';
-import { ToolError, inputFailure, toolErrorResult } from './errors.ts';
+import { ToolError, inputFailure, paymentRequiredResult, toolErrorResult } from './errors.ts';
 import { runSnapshotQuery, QueryServiceError } from '../queryService.ts';
+import type { Judge, PaperRef } from '../integrity/judge.ts';
+import type { IntegrityStore } from '../integrity/store.ts';
 
 type ToolContext = {
   readonly store: IndexStore;
@@ -18,6 +20,13 @@ type ToolContext = {
   readonly logger: Logger;
   readonly authorize?: AccessGuard;
 };
+
+type IntegrityToolName = 'integrity_paper_status' | 'retraction_propagation' | 'integrity_evidence_audit';
+
+export const integrityToolPrices = {
+  'retraction-propagation': { product: 'retraction-propagation', usd: '$0.02', atomic: '20000' },
+  'retraction-evidence-audit': { product: 'retraction-evidence-audit', usd: '$0.10', atomic: '100000' },
+} as const;
 
 export const createQueryLimiter = (limit: number) => {
   let activeQueries = 0;
@@ -274,18 +283,105 @@ const registerQueryTools = (
   );
 };
 
+export const integrityPaperRefSchema = z.object({
+  doi: z.string().min(1).optional(),
+  paper_id: z.string().min(1).optional(),
+}).refine((reference) => Number(reference.doi !== undefined) + Number(reference.paper_id !== undefined) === 1, {
+  message: 'Provide exactly one of doi or paper_id.',
+});
+
+export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly judge: Judge };
+export type McpToolOptions = {
+  readonly integrity?: McpIntegrityOptions;
+  readonly tier?: 'public' | 'keyed';
+  readonly paywallPayEndpoint?: string;
+  readonly paywallDocsUrl?: string;
+};
+
+const isPaperNotFound = (payload: unknown): boolean => typeof payload === 'object' && payload !== null
+  && 'abstention_reason' in payload && payload.abstention_reason === 'paper_not_in_snapshot';
+
+const registerIntegrityTools = (
+  server: McpServer,
+  judge: Judge,
+  logger: Logger,
+  publicTier: boolean,
+  payEndpoint: string,
+  docsUrl: string,
+): void => {
+  const definitions: readonly {
+    readonly name: IntegrityToolName;
+    readonly description: string;
+    readonly run: (reference: PaperRef) => Promise<unknown>;
+    readonly status: boolean;
+    readonly payment?: (typeof integrityToolPrices)[keyof typeof integrityToolPrices] | undefined;
+  }[] = [
+    { name: 'integrity_paper_status', description: 'Get retraction status and identity for a paper.', run: judge.paperStatus, status: true },
+    {
+      name: 'retraction_propagation',
+      description: `Judge whether retraction evidence propagates to a paper. Paid: ${integrityToolPrices['retraction-propagation'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
+      run: judge.retractionPropagation, status: false,
+      payment: integrityToolPrices['retraction-propagation'],
+    },
+    {
+      name: 'integrity_evidence_audit',
+      description: `Audit the evidence path, source tiers, and conflicts for a paper. Paid: ${integrityToolPrices['retraction-evidence-audit'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
+      run: judge.evidenceAudit, status: false,
+      payment: integrityToolPrices['retraction-evidence-audit'],
+    },
+  ] as const;
+
+  for (const definition of definitions) {
+    server.registerTool(
+      definition.name,
+      { description: definition.description, inputSchema: integrityPaperRefSchema },
+      async (reference) => {
+        if (publicTier && definition.payment) {
+          return paymentRequiredResult({ ...definition.payment, payEndpoint, docsUrl });
+        }
+        try {
+          const payload = await definition.run({
+            ...(reference.doi === undefined ? {} : { doi: reference.doi }),
+            ...(reference.paper_id === undefined ? {} : { paper_id: reference.paper_id }),
+          });
+          if (definition.status && isPaperNotFound(payload)) {
+            logger.error('MCP tool failed.', { tool: definition.name, error_name: 'PaperNotFoundError' });
+            return toolErrorResult('PAPER_NOT_FOUND', 'The paper is not present in the active integrity snapshot.');
+          }
+          return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+        } catch (error) {
+          const errorName = error instanceof Error ? error.name : 'UnknownError';
+          logger.error('MCP tool failed.', { tool: definition.name, error_name: errorName });
+          if (error instanceof Error && error.message.includes('No active integrity snapshot')) {
+            return toolErrorResult('NO_SNAPSHOT', 'No active integrity snapshot is available.');
+          }
+          return toolErrorResult('JUDGE_FAILED', 'The integrity judgment failed. Check the server logs for details.');
+        }
+      },
+    );
+  }
+};
+
 export const createMcpServer = (
   store: IndexStore,
   config: AppConfig,
   logger: Logger,
   queryLimiter = createQueryLimiter(config.MAX_ACTIVE_QUERIES),
   authorize?: AccessGuard,
+  options: McpToolOptions = {},
 ): McpServer => {
   const server = new McpServer({ name: 'graphrag-mcp-server', version: '0.1.0' });
   const context = { store, config, logger, ...(authorize ? { authorize } : {}) };
-  registerPathInputTool(server, context);
-  registerTextInputTool(server, context);
-  registerJobTool(server, context);
-  registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
+  if (options.tier !== 'public') {
+    registerPathInputTool(server, context);
+    registerTextInputTool(server, context);
+    registerJobTool(server, context);
+    registerQueryTools(server, createQuerySnapshot(context, queryLimiter));
+  }
+  if (options.integrity) registerIntegrityTools(
+    server, options.integrity.judge, logger, options.tier === 'public',
+    options.paywallPayEndpoint ?? config.MCP_PAYWALL_PAY_ENDPOINT,
+    options.paywallDocsUrl ?? config.MCP_PAYWALL_DOCS_URL,
+  );
   return server;
 };

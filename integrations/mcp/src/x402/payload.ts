@@ -11,6 +11,13 @@ export const bodySchema = z.object({
 
 export type QueryInput = z.infer<typeof bodySchema>;
 
+export const judgmentBodySchema = z.object({
+  dataset_id: z.string().min(1), doi: z.string().min(1).max(300).optional(), paper_id: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/).optional(),
+}).strict().refine((input) => Number(input.doi !== undefined) + Number(input.paper_id !== undefined) === 1, {
+  message: 'Provide exactly one of doi or paper_id.',
+});
+export type JudgmentInput = z.infer<typeof judgmentBodySchema>;
+
 const readRequestText = async (request: Request): Promise<string> => {
   if (request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
     throw new Error('Request body must be JSON.');
@@ -46,6 +53,16 @@ export const parseRequestBody = async (request: Request): Promise<{ input?: Quer
   }
 };
 
+export const parseJudgmentRequestBody = async (request: Request): Promise<{ input?: JudgmentInput; error?: string }> => {
+  try {
+    const text = await readRequestText(request);
+    return { input: judgmentBodySchema.parse(JSON.parse(text) as unknown) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid request body.';
+    return { error: ['Request body must be JSON.', 'Request body exceeds 8192 bytes.'].includes(message) ? message : 'invalid_request_body' };
+  }
+};
+
 export const parsePaymentPayload = (signature: string): { payload?: PaymentPayload; error?: string } => {
   try {
     const parsed = paymentPayloadSchema.safeParse(decodePaymentHeader(signature));
@@ -77,4 +94,8 @@ export const validIdempotencyKey = (key: string | null): boolean => key === null
 
 export const requestHash = (input: QueryInput): string => createHash('sha256')
   .update(JSON.stringify({ dataset_id: input.dataset_id, query: input.query, mode: input.mode, max_results: input.max_results }))
+  .digest('hex');
+
+export const judgmentRequestHash = (input: JudgmentInput): string => createHash('sha256')
+  .update(JSON.stringify({ dataset_id: input.dataset_id, doi: input.doi ?? null, paper_id: input.paper_id ?? null }))
   .digest('hex');

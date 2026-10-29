@@ -1,4 +1,4 @@
-import type { Dataset } from './datasets.ts';
+import type { GraphDataset } from './datasets.ts';
 import { encodePaymentHeader, type SettleResponse } from './types.ts';
 import type { runSnapshotQuery } from '../queryService.ts';
 import { jsonResponse } from './http.ts';
@@ -12,7 +12,7 @@ export const responseSettlement = (record: { transaction: string | null; network
 });
 
 export const paymentBody = (
-  dataset: Dataset,
+  dataset: GraphDataset,
   mode: 'local' | 'global',
   result: Awaited<ReturnType<typeof runSnapshotQuery>>['result'],
   version: { id: string; workspaceId: string },
