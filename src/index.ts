@@ -80,6 +80,29 @@ export {
   resetAdapters,
 };
 export { prismaClient, injectPrismaClient, getPrismaClient };
+export {
+  defineHarness,
+  registerHarness,
+  getHarness,
+  listHarnesses,
+  resetHarnesses,
+  deepseekHarness,
+  loadHarnessConfig,
+  validateHarnessConfig,
+  resolveHarnessDefinition,
+  applyHarness,
+  planHarness,
+  maskDatabaseUrl,
+  maskSecret,
+} from './harness';
+export type {
+  HarnessDefinition,
+  HarnessModelSpec,
+  HarnessFileConfig,
+  AppliedHarness,
+  AppliedHarnessSummary,
+  HarnessPlan,
+} from './harness';
 export type {
   BuildInputFile,
   BuildSummary,

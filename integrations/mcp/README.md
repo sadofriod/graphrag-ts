@@ -27,6 +27,41 @@ The service can also expose `POST /api/v1/query`, an x402 (v2) paid HTTP endpoin
 
 Extension points are the facilitator URL, network/asset and `X402_PAY_TO`; see [docs/x402-paid-api.md](docs/x402-paid-api.md) and the deployment runbook [docs/deploy-x402.md](docs/deploy-x402.md) for the wire format, failure table, idempotency rules, testnet runbook and the dataset bundle exporter (`bun scripts/export-dataset.ts`). Pilot operation is covered in [docs/hosted-beta.md](docs/hosted-beta.md): Cloudflare Access for the private MCP hostname, a separate paid hostname for `/api/v1/*`, credential issuance and rotation, weekly metrics (`bun scripts/beta-report.ts`) and the committed-credential check (`bun scripts/check-credentials.ts`).
 
+## Harness config file
+
+Instead of the `RAG_*` model variables, the service can take its model wiring from a harness config file. Point `HARNESS_CONFIG` at the file:
+
+```sh
+HARNESS_CONFIG=/app/harness.json
+```
+
+```json
+{
+  "harness": "deepseek",
+  "database": {},
+  "models": {
+    "slice": { "model": "deepseek-chat", "apiKey": "${DEEPSEEK_API_KEY}" },
+    "judge": { "model": "deepseek-chat", "apiKey": "${DEEPSEEK_API_KEY}" },
+    "embedding": {
+      "provider": "openai",
+      "baseURL": "${EMBED_BASE_URL}",
+      "model": "${EMBED_MODEL}",
+      "apiKey": "${EMBED_API_KEY}"
+    }
+  }
+}
+```
+
+The database block can be empty: the service always connects with `DATABASE_URL` and passes its Prisma client to the harness, which then neither opens nor closes a connection of its own. `${VAR}` and `${VAR:-fallback}` references are resolved from the process environment at startup; a missing variable fails startup with its name and never with its value. Prefer `${...}` references over literal secrets, and keep any file with literals out of version control. When running in Docker, mount the file into the container and set `HARNESS_CONFIG` to the mounted path.
+
+With `HARNESS_CONFIG` set, the harness is applied right after the service connects: its adapters are registered, models are injected, and the masked summary (harness id, provider/model names, redacted database URL) is logged. `database` and `retrievalDefaults`/`buildDefaults` from the file are honoured; a `database.url` in the file is ignored when the client is injected. Without `HARNESS_CONFIG` the `RAG_SLICE_*` / `RAG_JUDGE_*` / `RAG_EMBED_*` path and its three-slot check are used exactly as before — that check does not apply to the harness path, where a missing embedding slot fails with the harness's own message.
+
+Validate a file without a database connection:
+
+```sh
+bun run examples/harness/deepseek.ts --config ./harness.json --check
+```
+
 ## VS Code with Docker and Environment Injection
 
 This configuration launches the MCP server as a Docker Compose stdio process. First copy the root `.env.example` to `.env` and set the database password there. Start only the database service; do not also run the `mcp-server` Compose service while using this configuration, because the application permits only one indexing worker at a time.

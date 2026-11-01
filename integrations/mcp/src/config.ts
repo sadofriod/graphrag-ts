@@ -20,6 +20,10 @@ const environmentSchema = z.object({
     (value) => value === '' ? undefined : value,
     z.string().url().default('https://blog.ashesborn.cloud/datasets'),
   ),
+  HARNESS_CONFIG: z.preprocess(
+    (value) => value === '' ? undefined : value,
+    z.string().trim().min(1).optional(),
+  ),
   MAX_HTTP_SESSIONS: z.coerce.number().int().min(1).max(1000).default(100),
   HTTP_SESSION_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(900_000),
   MCP_PUBLIC_TIER: z.preprocess((value) => value === true || value === 'true' || value === '1' || value === 'yes', z.boolean()).default(false),
