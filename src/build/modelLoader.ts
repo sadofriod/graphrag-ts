@@ -118,13 +118,22 @@ export const getLoadedModels = (): ModelLoader | null => modelLoaderSingleton.mo
 class ModelLoaderSingleton {
   models: ModelLoader | null = null;
   constructor() {
-    modelLoader()
-      .then((models) => {
-        this.models = models;
-      })
-      .catch((error) => {
-        logger.error('Failed to load models:', error);
-      });
+    // Only preload when the environment actually configures models. Callers that
+    // wire models through a harness config (or inject them later) must not see a
+    // misleading "Failed to load models" error at import time.
+    try {
+      if (envModelConfigs().length > 0) {
+        modelLoader()
+          .then((models) => {
+            this.models = models;
+          })
+          .catch((error) => {
+            logger.error('Failed to load models:', error);
+          });
+      }
+    } catch {
+      // Leave models null; getLoadedModels() stays null until a config is injected.
+    }
   }
 }
 

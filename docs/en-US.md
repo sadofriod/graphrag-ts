@@ -304,6 +304,7 @@ The benchmark script evaluates retrieval quality against generated Markdown corp
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md): architecture and data flow
+- [docs/harness-plugins.md](docs/harness-plugins.md): harness plugins — bring your own models and database
 - [docs/en-US.md](docs/en-US.md): English user guide
 - [docs/zh-CN.md](docs/zh-CN.md): Chinese user guide
 - [docs/comparison.md](docs/comparison.md): comparison notes

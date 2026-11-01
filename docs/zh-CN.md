@@ -154,6 +154,29 @@ const result = await service.retrieve({
 console.log(result.answer);
 ```
 
+## Harness 插件（自备模型与数据库）
+
+除了上面的 `RAG_*` 环境变量，还可以用一份 JSON 配置文件一次性提供模型和数据库。内置 `deepseek` harness：slice/judge 走 DeepSeek，embedding 必须由你自己提供（DeepSeek 没有 embedding API，输出必须是 768 维）。
+
+```json
+{
+  "harness": "deepseek",
+  "database": { "url": "${DATABASE_URL}" },
+  "models": {
+    "slice": { "model": "${DEEPSEEK_SLICE_MODEL:-deepseek-chat}", "apiKey": "${DEEPSEEK_API_KEY}" },
+    "judge": { "model": "${DEEPSEEK_JUDGE_MODEL:-deepseek-chat}", "apiKey": "${DEEPSEEK_API_KEY}" },
+    "embedding": { "provider": "openai", "baseURL": "${EMBED_BASE_URL}", "model": "${EMBED_MODEL}", "apiKey": "${EMBED_API_KEY}" }
+  }
+}
+```
+
+```bash
+bun run examples/harness/deepseek.ts --config ./graphrag.harness.json --check
+bun run examples/harness/deepseek.ts --config ./graphrag.harness.json --query "问题" --namespace demo
+```
+
+库内使用 `loadHarnessConfig` + `applyHarness`（或只做校验的 `planHarness`）；MCP 服务设置 `HARNESS_CONFIG=/app/harness.json` 即切换到该配置。自定义 provider 可以在自己的 `.ts` 文件里用 `defineHarness` 注册 adapter，再把 `harness` 写成 `./my-harness.ts`。完整字段、错误信息和插件写法见 [docs/harness-plugins.md](harness-plugins.md)。
+
 ## 公共 API
 
 这个仓库暴露了一个和实现一致的精简 API，既可通过主入口导入，也可通过模块子路径导入（如 `@ashes_born/graph-rag-ts/incremental`）：
@@ -304,6 +327,7 @@ benchmark 脚本会对生成的 Markdown 语料执行真实检索评估，并输
 ## 文档索引
 
 - [docs/architecture.md](docs/architecture.md)：架构和数据流
+- [docs/harness-plugins.md](docs/harness-plugins.md)：harness 插件：自备模型与数据库
 - [docs/en-US.md](docs/en-US.md)：英文说明
 - [docs/zh-CN.md](docs/zh-CN.md)：中文说明
 - [docs/comparison.md](docs/comparison.md)：比较说明
