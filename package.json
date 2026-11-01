@@ -2,7 +2,9 @@
   "name": "@ashes_born/graph-rag-ts",
   "version": "0.1.25",
   "type": "module",
-  "packageManager": "pnpm@10.22.0",
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
   "files": [
     "src",
     "!src/**/*.test.ts",
@@ -57,12 +59,12 @@
     "benchmark:docker:quick": "INPUT_HOST_DIR=./examples/quickstart-corpus docker compose up -d --build --wait && INPUT_HOST_DIR=./examples/quickstart-corpus docker compose exec -T mcp-server env MCP_BENCHMARK_URL=http://127.0.0.1:3000/mcp MCP_BENCHMARK_PROFILE=quick bun scripts/benchmark.ts"
   },
   "dependencies": {
-    "@prisma/client": "6.19.3",
+    "@graphrs/igraph-wasm": "^0.1.4",
     "@langchain/core": "^1.2.9",
     "@langchain/deepseek": "^1.1.10",
     "@langchain/openai": "^1.5.9",
     "@langchain/textsplitters": "^1.0.1",
-    "@graphrs/igraph-wasm": "^0.1.4",
+    "@prisma/client": "6.19.3",
     "marked": "^18.0.11",
     "pino": "^8.20.0"
   },
@@ -76,7 +78,10 @@
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.21.0"
   },
-  "prisma": {
-    "schema": "prisma/schema.prisma"
+  "devEngines": {
+    "packageManager": {
+      "name": "bun",
+      "version": "latest"
+    }
   }
 }
