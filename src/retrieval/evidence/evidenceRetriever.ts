@@ -9,19 +9,34 @@ import type {
   EvidenceSnippet,
 } from '../types/graph';
 import type { CommunityDetails, EntityNeighborResult } from '../types/retrieval';
+import type { PageAnchorMatch } from './pageAnchor';
 
 export function fetchEvidenceForCommunity(
   members: ReadonlySet<string>,
   claims: readonly ClaimRecord[],
+  anchorsByChunkId?: ReadonlyMap<string, PageAnchorMatch>,
 ): EvidenceSnippet[] {
   return claims
     .filter((claim) => claim.entityIds.some((entityId) => members.has(entityId)))
-    .map((claim) => ({
-      claimId: claim.id,
-      text: claim.text,
-      ...(claim.sourceDocumentId ? { sourceDocumentId: claim.sourceDocumentId } : {}),
-      ...(claim.sourceChunkId ? { sourceChunkId: claim.sourceChunkId } : {}),
-    }));
+    .map((claim) => {
+      const anchor =
+        claim.sourceChunkId && anchorsByChunkId ? anchorsByChunkId.get(claim.sourceChunkId) : undefined;
+      const anchored = anchor !== undefined && anchor.method !== 'none';
+      return {
+        claimId: claim.id,
+        text: claim.text,
+        ...(claim.sourceDocumentId ? { sourceDocumentId: claim.sourceDocumentId } : {}),
+        ...(claim.sourceChunkId ? { sourceChunkId: claim.sourceChunkId } : {}),
+        ...(anchored
+          ? {
+              page: anchor.page,
+              pageEnd: anchor.pageEnd,
+              bbox: anchor.bbox,
+              anchorMethod: anchor.method,
+            }
+          : {}),
+      };
+    });
 }
 
 export function fetchCommunityDetails(
@@ -29,6 +44,7 @@ export function fetchCommunityDetails(
   communities: readonly CommunityRecord[],
   edges: readonly CommunityEdge[],
   claims: readonly ClaimRecord[],
+  anchorsByChunkId?: ReadonlyMap<string, PageAnchorMatch>,
 ): CommunityDetails {
   const community = communities.find((item) => item.id === communityId);
   if (!community) {
@@ -46,7 +62,7 @@ export function fetchCommunityDetails(
     memberEntities: community.members,
     relatedEdges,
     claims: communityClaims,
-    evidence: fetchEvidenceForCommunity(members, claims),
+    evidence: fetchEvidenceForCommunity(members, claims, anchorsByChunkId),
   };
 }
 
