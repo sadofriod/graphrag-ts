@@ -17,7 +17,10 @@ an explicit abstention when the coverage behind an answer is too thin to support
 
 ## Try it in 60 seconds
 
-No install, no API key, no model endpoint:
+No install, no API key, no model endpoint. Two ways in:
+
+- **In a browser:** [Retraction Status](https://huggingface.co/spaces/ashesborn6/retraction-status) — paste a DOI, get the source-by-source retraction status and the evidence tiers behind it, with no local model and no account.
+- **From the command line:**
 
 ```bash
 curl -s 'https://pay.ashesborn.cloud/api/v1/judge/paper?doi=10.1016/S0140-6736(97)11096-0'
