@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.28 — 2026-11-02
+
+- **docs(readme)**: link the browser demo in the 60-second section (#25)
+
 ## 0.1.27 — 2026-11-02
 
 - **docs(readme)**: lead with attribution positioning, hosted 60s path, tool table (#23)
