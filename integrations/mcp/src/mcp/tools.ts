@@ -294,6 +294,7 @@ export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly jud
 export type McpToolOptions = {
   readonly integrity?: McpIntegrityOptions;
   readonly tier?: 'public' | 'keyed';
+  readonly onPublicCall?: (record: { tool: string; outcome: 'ok' | 'error'; latencyMs: number }) => void;
   readonly paywallPayEndpoint?: string;
   readonly paywallDocsUrl?: string;
 };
@@ -306,6 +307,7 @@ const registerIntegrityTools = (
   judge: Judge,
   logger: Logger,
   publicTier: boolean,
+  onPublicCall: McpToolOptions['onPublicCall'],
   payEndpoint: string,
   docsUrl: string,
 ): void => {
@@ -331,11 +333,36 @@ const registerIntegrityTools = (
     },
   ] as const;
 
+  const timed = <T>(name: string, run: () => Promise<T>): Promise<T> => {
+    if (!publicTier || !onPublicCall) return run();
+    const startedAt = Date.now();
+    const report = (outcome: 'ok' | 'error'): void => {
+      const latencyMs = Date.now() - startedAt;
+      setTimeout(() => {
+        try {
+          onPublicCall({ tool: name, outcome, latencyMs });
+        } catch {
+          // Metrics must not affect the tool response.
+        }
+      });
+    };
+    return run().then(
+      (result) => {
+        report('ok');
+        return result;
+      },
+      (error: unknown) => {
+        report('error');
+        throw error;
+      },
+    );
+  };
+
   for (const definition of definitions) {
     server.registerTool(
       definition.name,
       { description: definition.description, inputSchema: integrityPaperRefSchema },
-      async (reference) => {
+      (reference) => timed(definition.name, async () => {
         if (publicTier && definition.payment) {
           return paymentRequiredResult({ ...definition.payment, payEndpoint, docsUrl });
         }
@@ -357,7 +384,7 @@ const registerIntegrityTools = (
           }
           return toolErrorResult('JUDGE_FAILED', 'The integrity judgment failed. Check the server logs for details.');
         }
-      },
+      }),
     );
   }
 };
@@ -380,6 +407,7 @@ export const createMcpServer = (
   }
   if (options.integrity) registerIntegrityTools(
     server, options.integrity.judge, logger, options.tier === 'public',
+    options.onPublicCall,
     options.paywallPayEndpoint ?? config.MCP_PAYWALL_PAY_ENDPOINT,
     options.paywallDocsUrl ?? config.MCP_PAYWALL_DOCS_URL,
   );
