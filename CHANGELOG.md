@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.27 — 2026-11-02
+
+- **docs(readme)**: lead with attribution positioning, hosted 60s path, tool table (#23)
+
 ## 0.1.26 — 2026-11-02
 
 - **feat(mcp)**: charge for the paid judgment tools instead of redacting them
