@@ -134,8 +134,14 @@ describe('hosted HTTP boundary and MCP protocol', () => {
       expect((await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.10, 10.0.0.1' })).status).toBe(200);
       const limited = await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.10, 10.0.0.1' });
       expect(limited.status).toBe(429);
+      expect(limited.headers.get('x-ashesborn-tier')).toBe('public');
       expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
       expect(await limited.json()).toHaveProperty('error');
+      expect((await rpcAnonymous(app, 'initialize', initParams, undefined, { 'x-forwarded-for': '192.0.2.11' })).status).toBe(200);
+      const keyed = await rpc(app, tokens.alpha, 'initialize', initParams);
+      expect(keyed.status).toBe(200);
+      expect(keyed.headers.get('x-ashesborn-tier')).toBe('keyed');
+      expect((await app.request('/healthz')).status).toBe(200);
     } finally { await app.close(); }
   });
 
