@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -17,6 +17,7 @@ import { createCdpFacilitatorClient } from './x402/cdp.ts';
 import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supported.ts';
 import { createJudge } from './integrity/judge.ts';
 import { requestOrigin, wellKnownResponse } from './well-known.ts';
+import { hashIp } from './publicCalls.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -247,6 +248,7 @@ export const createHttpHandler = (
   let pendingSessions = 0;
   let pendingPublicSessions = 0;
   const publicRequests = new Map<string, number[]>();
+  const publicCallSalt = config.PUBLIC_CALL_SALT ?? randomBytes(16).toString('hex');
   return async (request: Request, runtimeRequestIp?: (request: Request) => string | undefined): Promise<Response> => {
     if (paidHostname && isPaidHostname(request, paidHostname)) {
       const path = new URL(request.url).pathname;
@@ -283,8 +285,18 @@ export const createHttpHandler = (
     }
     await closeIdleSessions(sessions, config.HTTP_SESSION_IDLE_TIMEOUT_MS, logger);
     const tier = auth.tier;
+    let onPublicCall: McpToolOptions['onPublicCall'];
     if (tier === 'public') {
       const ip = clientIp(request, runtimeRequestIp ?? requestIp);
+      const day = new Date().toISOString().slice(0, 10);
+      const ipHash = hashIp(ip, day, publicCallSalt);
+      onPublicCall = (record) => {
+        store.recordPublicCall({ ipHash, ...record }).catch((error) => {
+          logger.warn('Could not record public call.', {
+            error_name: error instanceof Error ? error.name : 'UnknownError',
+          });
+        });
+      };
       const now = Date.now();
       for (const [trackedIp, timestamps] of publicRequests) {
         const activeTimestamps = timestamps.filter((timestamp) => now - timestamp < 60_000);
@@ -317,8 +329,13 @@ export const createHttpHandler = (
     if (tier === 'public') pendingPublicSessions += 1;
     else pendingSessions += 1;
     try {
-       return withTierHeader(await startSession(request, store, config, logger, sessions, queryLimiter,
-         { ...mcpTools, tier }, account, tier), tier);
+      const { onPublicCall: unusedOnPublicCall, ...keyedToolOptions } = mcpTools;
+      void unusedOnPublicCall;
+      const sessionToolOptions: McpToolOptions = tier === 'public'
+        ? { ...mcpTools, tier, ...(onPublicCall ? { onPublicCall } : {}) }
+        : { ...keyedToolOptions, tier };
+      return withTierHeader(await startSession(request, store, config, logger, sessions, queryLimiter,
+        sessionToolOptions, account, tier), tier);
     } finally {
       if (tier === 'public') pendingPublicSessions -= 1;
       else pendingSessions -= 1;
