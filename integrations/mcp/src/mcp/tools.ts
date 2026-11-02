@@ -286,10 +286,10 @@ const registerQueryTools = (
 };
 
 export const integrityPaperRefSchema = z.object({
-  doi: z.string().min(1).optional(),
-  paper_id: z.string().min(1).optional(),
-}).refine((reference) => Number(reference.doi !== undefined) + Number(reference.paper_id !== undefined) === 1, {
-  message: 'Provide exactly one of doi or paper_id.',
+  doi: z.string().min(1).optional()
+    .describe('DOI of the paper, e.g. 10.1016/S0140-6736(97)11096-0. Provide exactly one of doi or paper_id.'),
+  paper_id: z.string().min(1).optional()
+    .describe('OpenAlex work id, e.g. W2117847125. Provide exactly one of doi or paper_id.'),
 });
 
 export type McpIntegrityOptions = { readonly store: IntegrityStore; readonly judge: Judge };
@@ -365,6 +365,9 @@ const registerIntegrityTools = (
       definition.name,
       { description: definition.description, inputSchema: integrityPaperRefSchema },
       (reference) => timed(definition.name, async () => {
+        if (Number(reference.doi !== undefined) + Number(reference.paper_id !== undefined) !== 1) {
+          return toolErrorResult('INVALID_REFERENCE', 'Provide exactly one of doi or paper_id.');
+        }
         if (publicTier && definition.payment) {
           return paymentRequiredResult({ ...definition.payment, payEndpoint, docsUrl });
         }
