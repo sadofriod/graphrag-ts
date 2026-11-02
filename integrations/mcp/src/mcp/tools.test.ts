@@ -101,10 +101,19 @@ describe('integrity judgment MCP tools', () => {
     }
   });
 
-  test('rejects references that omit both DOI and paper ID', () => {
-    expect(() => integrityPaperRefSchema.parse({})).toThrow();
+  test('accepts optional DOI and paper ID schema fields', () => {
+    expect(integrityPaperRefSchema.parse({})).toEqual({});
     expect(integrityPaperRefSchema.parse({ doi: '10.1234/test' })).toEqual({ doi: '10.1234/test' });
     expect(integrityPaperRefSchema.parse({ paper_id: 'p1' })).toEqual({ paper_id: 'p1' });
+    expect(integrityPaperRefSchema.parse({ doi: '10.1234/test', paper_id: 'p1' })).toEqual({ doi: '10.1234/test', paper_id: 'p1' });
+  });
+
+  test('returns INVALID_REFERENCE when both DOI and paper ID are omitted', async () => {
+    const result = await callIntegrityTool('integrity_paper_status', fakeJudge(), {});
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(resultText(result))).toEqual({
+      error: { code: 'INVALID_REFERENCE', message: 'Provide exactly one of doi or paper_id.' },
+    });
   });
 
   test('maps missing active snapshots to NO_SNAPSHOT', async () => {
