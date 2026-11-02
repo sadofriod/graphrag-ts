@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.1.26 — 2026-11-02
+
+- **feat(mcp)**: charge for the paid judgment tools instead of redacting them
+- **feat(mcp)**: withhold the retraction root list on the anonymous public tier
+- **feat(mcp)**: anonymous public read tier and RFC 9728 discovery documents
+- **feat(mcp)**: anonymous public read tier for integrity judgments
+- **feat(deploy)**: Hugging Face Space for the free status lookup
+- **feat(deploy)**: single-container all-in-one variant for a throwaway host
+- **feat(integrity)**: export a snapshot as a Hugging Face dataset
+- **feat(integrity)**: zero-budget citation source and self-retraction roots
+- **feat(integrity)**: harden harvester and add sample CLI
+- **feat(integrity)**: retraction-propagation judgment products
+- **fix(mcp)**: report the forwarded https origin in discovery metadata
+- **fix(integrity)**: stop returning Retraction Watch free text, return dates
+- **fix(export)**: one Hub config per table
+- **fix(deploy)**: ship a node binary for the prisma db-push step
+- **fix(deploy)**: generate the Prisma engine for the runtime's openssl
+- **fix(deploy)**: link the bun binary the npm package actually ships
+- **fix(x402)**: round judge latency and keep the settlement audit trail
+- **fix(integrity)**: make coverage and confidence honest
+- **fix(integrity)**: select real retraction notices from Retraction Watch rows
+- **perf(integrity)**: stream Retraction Watch CSV and typecheck scripts
+- **docs(mcp)**: the anonymous tier returns a payment requirement, not a free verdict
+- **docs(mcp)**: document the anonymous read tier and its three settings
+- **docs(readme)**: add mcpservers.org listing badge and hosted endpoint pointer
+- **docs(mcp)**: document the hosted endpoint and the anonymous read tier
+- **docs(deploy)**: correct the snapshot-load command and record the gotchas
+- **chore(registry)**: publish the public read tier to the official MCP Registry
+- **chore(hf-space)**: point the demo at the production endpoint
+- **chore(dist)**: add the official MCP Registry descriptor
+- **test(mcp)**: fail when the advertised price drifts from the registry
+- **test(mcp)**: make the paywall probe assert the paid challenge, not a 400
+- Merge pull request #22 from sadofriod/copilot/fix-failing-github-actions-job-test
+- Restore package manifest changed by validation tooling
+- Refactor MCP HTTP handler to satisfy CI lint limits
+- Initial plan
+- Merge pull request #20 from sadofriod/feat/judgment-integrity
+- merge main into the judgment branch
+- Revert "docs(mcp): document the hosted endpoint and the anonymous read tier"
+
 ## 0.1.25 — 2026-10-29
 
 - **docs(x402)**: link the client-side wire format walkthrough
