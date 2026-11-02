@@ -15,6 +15,8 @@ an explicit abstention when the coverage behind an answer is too thin to support
 > **Hosted endpoint** / 托管端点
 > `https://mcp.ashesborn.cloud/mcp` (anonymous tier: free `integrity_paper_status`, the two judgments answer with an x402 payment requirement; a keyed session unlocks them) · free DOI status: `https://pay.ashesborn.cloud/api/v1/judge/paper?doi=` · [x402 wire format](https://blog.ashesborn.cloud/blog/x402-integration-http-and-mcp)
 
+[![graphrag-ts-pg MCP connector – tool definition quality and endpoint health on Glama](https://glama.ai/mcp/connectors/cloud.ashesborn.graphrag-ts/graphrag-ts-pg/badges/score.svg)](https://glama.ai/mcp/connectors/cloud.ashesborn.graphrag-ts/graphrag-ts-pg)
+
 ## Try it in 60 seconds
 
 No install, no API key, no model endpoint. Two ways in:
