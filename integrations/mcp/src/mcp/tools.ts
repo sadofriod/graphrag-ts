@@ -47,12 +47,14 @@ export const createQueryLimiter = (limit: number) => {
   };
 };
 
-export const communityLevelSchema = z.number().int().min(0).optional();
+export const communityLevelSchema = z.number().int().min(0).optional()
+  .describe('Restrict retrieval to one community level of the graph hierarchy: 0 is the coarsest, higher integers are finer. Omit to search across levels.');
 
 export const globalCommunityLevelSchema = z.union([
   z.number().int().min(0),
   z.literal('leaf'),
-]).optional();
+]).optional()
+  .describe('Which communities to summarise: "leaf" (default) for all terminal communities, or an integer to use exactly that level of the hierarchy (higher levels are broader and cheaper).');
 
 const queryErrorResponses = {
   INDEX_NOT_READY: ['INDEX_NOT_READY', 'No index is published yet. Submit an indexing job and check its status.'],
@@ -133,11 +135,11 @@ const registerPathInputTool = (server: McpServer, { store, config, logger, autho
   server.registerTool(
     'submit_index_job',
     {
-      description: 'Queue Markdown files from the configured read-only input directory in a workspace for indexing. Defaults to workspace "default".',
+      description: 'Queue Markdown files from the configured read-only input directory for indexing into a workspace\'s knowledge graph. Returns immediately with a job id; the build runs in the background, so poll get_index_job and only call query_graph after a new snapshot is published. Files are snapshotted when the job is accepted; later edits on disk are not picked up by this job. Shared-filesystem ingestion is disabled on hosted endpoints — use remember_text there. Returns: job_id, workspace_id, status ("queued"), queue_position.',
       inputSchema: {
         workspace_id: workspaceIdSchema,
-        path: z.string().min(1).max(1024),
-        source: z.string().max(200).optional(),
+        path: z.string().min(1).max(1024).describe('File or directory path relative to the configured input root. Every Markdown file under it is queued.'),
+        source: z.string().max(200).optional().describe('Optional label prefix stored with the documents; it appears in citations and groups files that belong together.'),
       },
     },
     async ({ workspace_id, path, source }) => {
@@ -177,11 +179,11 @@ const registerTextInputTool = (server: McpServer, { store, config, logger, autho
   server.registerTool(
     'remember_text',
     {
-      description: 'Explicitly queue user-provided text in a workspace; this tool does not read chat history. Defaults to workspace "default".',
+      description: 'Queue caller-supplied text as a document in a workspace\'s knowledge graph. Use this when the text is not already on the server\'s filesystem: it indexes exactly the text you pass and never reads chat history, files or URLs. The text becomes citable source material for later query_graph answers. Indexing is asynchronous — follow up with get_index_job, and the text is not searchable until the job publishes a new snapshot. Returns: job_id, workspace_id, status ("queued"), queue_position.',
       inputSchema: {
         workspace_id: workspaceIdSchema,
-        text: z.string().min(1),
-        source: z.string().max(200).optional(),
+        text: z.string().min(1).describe('The document body. Markdown is supported; one call is one document, so split very large inputs yourself.'),
+        source: z.string().max(200).optional().describe('Optional label stored with the document and shown in citations.'),
       },
     },
     async ({ workspace_id, text, source }) => {
@@ -211,10 +213,10 @@ const registerJobTool = (server: McpServer, { store, logger, authorize }: ToolCo
   server.registerTool(
     'get_index_job',
     {
-      description: 'Get the status and safe error summary for a job in a workspace.',
+      description: 'Get the current state of an indexing job: lifecycle status, build phase, timestamps, the published snapshot version when one exists, and a safe error summary when it failed. Use it to poll after submit_index_job or remember_text, and to confirm that a new snapshot is live before querying. Status values: queued, in_progress, published, failed. Returns: job_id, workspace_id, status, phase, created_at, started_at, finished_at, error {code, summary} or null, published_version {id, workspace_id} or null. Errors: JOB_NOT_FOUND when no job with that id exists in the workspace.',
       inputSchema: {
         workspace_id: workspaceIdSchema,
-        job_id: z.string().uuid(),
+        job_id: z.string().uuid().describe('The job id (UUID) returned by submit_index_job or remember_text.'),
       },
     },
     async ({ workspace_id, job_id }) => {
@@ -256,11 +258,11 @@ const registerQueryTools = (
   server.registerTool(
     'query_graph',
     {
-      description: 'Synchronously perform local hybrid retrieval against the latest published snapshot in a workspace. Defaults to workspace "default".',
+      description: 'Answer a question over one workspace\'s knowledge graph with local hybrid retrieval: vector similarity, keyword match and graph neighbourhoods are combined, the strongest passages and their entities are selected, and the answer is composed from them with source evidence. Use it for questions a handful of documents can answer; use query_graph_global for corpus-wide synthesis. It reads the latest published snapshot only, so results are stable until a new build publishes. Returns: an answer plus the evidence snippets behind it, each with the source document and chunk it came from.',
       inputSchema: {
         workspace_id: workspaceIdSchema,
-        query: z.string().trim().min(1).max(4000),
-        max_results: z.number().int().min(1).max(20).default(5),
+        query: z.string().trim().min(1).max(4000).describe('The natural-language question or claim to check against the corpus (max 4000 characters).'),
+        max_results: z.number().int().min(1).max(20).default(5).describe('How many evidence passages to retrieve and consider, 1–20 (default 5). Raise it for broad questions, lower it when you want a tight, cheap answer.'),
         community_level: communityLevelSchema,
       },
     },
@@ -271,10 +273,10 @@ const registerQueryTools = (
   server.registerTool(
     'query_graph_global',
     {
-      description: 'Run corpus-wide Map-Reduce retrieval over leaf communities by default, or one exact level when community_level is an integer. Use "leaf" to select all terminal communities. Defaults to workspace "default".',
+      description: 'Answer a corpus-wide question by Map-Reduce over community summaries: every selected community is summarised against the query, then the partial answers are reduced into one response that lists the communities it drew on. Use it for themes, trends and overviews across a whole corpus; for pinpoint lookups or single-document questions use query_graph instead. Returns: the reduced answer with the community summaries and the source evidence behind them. Raises QUERY_CAPACITY when the server is at its active-query limit — retry shortly.',
       inputSchema: {
         workspace_id: workspaceIdSchema,
-        query: z.string().trim().min(1).max(4000),
+        query: z.string().trim().min(1).max(4000).describe('The natural-language question about the corpus as a whole (max 4000 characters).'),
         community_level: globalCommunityLevelSchema,
       },
     },
@@ -318,16 +320,16 @@ const registerIntegrityTools = (
     readonly status: boolean;
     readonly payment?: (typeof integrityToolPrices)[keyof typeof integrityToolPrices] | undefined;
   }[] = [
-    { name: 'integrity_paper_status', description: 'Get retraction status and identity for a paper.', run: judge.paperStatus, status: true },
+    { name: 'integrity_paper_status', description: 'Look up one paper by DOI or OpenAlex id and return its identity (title, year, venue) plus every retraction record the graph holds for it, each with its source and source tier: A is an official registry, B an authoritative index, C an aggregator. Use it to check whether a paper is retracted and which sources assert it; use retraction_propagation to judge whether that retraction reaches a specific citing paper. Free in the public tier. Returns: paper identity and statuses[] with source, source_tier, is_retracted, retraction_date and source_uri; abstention_reason when the paper is not in the snapshot.', run: judge.paperStatus, status: true },
     {
       name: 'retraction_propagation',
-      description: `Judge whether retraction evidence propagates to a paper. Paid: ${integrityToolPrices['retraction-propagation'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
+      description: `Judge whether a retraction propagates to a paper through its citation graph: retraction evidence is weighted by source tier, the citing context is checked for an acknowledgement, and the tool returns CONTESTED, SUPPORTED or ABSTAINED with the evidence path behind the verdict. Use it after integrity_paper_status when the question is "does this retraction reach this paper". It abstains instead of guessing when reference coverage is thin. Returns: verdict, confidence, the evidence path that produced it, and abstention details when the verdict is ABSTAINED. Paid: ${integrityToolPrices['retraction-propagation'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
       run: judge.retractionPropagation, status: false,
       payment: integrityToolPrices['retraction-propagation'],
     },
     {
       name: 'integrity_evidence_audit',
-      description: `Audit the evidence path, source tiers, and conflicts for a paper. Paid: ${integrityToolPrices['retraction-evidence-audit'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
+      description: `Audit the evidence behind a paper's retraction picture: every source record with its tier and URI, the dates involved, conflicts between sources (an official registry and an aggregator disagreeing, or a citation acknowledging a retraction the graph does not propagate) and the coverage gaps that bound the conclusion. Use it when you must justify or challenge a verdict; for a one-line status use integrity_paper_status. Returns: evidence records with source tiers and URIs, detected conflict flags with codes and details, and the coverage that limits how strong the conclusion can be. Paid: ${integrityToolPrices['retraction-evidence-audit'].usd} per call (x402 on Base, POST /api/v1/judge); a keyed MCP session also unlocks it.`,
       run: judge.evidenceAudit, status: false,
       payment: integrityToolPrices['retraction-evidence-audit'],
     },
