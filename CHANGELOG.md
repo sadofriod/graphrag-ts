@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.29 — 2026-11-02
+
+- **docs(readme)**: embed the hosted-endpoint health badge (#26)
+
 ## 0.1.28 — 2026-11-02
 
 - **docs(readme)**: link the browser demo in the 60-second section (#25)
