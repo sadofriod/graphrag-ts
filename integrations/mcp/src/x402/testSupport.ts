@@ -268,7 +268,7 @@ export const setup = (options: SetupOptions = {}) => {
   }) as unknown as typeof runSnapshotQuery;
   const route = createPaidQueryRoute({
     store: leasedStore, config, logger, registry: testRegistry, payments, facilitator, limiter, settings,
-    integrity: {} as never, judge: judge as never,
+    integrity: {} as never, telemetry: {} as never, judge: judge as never,
     now: () => 1_700_000_000_000, runQuery,
   });
   const sign = createSigner(() => testRegistry);

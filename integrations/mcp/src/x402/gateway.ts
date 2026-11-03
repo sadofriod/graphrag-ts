@@ -3,6 +3,7 @@ import { parseRequestBody } from './payload.ts';
 import { handlePaidQuery } from './paymentFlow.ts';
 import { corsHeaders, errorResponse, withServerTiming } from './http.ts';
 import { handleCatalogue } from './routes/catalogue.ts';
+import { handleTelemetry } from './routes/telemetry.ts';
 import { handleDiscovery } from './routes/discovery.ts';
 import { handleOpenApi } from './routes/openapi.ts';
 import { handleIntegrityRoute } from '../integrity/routes.ts';
@@ -29,6 +30,8 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
   if (openApi) return openApi;
   const catalogue = handleCatalogue(request, deps.registry);
   if (catalogue) return catalogue;
+  const telemetry = await handleTelemetry(request, deps);
+  if (telemetry) return telemetry;
   const discovery = handleDiscovery(request, deps);
   if (discovery) return discovery;
   const integrity = await handleIntegrityRoute(request, deps);

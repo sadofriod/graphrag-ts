@@ -357,7 +357,8 @@ const createPaidRoute = async (store: IndexStore, config: AppConfig, logger: Log
     throw new Error(`X402 upto pricing requires a facilitator that advertises extra.facilitatorAddress for ${settings.network}; switch the dataset to pricing.global.scheme "exact" or use a facilitator that supports upto.`);
   }
   const route = (await import('./x402/gateway.ts')).createPaidQueryRoute({
-    store, config, logger, registry, payments: store.paymentStore, integrity: store.integrityStore, judge,
+    store, config, logger, registry, payments: store.paymentStore, integrity: store.integrityStore,
+    telemetry: store.telemetryStore, judge,
     facilitator, limiter, settings: { ...settings, ...(uptoFacilitatorAddress ? { uptoFacilitatorAddress } : {}) },
   });
   return { settings, route };

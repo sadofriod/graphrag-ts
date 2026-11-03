@@ -9,6 +9,7 @@ import type { PaymentLedger } from './payments.ts';
 import type { X402Settings } from './settings.ts';
 import type { IntegrityStore } from '../integrity/store.ts';
 import type { Judge } from '../integrity/judge.ts';
+import type { TelemetryStore } from './telemetry.ts';
 
 export type PaidRouteDeps = {
   readonly store: IndexStore;
@@ -20,6 +21,7 @@ export type PaidRouteDeps = {
   readonly limiter: ReturnType<typeof createQueryLimiter>;
   readonly settings: X402Settings;
   readonly integrity: IntegrityStore;
+  readonly telemetry: TelemetryStore;
   readonly judge: Judge;
   readonly now?: () => number;
   readonly runQuery?: typeof runSnapshotQuery;
