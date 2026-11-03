@@ -3,7 +3,7 @@
   "name": "io.github.sadofriod/graphrag-ts",
   "title": "graphrag-ts citation provenance",
   "description": "Source-tiered retraction and citation judgments for DOIs; abstains when evidence is thin.",
-  "version": "0.1.22",
+  "version": "0.1.25",
   "repository": {
     "url": "https://github.com/sadofriod/graphrag-ts",
     "source": "github",
