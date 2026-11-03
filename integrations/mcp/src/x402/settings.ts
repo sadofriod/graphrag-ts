@@ -1,16 +1,31 @@
 import type { AppConfig } from '../config.ts';
 import { assertAsset, assertPayee } from './addresses.ts';
 
+export type JudgeNetworkAsset = {
+  readonly network: string;
+  readonly asset: string;
+  readonly assetName: string;
+  readonly assetVersion: string;
+};
+
 export type X402Settings = {
   readonly facilitatorUrl: string;
   readonly network: string;
   readonly asset: string;
   readonly assetName: string;
   readonly assetVersion: string;
+  readonly judgeNetworks: readonly JudgeNetworkAsset[];
   readonly payTo: string;
   readonly maxTimeoutSeconds: number;
   readonly publicBaseUrl?: string;
   readonly uptoFacilitatorAddress?: string;
+};
+
+const canonicalUsdcByNetwork: Readonly<Record<string, JudgeNetworkAsset>> = {
+  'eip155:42161': {
+    network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    assetName: 'USD Coin', assetVersion: '2',
+  },
 };
 
 const validateNetwork = (network: string): void => {
@@ -40,12 +55,43 @@ export const x402Settings = (config: AppConfig): X402Settings | undefined => {
   const publicBaseUrl = requiredPublicBaseUrl(config);
   const asset = assertAsset(network, config.X402_ASSET as string);
   const payTo = assertPayee(network, config.X402_PAY_TO as string);
+  const primary = {
+    network, asset, assetName: config.X402_ASSET_NAME ?? 'USDC', assetVersion: config.X402_ASSET_VERSION ?? '2',
+  };
+  const configuredExtras = config.X402_JUDGE_EXTRA_NETWORKS === undefined
+    ? (network === 'eip155:8453' ? ['eip155:42161'] : [])
+    : config.X402_JUDGE_EXTRA_NETWORKS.split(',').map((entry) => entry.trim()).filter(Boolean);
+  const seenNetworks = new Set([network]);
+  const judgeNetworks: JudgeNetworkAsset[] = [primary];
+  for (const entry of configuredExtras) {
+    const [extraNetwork, extraAsset, ...unexpected] = entry.split('=');
+    const candidateNetwork = extraNetwork?.trim() ?? '';
+    if (!candidateNetwork || unexpected.length > 0) {
+      throw new Error(`Invalid X402_JUDGE_EXTRA_NETWORKS entry: ${entry}.`);
+    }
+    validateNetwork(candidateNetwork);
+    if (seenNetworks.has(candidateNetwork)) continue;
+    const canonical = canonicalUsdcByNetwork[candidateNetwork];
+    if (!extraAsset && !canonical) {
+      throw new Error(`Missing asset for ${candidateNetwork} in X402_JUDGE_EXTRA_NETWORKS.`);
+    }
+    const selectedAsset = extraAsset?.trim() || canonical?.asset;
+    if (!selectedAsset) throw new Error(`Missing asset for ${candidateNetwork} in X402_JUDGE_EXTRA_NETWORKS.`);
+    judgeNetworks.push({
+      network: candidateNetwork,
+      asset: assertAsset(candidateNetwork, selectedAsset),
+      assetName: canonical && !extraAsset ? canonical.assetName : 'USDC',
+      assetVersion: canonical && !extraAsset ? canonical.assetVersion : '2',
+    });
+    seenNetworks.add(candidateNetwork);
+  }
   return {
     facilitatorUrl: (config.X402_FACILITATOR_URL as string).trim(),
     network,
     asset,
-    assetName: config.X402_ASSET_NAME ?? 'USDC',
-    assetVersion: config.X402_ASSET_VERSION ?? '2',
+    assetName: primary.assetName,
+    assetVersion: primary.assetVersion,
+    judgeNetworks,
     payTo,
     maxTimeoutSeconds: config.X402_MAX_TIMEOUT_SECONDS ?? 60,
     publicBaseUrl,

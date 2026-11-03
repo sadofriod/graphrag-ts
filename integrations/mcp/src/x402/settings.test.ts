@@ -32,8 +32,29 @@ describe('x402 settings', () => {
     expect(x402Settings(config)).toEqual({
       facilitatorUrl: 'https://facilitator.example.test/', network: 'eip155:8453', asset: evmAddress,
       assetName: 'USDC', assetVersion: '2', payTo: evmAddress, maxTimeoutSeconds: 60,
+      judgeNetworks: [
+        { network: 'eip155:8453', asset: evmAddress, assetName: 'USDC', assetVersion: '2' },
+        { network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', assetName: 'USD Coin', assetVersion: '2' },
+      ],
       publicBaseUrl: 'https://pay.example.test',
     });
+  });
+
+  test('allows explicit judge network overrides, canonical Arbitrum USDC, asset validation, and deduplication', () => {
+    const explicit = x402Settings(enabledConfig({ X402_JUDGE_EXTRA_NETWORKS: ` eip155:42161, eip155:8453, eip155:42161=${evmAddress} ` }));
+    expect(explicit?.judgeNetworks).toEqual([
+      { network: 'eip155:8453', asset: evmAddress, assetName: 'USDC', assetVersion: '2' },
+      { network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', assetName: 'USD Coin', assetVersion: '2' },
+    ]);
+    expect(x402Settings(enabledConfig({ X402_JUDGE_EXTRA_NETWORKS: `eip155:42161=${evmAddress}` }))?.judgeNetworks[1]).toEqual({
+      network: 'eip155:42161', asset: evmAddress, assetName: 'USDC', assetVersion: '2',
+    });
+    expect(() => x402Settings(enabledConfig({ X402_JUDGE_EXTRA_NETWORKS: 'eip155:10' })))
+      .toThrow('eip155:10 in X402_JUDGE_EXTRA_NETWORKS');
+  });
+
+  test('only defaults Arbitrum when the primary network is Base mainnet', () => {
+    expect(x402Settings(enabledConfig({ X402_NETWORK: 'eip155:84532' }))?.judgeNetworks).toHaveLength(1);
   });
 
   test('requires base settings and validates network family before addresses', () => {

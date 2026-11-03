@@ -6,6 +6,7 @@ import { handleCatalogue } from './routes/catalogue.ts';
 import { handleTelemetry } from './routes/telemetry.ts';
 import { handleDiscovery } from './routes/discovery.ts';
 import { handleOpenApi } from './routes/openapi.ts';
+import { handleLlmsTxt } from './routes/llms.ts';
 import { handleIntegrityRoute } from '../integrity/routes.ts';
 
 export type { PaidRouteDeps } from './routeTypes.ts';
@@ -28,6 +29,8 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
   }
   const openApi = handleOpenApi(request);
   if (openApi) return openApi;
+  const llmsTxt = handleLlmsTxt(request);
+  if (llmsTxt) return llmsTxt;
   const catalogue = handleCatalogue(request, deps.registry);
   if (catalogue) return catalogue;
   const telemetry = await handleTelemetry(request, deps);

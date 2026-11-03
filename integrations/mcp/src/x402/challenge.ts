@@ -61,7 +61,7 @@ export const buildChallenge = (
 export const buildJudgmentChallenge = (
   request: Request,
   dataset: import('./datasets.ts').JudgmentDataset,
-  requirements: PaymentRequirements,
+  requirements: readonly PaymentRequirements[],
   settings: X402Settings,
   error?: string,
 ): Response => {
@@ -70,7 +70,7 @@ export const buildJudgmentChallenge = (
     ...(error ? { error } : {}),
     resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.description),
       mimeType: 'application/json', serviceName: 'graphrag-ts', tags: dataset.tags.filter((tag) => asciiMetadata(tag, 32)).slice(0, 5) },
-    accepts: [requirements], extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
+    accepts: requirements, extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
 };
@@ -79,3 +79,8 @@ export const buildJudgmentChallenge = (
 export const matchesRequirements = (accepted: PaymentRequirements, expected: PaymentRequirements): boolean =>
   accepted.scheme === expected.scheme && accepted.network === expected.network && accepted.asset === expected.asset
   && accepted.payTo === expected.payTo && accepted.amount === expected.amount;
+
+export const matchRequirements = (
+  accepted: PaymentRequirements,
+  expected: readonly PaymentRequirements[],
+): PaymentRequirements | undefined => expected.find((requirements) => matchesRequirements(accepted, requirements));

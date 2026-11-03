@@ -2,9 +2,10 @@ import { decodePaymentHeader, type PaymentRequirements } from './types.ts';
 import { describe, expect, judgmentDataset, settings, setup, test } from './testSupport.ts';
 
 const judgmentBody = { dataset_id: judgmentDataset.id, doi: '10.1234/example' };
-const signed = (app: ReturnType<typeof setup>, nonce: string): string => app.sign('local', nonce, {
-  amount: '20000', extra: { name: 'USDC', version: '2' },
-});
+const signed = (app: ReturnType<typeof setup>, nonce: string, network = settings.network): string => app.sign('local', nonce,
+  network === 'eip155:42161'
+    ? { network, asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', amount: '20000', extra: { name: 'USD Coin', version: '2' } }
+    : { amount: '20000', extra: { name: 'USDC', version: '2' } });
 
 const postJudge = (app: ReturnType<typeof setup>, body: unknown, signature?: string) => app.route(new Request('https://internal.test/api/v1/judge', {
   method: 'POST', headers: { 'content-type': 'application/json', ...(signature ? { 'PAYMENT-SIGNATURE': signature } : {}) },
@@ -19,8 +20,20 @@ describe('paid integrity judgment route', () => {
     const required = decodePaymentHeader(response?.headers.get('payment-required') ?? '') as {
       accepts: PaymentRequirements[]; resource: { url: string };
     };
+    expect(required.accepts).toHaveLength(2);
     expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
+    expect(required.accepts[1]).toMatchObject({ scheme: 'exact', network: 'eip155:42161', amount: '20000' });
     expect(required.resource.url).toBe(`${settings.publicBaseUrl?.replace(/\/$/, '')}/api/v1/judge`);
+  });
+
+  test('verifies and settles against the matched Arbitrum requirements', async () => {
+    const app = setup({ includeJudgment: true });
+    const signature = signed(app, 'judge-arbitrum-01', 'eip155:42161');
+    const response = await postJudge(app, judgmentBody, signature);
+    expect(response?.status).toBe(200);
+    expect(app.verifiedNetworks).toEqual(['eip155:42161']);
+    expect(app.settledNetworks).toEqual(['eip155:42161']);
+    expect([...app.records.values()][0]?.network).toBe('eip155:42161');
   });
 
   test('returns 404 for unknown products and graph datasets', async () => {

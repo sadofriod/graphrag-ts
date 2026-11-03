@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { requestHash } from './payload.ts';
 import { handleOpenApi } from './routes/openapi.ts';
+import { handleLlmsTxt } from './routes/llms.ts';
 import { decodePaymentHeader, type PaymentPayload, type PaymentRequirements } from './types.ts';
 import { describe, expect, settings, setup, test } from './testSupport.ts';
 
@@ -10,10 +11,14 @@ describe('x402 paid query gateway', () => {
     expect(openApi?.status).toBe(200);
     expect(openApi?.headers.get('content-type')).toContain('application/json');
     expect(openApi?.headers.get('cache-control')).toBe('public, max-age=60');
-    const document = await openApi?.json() as { openapi: string; paths: Record<string, unknown> };
+    const document = await openApi?.json() as { openapi: string; servers: unknown[]; paths: Record<string, unknown> };
     expect(document.openapi).toBe('3.1.0');
+    expect(document.servers).toEqual([{ url: 'https://pay.ashesborn.cloud', description: 'production' }]);
     expect(document.paths).toHaveProperty('/api/v1/judge');
     expect(document.paths).toHaveProperty('/api/v1/judge/paper');
+    expect(document.paths).toHaveProperty('/api/v1/query');
+    expect(JSON.stringify(document.paths['/api/v1/judge'])).toContain('x-price-usdc');
+    expect(JSON.stringify(document.paths['/api/v1/query'])).toContain('x-networks');
 
     const app = setup({ includeJudgment: true });
     const routedOpenApi = await app.route(new Request('https://internal.test/api/v1/openapi.json'));
@@ -22,12 +27,12 @@ describe('x402 paid query gateway', () => {
     const invalid = await app.route(new Request('https://internal.test/api/v1/judge', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ doi: '10.1234/missing-dataset' }),
     }));
-    expect(invalid?.status).toBe(400);
-    expect(await invalid?.json()).toEqual({
-      error: 'invalid_request_body',
-      expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
-      docs: '/api/v1/openapi.json',
-    });
+    expect(invalid?.status).toBe(402);
+    expect(invalid?.headers.get('payment-required')).toBeTruthy();
+    expect(await invalid?.json()).toEqual({ error: 'invalid_request_body' });
+    expect(app.verifyCalls).toBe(0);
+    expect(app.settleCalls).toBe(0);
+    expect(app.records.size).toBe(0);
     for (const [headers, body, expectedError] of [
       [{ 'content-type': 'text/plain' }, '{"dataset_id":"demo","doi":"10.1234/example"}', 'Request body must be JSON.'],
       [{ 'content-type': 'application/json' }, 'x'.repeat(8193), 'Request body exceeds 8192 bytes.'],
@@ -35,12 +40,9 @@ describe('x402 paid query gateway', () => {
       const response = await app.route(new Request('https://internal.test/api/v1/judge', {
         method: 'POST', headers, body,
       }));
-      expect(response?.status).toBe(400);
-      expect(await response?.json()).toEqual({
-        error: expectedError,
-        expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
-        docs: '/api/v1/openapi.json',
-      });
+      expect(response?.status).toBe(402);
+      expect(response?.headers.get('payment-required')).toBeTruthy();
+      expect(await response?.json()).toEqual({ error: expectedError });
     }
   });
 
@@ -126,6 +128,7 @@ describe('x402 paid query gateway', () => {
     expect(manifest?.headers.get('access-control-allow-origin')).toBe('*');
     expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [
       { url: 'https://api.example.test/api/v1/query', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge', method: 'POST' },
+      { url: 'https://api.example.test/api/v1/judge/paper?doi={DOI}', method: 'GET', free: true },
     ] });
     const discovery = await app.route(new Request('https://internal.test/api/v1/discovery'));
     expect(discovery?.status).toBe(200);
@@ -136,12 +139,44 @@ describe('x402 paid query gateway', () => {
     });
   });
 
+  test('serves llms.txt verbatim and rejects other methods', async () => {
+    const expected = `# Ashes Born retraction API
+
+> Check whether a paper is retracted. Free DOI lookup, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+
+## Free
+
+- GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex, Crossref and Retraction Watch each assert, with tier and date. No source row is returned as no source row, never as "not retracted". No key.
+
+## Paid (x402)
+
+- POST https://pay.ashesborn.cloud/api/v1/judge: evidenced retraction judgment. $0.02 single, $0.10 full audit.
+
+## Docs
+
+- OpenAPI: https://pay.ashesborn.cloud/api/v1/openapi.json
+- Pricing: https://pay.ashesborn.cloud/api/v1/pricing
+- Live telemetry: https://pay.ashesborn.cloud/api/v1/telemetry
+- Datasets (CC0): https://ashesborn.cloud/datasets/
+
+## Example curl
+
+"https://pay.ashesborn.cloud/api/v1/judge/paper?doi=10.1016/S0140-6736(97)11096-0"
+`;
+    const response = handleLlmsTxt(new Request('https://pay.ashesborn.cloud/llms.txt'));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(await response?.text()).toBe(expected);
+    expect(handleLlmsTxt(new Request('https://pay.ashesborn.cloud/llms.txt', { method: 'POST' }))?.status).toBe(405);
+  });
+
   test('advertises judgment products as paid judge resources', async () => {
     const app = setup({ includeJudgment: true });
     const response = await app.route(new Request('https://internal.test/api/v1/discovery'));
     const body = await response?.json() as { items: { id: string; resource: string; accepts: PaymentRequirements[] }[] };
     const judgmentItems = body.items.filter((item) => item.resource.endsWith('/api/v1/judge'));
     expect(judgmentItems).toHaveLength(2);
+    expect(judgmentItems.every((item) => item.accepts.length === 2)).toBe(true);
     expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000']);
   });
 

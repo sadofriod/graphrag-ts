@@ -40,6 +40,7 @@ const environmentSchema = z.object({
   CDP_API_KEY_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
   CDP_API_KEY_SECRET: z.preprocess((value) => value === '' ? undefined : value, z.string().optional()),
   X402_NETWORK: z.string().default('eip155:84532'),
+  X402_JUDGE_EXTRA_NETWORKS: z.string().optional(),
   X402_ASSET: z.string().optional(),
   X402_ASSET_NAME: z.string().default('USDC'),
   X402_ASSET_VERSION: z.string().default('2'),
@@ -51,12 +52,13 @@ const environmentSchema = z.object({
 
 type ParsedConfig = z.infer<typeof environmentSchema>;
 export type AppConfig = Omit<ParsedConfig,
-  'X402_ENABLED' | 'X402_FACILITATOR_URL' | 'X402_NETWORK' | 'X402_ASSET' | 'X402_ASSET_NAME'
+  'X402_ENABLED' | 'X402_FACILITATOR_URL' | 'X402_NETWORK' | 'X402_JUDGE_EXTRA_NETWORKS' | 'X402_ASSET' | 'X402_ASSET_NAME'
   | 'X402_ASSET_VERSION' | 'X402_PAY_TO' | 'X402_MAX_TIMEOUT_SECONDS' | 'X402_DATASETS_FILE' | 'X402_PUBLIC_BASE_URL'
   | 'MCP_PUBLIC_BASE_URL' | 'CDP_API_KEY_ID' | 'CDP_API_KEY_SECRET'> & {
     readonly X402_ENABLED?: boolean | undefined;
     readonly X402_FACILITATOR_URL?: string | undefined;
     readonly X402_NETWORK?: string | undefined;
+    readonly X402_JUDGE_EXTRA_NETWORKS?: string | undefined;
     readonly X402_ASSET?: string | undefined;
     readonly X402_ASSET_NAME?: string | undefined;
     readonly X402_ASSET_VERSION?: string | undefined;

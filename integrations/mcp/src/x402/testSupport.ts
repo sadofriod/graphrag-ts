@@ -16,6 +16,10 @@ export { describe, expect, test };
 export const settings: X402Settings = {
   facilitatorUrl: 'https://facilitator.invalid', network: 'eip155:84532', asset: '0xasset', assetName: 'USDC',
   assetVersion: '2', payTo: '0xreceiver', maxTimeoutSeconds: 60, publicBaseUrl: 'https://api.example.test/',
+  judgeNetworks: [
+    { network: 'eip155:84532', asset: '0xasset', assetName: 'USDC', assetVersion: '2' },
+    { network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', assetName: 'USD Coin', assetVersion: '2' },
+  ],
   uptoFacilitatorAddress: '0x68EFaFE862d89cE66dd3D7B07d5A3747A0871164',
 };
 
@@ -163,15 +167,19 @@ type FacilitationState = {
   failNextSettlement: boolean;
   valid: boolean;
   readonly events: string[];
+  readonly verifiedNetworks: string[];
+  readonly settledNetworks: string[];
 };
 
 const createFacilitationState = (options: SetupOptions): FacilitationState => ({
   verifyCalls: 0, settleCalls: 0, settledAmounts: [], failNextSettlement: false, valid: options.valid !== false, events: [],
+  verifiedNetworks: [], settledNetworks: [],
 });
 
 const createFacilitator = (state: FacilitationState, options: SetupOptions): FacilitatorClient => ({
-  verify: async () => {
+  verify: async ({ paymentRequirements }: { paymentRequirements: PaymentRequirements }) => {
     state.verifyCalls += 1;
+    state.verifiedNetworks.push(paymentRequirements.network);
     return state.valid
       ? { isValid: true, payer: '0xBUYER' }
       : { isValid: false, invalidReason: 'invalid payment', payer: '0xBUYER' };
@@ -179,6 +187,7 @@ const createFacilitator = (state: FacilitationState, options: SetupOptions): Fac
   settle: async ({ paymentRequirements }: { paymentRequirements: PaymentRequirements }) => {
     state.settleCalls += 1;
     state.events.push('settle');
+    state.settledNetworks.push(paymentRequirements.network);
     state.settledAmounts.push(paymentRequirements.amount);
     if (options.settlementThrows) throw new Error('transport timeout');
     if (state.failNextSettlement) {
@@ -286,6 +295,8 @@ export const setup = (options: SetupOptions = {}) => {
     get verifyCalls() { return facilitation.verifyCalls; },
     get settleCalls() { return facilitation.settleCalls; },
     get settledAmounts() { return facilitation.settledAmounts; },
+    get verifiedNetworks() { return facilitation.verifiedNetworks; },
+    get settledNetworks() { return facilitation.settledNetworks; },
     events,
     get executions() { return counters.executions; },
     get releaseSlot() { return releaseSlot; },

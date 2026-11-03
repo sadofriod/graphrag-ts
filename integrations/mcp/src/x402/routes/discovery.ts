@@ -13,7 +13,7 @@ export const handleDiscovery = (request: Request, deps: PaidRouteDeps): Response
   if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
   const items = deps.registry.datasets.map((dataset) => isJudgmentDataset(dataset) ? ({
     ...toPublicDataset(dataset), resource: publicUrlForPath(request, '/api/v1/judge', deps.settings.publicBaseUrl),
-    type: 'http', x402Version: 2, accepts: [judgmentRequirements(dataset, deps.settings)],
+    type: 'http', x402Version: 2, accepts: judgmentRequirements(dataset, deps.settings),
     extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
   }) : ({
     ...toPublicDataset(dataset), resource: publicUrlForPath(request, '/api/v1/query', deps.settings.publicBaseUrl),
@@ -37,6 +37,9 @@ export const handleManifest = (request: Request, settings: X402Settings): Respon
     }, {
       url: publicUrlForPath(request, '/api/v1/judge', settings.publicBaseUrl),
       method: 'POST', description: 'Assess academic retraction propagation and evidence.',
+    }, {
+      url: `${publicUrlForPath(request, '/api/v1/judge/paper', settings.publicBaseUrl)}?doi={DOI}`,
+      method: 'GET', description: 'Free retraction status for a DOI: what OpenAlex, Crossref and Retraction Watch each assert.', free: true,
     }],
     docs: 'https://github.com/sadofriod/graphrag-ts',
     attestation: { type: 'none' },

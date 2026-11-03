@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { JudgmentDataset } from './datasets.ts';
 import { findDataset, isJudgmentDataset } from './datasets.ts';
-import { buildJudgmentChallenge, matchesRequirements } from './challenge.ts';
+import { buildJudgmentChallenge, matchRequirements } from './challenge.ts';
 import { judgmentRequirements } from './pricing.ts';
 import { errorResponse, jsonResponse } from './http.ts';
 import { judgmentRequestHash, nonceFromPayload, parsePaymentPayload, validIdempotencyKey, type JudgmentInput } from './payload.ts';
@@ -161,21 +161,22 @@ export const handlePaidJudgment = async (request: Request, input: JudgmentInput,
   const bodyHash = judgmentRequestHash(input);
   const replay = await replayByFingerprint(deps, dataset, fingerprint, bodyHash);
   if (replay) return replay;
-  if (!matchesRequirements(payload.accepted, requirements)) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, 'payment requirements do not match');
+  const matchedRequirements = matchRequirements(payload.accepted, requirements);
+  if (!matchedRequirements) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, 'payment requirements do not match');
   const key = request.headers.get('Idempotency-Key');
   if (!validIdempotencyKey(key)) return errorResponse(400, 'Invalid Idempotency-Key.');
   const requestId = key ?? `payment:${fingerprint}`;
   return withQuerySlot(deps.limiter, () => errorResponse(503, 'The server has reached its active query limit. Try again shortly.'),
-    async () => executePaidJudgment(request, deps, dataset, input, payload, requirements, fingerprint, bodyHash, requestId));
+    async () => executePaidJudgment(request, deps, dataset, input, payload, matchedRequirements, requirements, fingerprint, bodyHash, requestId));
 };
 
 const executePaidJudgment = async (
   request: Request, deps: PaidRouteDeps, dataset: JudgmentDataset, input: JudgmentInput, payload: PaymentPayload,
-  requirements: PaymentRequirements, fingerprint: string, bodyHash: string, requestId: string,
+  requirements: PaymentRequirements, allRequirements: readonly PaymentRequirements[], fingerprint: string, bodyHash: string, requestId: string,
 ): Promise<Response> => {
   const verification = await verifyPayment(deps, payload, requirements);
   if (!verification) return errorResponse(502, 'Payment verification failed.');
-  if ('invalid' in verification) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, verification.invalid);
+  if ('invalid' in verification) return buildJudgmentChallenge(request, dataset, allRequirements, deps.settings, verification.invalid);
   const registered = await registerPayment(deps, dataset, input, payload, requirements, fingerprint, bodyHash, requestId, verification.payer);
   if (registered instanceof Response) return registered;
   return runAndSettle(deps, dataset, input, payload, requirements, registered, requestId, verification.payer);

@@ -280,7 +280,8 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     const paidRoute = async (request: Request) => {
       const path = new URL(request.url).pathname;
       return path === '/api/v1/query' ? new Response('challenge', { status: 402 })
-        : path === '/.well-known/x402' ? new Response('discovery', { status: 200 }) : undefined;
+        : path === '/.well-known/x402' ? new Response('discovery', { status: 200 })
+          : path === '/llms.txt' ? new Response('llms', { status: 200 }) : undefined;
     };
     const app = fixture(true, {}, 'pay.example.com', paidRoute);
     const onHost = (hostname: string, path: string) => app.handler(new Request(`https://${hostname}${path}`, {
@@ -292,6 +293,7 @@ describe('hosted HTTP boundary and MCP protocol', () => {
       }
       expect((await onHost('pay.example.com', '/api/v1/query')).status).toBe(402);
       expect((await onHost('pay.example.com', '/.well-known/x402')).status).toBe(200);
+      expect((await onHost('pay.example.com', '/llms.txt')).status).toBe(200);
       expect((await onHost('mcp.example.com', '/api/workspaces/alpha/graph')).status).toBe(200);
     } finally { await app.close(); }
   });

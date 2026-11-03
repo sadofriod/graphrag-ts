@@ -1,6 +1,9 @@
 import { jsonResponse, errorResponse } from '../x402/http.ts';
 import { handlePaidJudgment } from '../x402/judgmentFlow.ts';
 import { parseJudgmentRequestBody, type JudgmentInput } from '../x402/payload.ts';
+import { isJudgmentDataset } from '../x402/datasets.ts';
+import { judgmentRequirements } from '../x402/pricing.ts';
+import { buildJudgmentChallenge } from '../x402/challenge.ts';
 import type { PaidRouteDeps } from '../x402/routeTypes.ts';
 
 export const handleIntegrityRoute = async (request: Request, deps: PaidRouteDeps): Promise<Response | undefined> => {
@@ -9,7 +12,12 @@ export const handleIntegrityRoute = async (request: Request, deps: PaidRouteDeps
   if (url.pathname !== '/api/v1/judge') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseJudgmentRequestBody(request);
-  return parsed.input ? handlePaidJudgment(request, parsed.input, deps) : jsonResponse(400, {
+  if (parsed.input) return handlePaidJudgment(request, parsed.input, deps);
+  const datasets = deps.registry.datasets.filter(isJudgmentDataset);
+  const dataset = datasets.find((item) => item.tool === 'retraction_propagation') ?? datasets[0];
+  if (dataset) return buildJudgmentChallenge(request, dataset, judgmentRequirements(dataset, deps.settings), deps.settings,
+    parsed.error ?? 'invalid_request_body');
+  return jsonResponse(400, {
     error: parsed.error ?? 'invalid_request_body',
     expected: { dataset_id: 'string, see GET /api/v1/datasets', target: 'exactly one of doi or paper_id' },
     docs: '/api/v1/openapi.json',
