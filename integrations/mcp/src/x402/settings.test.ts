@@ -100,4 +100,38 @@ describe('x402 settings', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test('starts without upto pricing when the facilitator /supported endpoint is unreachable', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
+    const config = {
+      ...loadConfig({
+        DATABASE_URL: 'postgresql://localhost/unused', MCP_HOST: '127.0.0.1',
+        X402_ENABLED: 'true', X402_FACILITATOR_URL: 'https://facilitator.example.test',
+        X402_ASSET: evmAddress, X402_PAY_TO: evmAddress,
+        X402_DATASETS_FILE: fileURLToPath(new URL('../../datasets.example.json', import.meta.url)),
+        X402_NETWORK: 'eip155:84532',
+        X402_PUBLIC_BASE_URL: 'https://pay.example.test',
+      }),
+      MCP_PORT: 0,
+    };
+    const warnings: Array<{ message: string; fields?: Record<string, unknown> }> = [];
+    const logger = {
+      info: () => undefined,
+      warn: (message: string, fields?: Record<string, unknown>) => warnings.push({ message, ...(fields ? { fields } : {}) }),
+      error: () => undefined,
+    };
+    let close: (() => Promise<void>) | undefined;
+    try {
+      close = await startMcpServer({} as IndexStore, config, logger);
+      expect(typeof close).toBe('function');
+      expect(warnings).toEqual([{
+        message: 'Facilitator /supported is unreachable at startup; starting without upto pricing.',
+        fields: { error_name: 'Error' },
+      }]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (close) await close();
+    }
+  });
 });

@@ -350,10 +350,18 @@ const createPaidRoute = async (store: IndexStore, config: AppConfig, logger: Log
   const facilitator = paidFacilitator(config, settings.facilitatorUrl);
   const graphDatasets = registry.datasets.filter((dataset) => dataset.product === 'graph');
   const usesUpto = graphDatasets.some((dataset) => dataset.pricing.global.scheme === 'upto');
-  const uptoFacilitatorAddress = usesUpto
-    ? findUptoFacilitatorAddress((await fetchSupportedKinds({ facilitatorUrl: settings.facilitatorUrl, facilitator })).kinds, settings.network)
+  const supportedKinds = usesUpto
+    ? await fetchSupportedKinds({ facilitatorUrl: settings.facilitatorUrl, facilitator }).catch((error): undefined => {
+      logger.warn('Facilitator /supported is unreachable at startup; starting without upto pricing.', {
+        error_name: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return undefined;
+    })
     : undefined;
-  if (usesUpto && !uptoFacilitatorAddress) {
+  const uptoFacilitatorAddress = supportedKinds
+    ? findUptoFacilitatorAddress(supportedKinds.kinds, settings.network)
+    : undefined;
+  if (usesUpto && supportedKinds && !uptoFacilitatorAddress) {
     throw new Error(`X402 upto pricing requires a facilitator that advertises extra.facilitatorAddress for ${settings.network}; switch the dataset to pricing.global.scheme "exact" or use a facilitator that supports upto.`);
   }
   const route = (await import('./x402/gateway.ts')).createPaidQueryRoute({
