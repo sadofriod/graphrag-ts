@@ -10,6 +10,15 @@ const document = {
         responses: { '200': { description: 'Public dataset catalogue.' } },
       },
     },
+    '/api/v1/telemetry': {
+      get: {
+        summary: 'Public aggregate telemetry (corpus, settlements, public-tier calls)',
+        responses: {
+          '200': { description: 'Public telemetry document.' },
+          '503': { description: 'Telemetry temporarily unavailable.' },
+        },
+      },
+    },
     '/api/v1/judge/paper': {
       get: {
         summary: 'Get paper status by DOI or paper ID',

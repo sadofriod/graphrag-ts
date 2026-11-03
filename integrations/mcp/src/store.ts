@@ -12,6 +12,7 @@ import { cloneGraphNamespace } from './snapshotCopy.ts';
 import { DEFAULT_WORKSPACE_ID, type WorkspaceId } from './workspace.ts';
 import { createPaymentStore } from './x402/payments.ts';
 import { createIntegrityStore } from './integrity/store.ts';
+import { createTelemetryStore } from './x402/telemetry.ts';
 
 export type { GraphSnapshot } from './graphSnapshot.ts';
 export type { ActivityLogInput, ActivityLogRecord } from './jobOperations.ts';
@@ -350,6 +351,7 @@ export const createStore = (databaseUrl: string) => {
     ...createUsageStore(pool),
     ...createPublicCallStore(pool),
     paymentStore: createPaymentStore(pool),
+    telemetryStore: createTelemetryStore(pool),
     integrityStore: createIntegrityStore(pool),
   ...createJobOperations(pool, transaction, deleteGraphNamespace),
     getGraphSnapshot: (workspaceId: WorkspaceId) => getGraphSnapshot(pool, workspaceId),
