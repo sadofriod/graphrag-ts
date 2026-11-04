@@ -79,8 +79,8 @@ const statusHtml = `<!doctype html>
           return (tierOrder[left.source_tier] ?? 4) - (tierOrder[right.source_tier] ?? 4);
         }) : [];
         const rows = statuses.map((status) => '<tr><td>' + escapeHtml(status.source) + '</td><td>' +
-          escapeHtml(status.source_tier) + '</td><td>' + escapeHtml(status.is_retracted) + '</td><td>' +
-          escapeHtml(status.retraction_date) + '</td></tr>').join('');
+          escapeHtml(status.source_tier) + '</td><td>' + escapeHtml(status.is_retracted ? 'retracted' : 'no retraction') + '</td><td>' +
+          escapeHtml(status.retraction_date ?? '—') + '</td></tr>').join('');
         show('<h2>' + escapeHtml(paper.title) + '</h2><p>Year: ' + escapeHtml(paper.year) +
           ' · DOI: ' + escapeHtml(paper.doi) + '</p><table><thead><tr><th>Source</th><th>Tier</th>' +
           '<th>Retracted</th><th>Date</th></tr></thead><tbody>' + rows + '</tbody></table>');
