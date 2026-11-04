@@ -6,6 +6,40 @@ export const authorizationFor = (dataset: GraphDataset, mode: 'local' | 'global'
   ? dataset.pricing.local.atomic
   : dataset.pricing.global.upto.atomic;
 
+export const requirementsFor = (dataset: GraphDataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
+  ? {
+      scheme: 'exact', network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
+      payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
+      extra: { name: settings.assetName, version: settings.assetVersion },
+    }
+  : {
+      scheme: dataset.pricing.global.scheme, network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
+      payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
+      extra: dataset.pricing.global.scheme === 'upto'
+        ? {
+            name: settings.assetName,
+            version: settings.assetVersion,
+            paymentFlow: 'authorization',
+            ...(settings.uptoFacilitatorAddress ? { facilitatorAddress: settings.uptoFacilitatorAddress } : {}),
+          }
+        : { name: settings.assetName, version: settings.assetVersion },
+    };
+
+export const requirementsForNetworks = (
+  dataset: GraphDataset,
+  mode: 'local' | 'global',
+  settings: X402Settings,
+): PaymentRequirements[] => {
+  if (mode === 'global' && dataset.pricing.global.scheme !== 'exact') {
+    return [requirementsFor(dataset, mode, settings)];
+  }
+  return settings.judgeNetworks.map((entry) => ({
+    scheme: 'exact', network: entry.network, amount: authorizationFor(dataset, mode),
+    asset: entry.asset, payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
+    extra: { name: entry.assetName, version: entry.assetVersion },
+  }));
+};
+
 export const settleAmountFor = (dataset: GraphDataset, mode: 'local' | 'global', mapAnswers: number): string => {
   if (mode === 'local') return dataset.pricing.local.atomic;
   if (dataset.pricing.global.scheme === 'exact') return dataset.pricing.global.upto.atomic;

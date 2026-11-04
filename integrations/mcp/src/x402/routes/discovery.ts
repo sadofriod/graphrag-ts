@@ -1,8 +1,7 @@
 import { isJudgmentDataset, toPublicDataset } from '../datasets.ts';
 import { bazaarDeclaration, judgmentBazaarDeclaration } from '../bazaar.ts';
-import { requirementsFor } from '../challenge.ts';
 import { errorResponse, jsonResponse, publicUrlForPath } from '../http.ts';
-import { judgmentRequirements } from '../pricing.ts';
+import { judgmentRequirements, requirementsForNetworks } from '../pricing.ts';
 import type { PaidRouteDeps } from '../routeTypes.ts';
 import type { X402Settings } from '../settings.ts';
 
@@ -17,7 +16,7 @@ export const handleDiscovery = (request: Request, deps: PaidRouteDeps): Response
     extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
   }) : ({
     ...toPublicDataset(dataset), resource: publicUrlForPath(request, '/api/v1/query', deps.settings.publicBaseUrl),
-    type: 'http', x402Version: 2, accepts: [requirementsFor(dataset, 'local', deps.settings)],
+    type: 'http', x402Version: 2, accepts: requirementsForNetworks(dataset, 'local', deps.settings),
     extensions: { bazaar: bazaarDeclaration(dataset, 'local') },
   }));
   return jsonResponse(200, { x402Version: 2, items, pagination: { limit: 20, offset: 0, total: items.length } }, { 'cache-control': 'public, max-age=300' });

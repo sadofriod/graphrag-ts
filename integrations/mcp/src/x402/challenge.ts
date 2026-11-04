@@ -4,26 +4,7 @@ import type { X402Settings } from './settings.ts';
 import { jsonResponse, publicUrl } from './http.ts';
 import { bazaarDeclaration } from './bazaar.ts';
 import { judgmentBazaarDeclaration } from './bazaar.ts';
-import { authorizationFor } from './pricing.ts';
-
-export const requirementsFor = (dataset: GraphDataset, mode: 'local' | 'global', settings: X402Settings): PaymentRequirements => mode === 'local'
-  ? {
-      scheme: 'exact', network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
-      payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
-      extra: { name: settings.assetName, version: settings.assetVersion },
-    }
-  : {
-      scheme: dataset.pricing.global.scheme, network: settings.network, amount: authorizationFor(dataset, mode), asset: settings.asset,
-      payTo: settings.payTo, maxTimeoutSeconds: settings.maxTimeoutSeconds,
-      extra: dataset.pricing.global.scheme === 'upto'
-        ? {
-            name: settings.assetName,
-            version: settings.assetVersion,
-            paymentFlow: 'authorization',
-            ...(settings.uptoFacilitatorAddress ? { facilitatorAddress: settings.uptoFacilitatorAddress } : {}),
-          }
-        : { name: settings.assetName, version: settings.assetVersion },
-    };
+export { requirementsFor } from './pricing.ts';
 
 const asciiMetadata = (value: string, maximumLength: number): boolean =>
   value.length <= maximumLength && /^[\x20-\x7E]+$/.test(value);
@@ -38,7 +19,7 @@ export const buildChallenge = (
   request: Request,
   dataset: GraphDataset,
   mode: 'local' | 'global',
-  requirements: PaymentRequirements,
+  requirements: readonly PaymentRequirements[],
   settings: X402Settings,
   error?: string,
 ): Response => {
@@ -52,7 +33,7 @@ export const buildChallenge = (
       serviceName: 'graphrag-ts',
       tags: resourceTags(dataset),
     },
-    accepts: [requirements],
+    accepts: requirements,
     extensions: { bazaar: bazaarDeclaration(dataset, mode) },
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });

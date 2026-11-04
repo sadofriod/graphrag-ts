@@ -18,7 +18,7 @@ export const settings: X402Settings = {
   assetVersion: '2', payTo: '0xreceiver', maxTimeoutSeconds: 60, publicBaseUrl: 'https://api.example.test/',
   judgeNetworks: [
     { network: 'eip155:84532', asset: '0xasset', assetName: 'USDC', assetVersion: '2' },
-    { network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', assetName: 'USD Coin', assetVersion: '2' },
+    { network: 'eip155:42161', asset: '0xasset', assetName: 'USDC', assetVersion: '2' },
   ],
   uptoFacilitatorAddress: '0x68EFaFE862d89cE66dd3D7B07d5A3747A0871164',
 };

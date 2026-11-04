@@ -75,6 +75,16 @@ describe('x402 paid query gateway', () => {
     };
     expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
     expect(required.accepts[0]?.extra).not.toHaveProperty('facilitatorAddress');
+    expect(required.accepts).toEqual([
+      {
+        scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+      {
+        scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+    ]);
     const bazaar = required.extensions.bazaar as { info: { input: { type: string; method: string; bodyType: string; body: { dataset_id: string } }; output: { type: string } }; schema: { $ref?: string; required: string[] } };
     expect(bazaar.info.input).toMatchObject({ type: 'http', method: 'POST', bodyType: 'json', body: { dataset_id: 'demo' } });
     expect(bazaar.info.output.type).toBe('json');
@@ -114,6 +124,8 @@ describe('x402 paid query gateway', () => {
       body: JSON.stringify({ dataset_id: 'demo', query: 'test', mode: 'global' }),
     }));
     const required = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as { accepts: PaymentRequirements[] };
+    expect(required.accepts).toHaveLength(1);
+    expect(required.accepts[0]?.network).toBe(settings.network);
     expect(required.accepts[0]?.extra).toMatchObject({
       paymentFlow: 'authorization', facilitatorAddress: settings.uptoFacilitatorAddress,
     });
@@ -134,7 +146,16 @@ describe('x402 paid query gateway', () => {
     expect(discovery?.status).toBe(200);
     expect(await discovery?.json()).toMatchObject({
       x402Version: 2,
-      items: [{ resource: 'https://api.example.test/api/v1/query', accepts: [{ scheme: 'exact', amount: '20000' }] }],
+      items: [{ resource: 'https://api.example.test/api/v1/query', accepts: [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ] }],
       pagination: { limit: 20, offset: 0, total: 1 },
     });
   });
@@ -184,6 +205,28 @@ describe('x402 paid query gateway', () => {
     expect(judgmentItems).toHaveLength(2);
     expect(judgmentItems.every((item) => item.accepts.length === 2)).toBe(true);
     expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000']);
+    expect(judgmentItems.map((item) => item.accepts)).toEqual([
+      [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ],
+      [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ],
+    ]);
   });
 
   test('serves the free paper existence endpoint and validates its required identifier', async () => {
@@ -219,7 +262,16 @@ describe('x402 paid query gateway', () => {
       const required = decodePaymentHeader(challenge.headers.get('payment-required') ?? '') as {
         x402Version: number; accepts: PaymentRequirements[]; extensions: { bazaar: unknown };
       };
-      expect(required).toMatchObject({ x402Version: 2, accepts: [{ scheme: 'exact', amount: '20000' }], extensions: { bazaar: expect.anything() } });
+      expect(required).toMatchObject({ x402Version: 2, accepts: [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ], extensions: { bazaar: expect.anything() } });
       const exposedHeaders = challenge.headers.get('access-control-expose-headers') ?? '';
       expect(exposedHeaders).toContain('PAYMENT-REQUIRED');
       expect(exposedHeaders).toContain('PAYMENT-RESPONSE');

@@ -2,11 +2,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { QueryServiceError, runSnapshotQuery } from '../queryService.ts';
 import type { GraphDataset } from './datasets.ts';
 import { findDataset, isJudgmentDataset } from './datasets.ts';
-import { buildChallenge, matchesRequirements, requirementsFor } from './challenge.ts';
+import { buildChallenge, matchRequirements } from './challenge.ts';
 import { errorResponse, jsonResponse } from './http.ts';
 import { nonceFromPayload, parsePaymentPayload, requestHash, validIdempotencyKey, type QueryInput } from './payload.ts';
 import { paymentBody, responseSettlement, settledResponse } from './response.ts';
-import { settleAmountFor } from './pricing.ts';
+import { requirementsForNetworks, settleAmountFor } from './pricing.ts';
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements, type SettleResponse } from './types.ts';
 import { PaymentConflictError, PaymentReplayError, type PaymentRecord } from './payments.ts';
 import type { PaidRouteDeps } from './routeTypes.ts';
@@ -149,7 +149,7 @@ const handleRejectedPayment = async (
   input: QueryInput,
   payload: PaymentPayload,
   fingerprint: string,
-  requirements: PaymentRequirements,
+  requirements: readonly PaymentRequirements[],
   deps: PaidRouteDeps,
   reason: string,
   payer: string | undefined,
@@ -188,7 +188,7 @@ const replayResponseForRequest = async (
 export const handlePaidQuery = async (request: Request, input: QueryInput, deps: PaidRouteDeps): Promise<Response> => {
   const dataset = findDataset(deps.registry, input.dataset_id);
   if (!dataset || isJudgmentDataset(dataset)) return errorResponse(404, 'Unknown dataset.');
-  const requirements = requirementsFor(dataset, input.mode, deps.settings);
+  const requirements = requirementsForNetworks(dataset, input.mode, deps.settings);
   const signature = request.headers.get('PAYMENT-SIGNATURE');
   if (!signature) return buildChallenge(request, dataset, input.mode, requirements, deps.settings);
   const decoded = parsePaymentPayload(signature);
@@ -198,14 +198,15 @@ export const handlePaidQuery = async (request: Request, input: QueryInput, deps:
   const bodyHash = requestHash(input);
   const replay = await replayResponseForRequest(deps, dataset, input, fingerprint, bodyHash);
   if (replay) return replay;
-  if (!matchesRequirements(payload.accepted, requirements)) return buildChallenge(request, dataset, input.mode, requirements, deps.settings, 'payment requirements do not match');
+  const matchedRequirements = matchRequirements(payload.accepted, requirements);
+  if (!matchedRequirements) return buildChallenge(request, dataset, input.mode, requirements, deps.settings, 'payment requirements do not match');
   const idempotencyKey = request.headers.get('Idempotency-Key');
   if (!validIdempotencyKey(idempotencyKey)) return errorResponse(400, 'Invalid Idempotency-Key.');
   const requestId = idempotencyKey ?? `payment:${fingerprint}`;
   return withQuerySlot(
     deps.limiter,
     () => errorResponse(503, 'The server has reached its active query limit. Try again shortly.'),
-    (slot) => authenticatedPaidQuery(deps, request, dataset, input, requirements, payload, fingerprint, bodyHash, requestId, slot),
+    (slot) => authenticatedPaidQuery(deps, request, dataset, input, matchedRequirements, requirements, payload, fingerprint, bodyHash, requestId, slot),
   );
 };
 
@@ -239,6 +240,7 @@ const authenticatedPaidQuery = async (
   dataset: GraphDataset,
   input: QueryInput,
   requirements: PaymentRequirements,
+  challengeRequirements: readonly PaymentRequirements[],
   payload: PaymentPayload,
   fingerprint: string,
   bodyHash: string,
@@ -250,7 +252,7 @@ const authenticatedPaidQuery = async (
     return errorResponse(502, 'Payment verification failed.');
   }
   if (verification.kind === 'invalid') {
-    return handleRejectedPayment(request, dataset, input, payload, fingerprint, requirements, deps, verification.reason, verification.payer);
+    return handleRejectedPayment(request, dataset, input, payload, fingerprint, challengeRequirements, deps, verification.reason, verification.payer);
   }
   const payer = verification.payer;
   let begun: Awaited<ReturnType<typeof deps.payments.beginPayment>>;

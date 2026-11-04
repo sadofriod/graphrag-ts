@@ -19,6 +19,21 @@ describe('x402 paid query settlement', () => {
     expect(app.settledAmounts).toEqual(['20000']);
   });
 
+  test('verifies and settles an accepted Arbitrum payment with its matched requirements', async () => {
+    const app = setup();
+    const signature = app.sign('local', 'nonce-arbitrum-query', {
+      network: 'eip155:42161', asset: '0xasset',
+      extra: { name: 'USDC', version: '2' },
+    });
+    const response = await app.request(undefined, signature);
+
+    expect(response?.status).toBe(200);
+    expect(app.verifiedNetworks).toEqual(['eip155:42161']);
+    expect(app.settledNetworks).toEqual(['eip155:42161']);
+    const [payment] = app.records.values();
+    expect(payment).toMatchObject({ network: 'eip155:42161', asset: '0xasset' });
+  });
+
   test('returns the settled answer when the post-settlement ledger write fails', async () => {
     const app = setup({ completePaymentFails: true });
     const response = await app.request();
@@ -46,7 +61,16 @@ describe('x402 paid query settlement', () => {
       body: JSON.stringify({ dataset_id: 'demo', query: 'test', mode: 'global' }),
     }));
     const required = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as { accepts: PaymentRequirements[] };
-    expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '100000' });
+    expect(required.accepts).toEqual([
+      {
+        scheme: 'exact', network: 'eip155:84532', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+      {
+        scheme: 'exact', network: 'eip155:42161', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+    ]);
     const response = await app.request({ dataset_id: 'demo', query: 'test', mode: 'global' }, app.sign('global', 'nonce-exact-1'));
     expect(response?.status).toBe(200);
     expect(app.settledAmounts).toEqual(['100000']);

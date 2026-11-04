@@ -3,8 +3,8 @@ import { describe, expect, judgmentDataset, settings, setup, test } from './test
 
 const judgmentBody = { dataset_id: judgmentDataset.id, doi: '10.1234/example' };
 const signed = (app: ReturnType<typeof setup>, nonce: string, network = settings.network): string => app.sign('local', nonce,
-  network === 'eip155:42161'
-    ? { network, asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', amount: '20000', extra: { name: 'USD Coin', version: '2' } }
+  network !== settings.network
+    ? { network, asset: settings.asset, amount: '20000', extra: { name: settings.assetName, version: settings.assetVersion } }
     : { amount: '20000', extra: { name: 'USDC', version: '2' } });
 
 const postJudge = (app: ReturnType<typeof setup>, body: unknown, signature?: string) => app.route(new Request('https://internal.test/api/v1/judge', {
@@ -23,6 +23,16 @@ describe('paid integrity judgment route', () => {
     expect(required.accepts).toHaveLength(2);
     expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
     expect(required.accepts[1]).toMatchObject({ scheme: 'exact', network: 'eip155:42161', amount: '20000' });
+    expect(required.accepts).toEqual([
+      {
+        scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+      {
+        scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+        maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+      },
+    ]);
     expect(required.resource.url).toBe(`${settings.publicBaseUrl?.replace(/\/$/, '')}/api/v1/judge`);
   });
 
