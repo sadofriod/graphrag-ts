@@ -142,7 +142,7 @@ describe('x402 paid query gateway', () => {
   test('serves llms.txt verbatim and rejects other methods', async () => {
     const expected = `# Ashes Born retraction API
 
-> Check whether a paper is retracted. Free DOI lookup against a fixed snapshot, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+> Check whether a paper is retracted. Free DOI lookup against a fixed snapshot, paid evidence checks over x402 (USDC on Base or Arbitrum).
 
 ## Snapshot
 
@@ -156,7 +156,7 @@ describe('x402 paid query gateway', () => {
 
 ## Paid (x402)
 
-- POST https://pay.ashesborn.cloud/api/v1/judge: evidenced retraction judgment. $0.02 single, $0.10 full audit.
+- POST https://pay.ashesborn.cloud/api/v1/judge: retraction evidence check — every source row with tier and date, plus propagation. $0.02 single, $0.10 full audit.
 
 ## Docs
 

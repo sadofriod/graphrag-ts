@@ -61,11 +61,11 @@ const queryResultSchema = {
 const document = {
   openapi: '3.1.0',
   servers: [{ url: 'https://pay.ashesborn.cloud', description: 'production' }],
-  info: { title: 'Ashesborn public API', version: '1.0.0', description: 'Free retraction status lookups and x402-paid evidenced judgments. GraphRAG query datasets are synthetic and provided for testing only.' },
+  info: { title: 'Ashesborn public API', version: '1.0.0', description: 'Free retraction status lookups and x402-paid evidence checks. GraphRAG query datasets are synthetic and provided for testing only.' },
   paths: {
     '/api/v1/datasets': { get: {
-      summary: 'List available datasets', description: 'List public graph and judgment datasets with pricing and license metadata.',
-      responses: { '200': { description: 'Public dataset catalogue.', content: { 'application/json': { schema: datasetResponse, example: { datasets: [{ id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation', title: 'Retraction propagation', description: 'Evidenced retraction judgment.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://ashesborn.cloud/datasets/' }, tags: ['integrity'], pricing: { per_call: { usd: '$0.02', atomic: '20000' } } }] } } } } },
+      summary: 'List available datasets', description: 'List public graph and evidence-check datasets with pricing and license metadata.',
+      responses: { '200': { description: 'Public dataset catalogue.', content: { 'application/json': { schema: datasetResponse, example: { datasets: [{ id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation', title: 'Retraction propagation', description: 'Retraction evidence check.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://ashesborn.cloud/datasets/' }, tags: ['integrity'], pricing: { per_call: { usd: '$0.02', atomic: '20000' } } }] } } } } },
     } },
     '/api/v1/telemetry': { get: {
       summary: 'Public aggregate telemetry', description: 'Aggregate corpus, settlements, and public-tier call telemetry.',
@@ -80,7 +80,7 @@ const document = {
       responses: { '200': { description: 'Paper and source status records.', content: { 'application/json': { schema: paperStatusSchema, example: { paper: { paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Example paper', year: 1997, source_tier: 'C' }, statuses: [{ source: 'openalex', tier: 'C', status: false, retraction_date: null }, { source: 'crossref', tier: 'A', status: true, retraction_date: '2000-01-01' }, { source: 'retraction_watch', tier: 'A', status: true, retraction_date: '2000-01-01' }] } } } }, '400': { description: 'An identifier is required.' } },
     } },
     '/api/v1/judge': { post: {
-      summary: 'Purchase a retraction judgment', description: 'Pay with USDC on Base or Arbitrum for an evidenced retraction propagation judgment or full evidence audit.',
+      summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit.',
       'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
       requestBody: { required: true, content: { 'application/json': {
         schema: { oneOf: [
@@ -89,15 +89,15 @@ const document = {
         ] }, example: { dataset_id: 'retraction-propagation', doi: '10.1016/S0140-6736(97)11096-0' },
       } } },
       responses: {
-        '200': { description: 'Settled judgment result.', content: { 'application/json': {
+        '200': { description: 'Settled evidence-check result.', content: { 'application/json': {
           schema: judgmentResultSchema,
           example: { dataset: { id: 'retraction-propagation', tool: 'retraction_propagation' }, judgment: { verdict: 'SUPPORTED', confidence: 0.9 }, usage: { judge_ms: 42 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '20000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' } },
         } } },
-        '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements to authorize the judgment.', schema: { type: 'string' } } } },
+        '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements to authorize the evidence check.', schema: { type: 'string' } } } },
       },
     } },
     '/api/v1/query': { post: {
-      summary: 'Purchase a GraphRAG query', description: 'Paid GraphRAG query over a SYNTHETIC smart-contract sample corpus (fiction, for testing only). For real retraction judgments use /api/v1/judge.',
+      summary: 'Purchase a GraphRAG query', description: 'Paid GraphRAG query over a SYNTHETIC smart-contract sample corpus (fiction, for testing only). For real retraction evidence checks use /api/v1/judge.',
       'x-price-usdc': { local: '0.02', global: 'upto 0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
       requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, query: { type: 'string', minLength: 1, maxLength: 4000 }, mode: { type: 'string', enum: ['local', 'global'], default: 'local' }, max_results: { type: 'integer', minimum: 1, maximum: 20, default: 5 } }, required: ['dataset_id', 'query'], additionalProperties: false }, example: { dataset_id: 'synthetic-contracts', query: 'Summarize the sample contract.' } } } },
       responses: { '200': { description: 'GraphRAG query result.', content: { 'application/json': { schema: queryResultSchema, example: { answer: 'Synthetic example answer.', mode: 'local', dataset: { id: 'web3-security', version: 'sample-version', workspace_id: 'sample' }, sources: [{ source: 'contract.md', excerpt: 'Synthetic evidence excerpt.' }], usage: { query_ms: 12, map_answers: 0 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '20000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' } } } } }, '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements.', schema: { type: 'string' } } } } },

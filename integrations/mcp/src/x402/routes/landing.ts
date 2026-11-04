@@ -38,7 +38,7 @@ const statusHtml = `<!doctype html>
       <input id="doi" name="doi" required autocomplete="off" placeholder="10....">
       <button type="submit">Look up</button>
     </form>
-    <p class="muted">Free snapshot lookup. Paid evidenced judgments remain $0.02 per judgment and $0.10 for a full audit.</p>
+    <p class="muted">Free snapshot lookup. Paid evidence checks are $0.02 each and $0.10 for a full audit.</p>
   </section>
   <section id="result" class="card" aria-live="polite" hidden></section>
   <footer>
@@ -46,7 +46,7 @@ const statusHtml = `<!doctype html>
     <a href="/api/v1/openapi.json">OpenAPI</a>
     <a href="https://ashesborn.cloud/datasets/">Datasets</a>
     <a href="https://huggingface.co/spaces/ashesborn6/retraction-status">HF Space demo</a>
-    <p>Paid endpoint: <a href="https://pay.ashesborn.cloud/api/v1/judge">/api/v1/judge</a> ($0.02 judgment; $0.10 full audit).</p>
+    <p>Paid endpoint: <a href="https://pay.ashesborn.cloud/api/v1/judge">/api/v1/judge</a> ($0.02 evidence check; $0.10 full audit).</p>
   </footer>
   <script>
     const form = document.getElementById('lookup');
