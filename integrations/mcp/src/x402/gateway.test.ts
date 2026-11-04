@@ -142,11 +142,17 @@ describe('x402 paid query gateway', () => {
   test('serves llms.txt verbatim and rejects other methods', async () => {
     const expected = `# Ashes Born retraction API
 
-> Check whether a paper is retracted. Free DOI lookup, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+> Check whether a paper is retracted. Free DOI lookup against a fixed snapshot, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+
+## Snapshot
+
+- Snapshot (updated 2026-10-25): ri-20261025-1526. 98,868 papers, 144,814 citation edges, 572 per-source retraction assertions. This is a snapshot, not a live query.
+- Sources: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists.
 
 ## Free
 
-- GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex, Crossref and Retraction Watch each assert, with tier and date. No source row is returned as no source row, never as "not retracted". No key.
+- GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex and Retraction Watch assert, and Crossref only when an update-to notice exists, with tier and date. A DOI that is not in the snapshot returns paper: null with abstention_reason "paper_not_in_snapshot", never "not retracted". No source row is returned as no source row. No key.
+- Alias: GET https://pay.ashesborn.cloud/paper?doi={DOI} returns the same document.
 
 ## Paid (x402)
 
@@ -156,7 +162,7 @@ describe('x402 paid query gateway', () => {
 
 - OpenAPI: https://pay.ashesborn.cloud/api/v1/openapi.json
 - Pricing: https://pay.ashesborn.cloud/api/v1/pricing
-- Live telemetry: https://pay.ashesborn.cloud/api/v1/telemetry
+- Telemetry: https://pay.ashesborn.cloud/api/v1/telemetry
 - Datasets (CC0): https://ashesborn.cloud/datasets/
 
 ## Example curl
@@ -186,6 +192,15 @@ describe('x402 paid query gateway', () => {
     expect(found?.status).toBe(200);
     expect(await found?.json()).toMatchObject({ paper: { paper_id: 'W123' } });
     expect((await app.route(new Request('https://internal.test/api/v1/judge/paper')))?.status).toBe(400);
+  });
+
+  test('routes the /paper compatibility alias to the free paper status endpoint', async () => {
+    const app = setup({ includeJudgment: true });
+    const alias = await app.route(new Request('https://internal.test/paper?doi=10.1016%2FS0140-6736(97)11096-0'));
+    const canonical = await app.route(new Request('https://internal.test/api/v1/judge/paper?doi=10.1016%2FS0140-6736(97)11096-0'));
+    expect(alias?.status).toBe(200);
+    expect(alias?.headers.get('x-compat-route')).toBe('/paper -> /api/v1/judge/paper');
+    expect(await alias?.text()).toBe(await canonical?.text());
   });
 
   test('serves the x402 exchange over real HTTP headers', async () => {

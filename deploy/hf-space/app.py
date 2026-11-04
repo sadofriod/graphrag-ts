@@ -5,7 +5,13 @@ import pandas as pd
 
 PAPER_STATUS_URL = "https://pay-hk.ashesborn.cloud/api/v1/judge/paper"
 PAID_JUDGE_URL = "https://pay.ashesborn.cloud/api/v1/judge"
+SNAPSHOT_NOTE = (
+    "Snapshot (updated 2026-10-25): 98,868 papers, 572 retraction assertions. "
+    "Sources: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists. "
+    "This is a snapshot, not a live query."
+)
 FOOTER = (
+    SNAPSHOT_NOTE + " "
     f"The full verdict (`CONTESTED` / `SUPPORTED` / `INSUFFICIENT_EVIDENCE`), "
     f"confidence, and evidence path come from the paid endpoint "
     f"[{PAID_JUDGE_URL}]({PAID_JUDGE_URL}) "
@@ -22,7 +28,7 @@ def _format_response(params):
         return "The status service could not be reached. Please try again later.", pd.DataFrame(columns=["source", "tier", "retracted", "date"]), "", FOOTER
 
     if response.status_code == 404:
-        message = "No matching paper was found in the published dataset."
+        message = "Not in snapshot (updated 2026-10-25): this lookup covers 98,868 papers and cannot say whether this DOI is retracted."
         return message, pd.DataFrame(columns=["source", "tier", "retracted", "date"]), "", FOOTER
     if response.status_code == 503:
         message = "The status data is temporarily unavailable because no published snapshot is active. Please try again later."
@@ -39,7 +45,7 @@ def _format_response(params):
         return "The status service returned unreadable data. Please try again later.", pd.DataFrame(columns=["source", "tier", "retracted", "date"]), "", FOOTER
     paper = payload.get("paper") or {}
     if not isinstance(paper, dict) or not paper:
-        return "No matching paper was found in the published dataset.", pd.DataFrame(columns=["source", "tier", "retracted", "date"]), "", FOOTER
+        return "Not in snapshot (updated 2026-10-25): this lookup covers 98,868 papers and cannot say whether this DOI is retracted.", pd.DataFrame(columns=["source", "tier", "retracted", "date"]), "", FOOTER
     title = paper.get("title") or "Untitled paper"
     year = paper.get("year") or "Year unavailable"
     doi = paper.get("doi") or "DOI unavailable"

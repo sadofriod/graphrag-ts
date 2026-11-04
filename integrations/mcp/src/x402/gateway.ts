@@ -7,6 +7,7 @@ import { handleTelemetry } from './routes/telemetry.ts';
 import { handleDiscovery } from './routes/discovery.ts';
 import { handleOpenApi } from './routes/openapi.ts';
 import { handleLlmsTxt } from './routes/llms.ts';
+import { handleLanding } from './routes/landing.ts';
 import { handleIntegrityRoute } from '../integrity/routes.ts';
 
 export type { PaidRouteDeps } from './routeTypes.ts';
@@ -26,6 +27,19 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
       'access-control-allow-headers': 'PAYMENT-SIGNATURE,Content-Type,Idempotency-Key',
       'access-control-max-age': '600',
     } });
+  }
+  const landing = handleLanding(request);
+  if (landing) return landing;
+  if (path === '/paper') {
+    if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
+    const url = new URL(request.url);
+    url.pathname = '/api/v1/judge/paper';
+    const rewritten = new Request(url, { method: request.method, headers: request.headers });
+    const response = await handleIntegrityRoute(rewritten, deps);
+    if (!response) return errorResponse(404, 'Not found.');
+    const headers = new Headers(response.headers);
+    headers.set('x-compat-route', '/paper -> /api/v1/judge/paper');
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
   const openApi = handleOpenApi(request);
   if (openApi) return openApi;

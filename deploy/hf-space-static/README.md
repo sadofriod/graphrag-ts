@@ -1,19 +1,25 @@
 ---
-title: Retraction Status
+title: Retraction status for a DOI (retracted papers)
 emoji: 📚
 colorFrom: blue
 colorTo: purple
 sdk: static
 pinned: false
 license: cc0-1.0
-short_description: Source-attributed retraction status for a DOI
+short_description: Is this paper retracted? OpenAlex + Retraction Watch
 ---
 
 # Retraction status — citation provenance demo
 
-Free lookup against a citation graph built from OpenAlex, Crossref and
-Retraction Watch: paste a DOI (or an OpenAlex paper ID) and see which sources
-report a retraction, at which source tier, with which date.
+Free lookup against a fixed snapshot built from OpenAlex and Retraction Watch,
+plus a Crossref update-to notice where one exists: paste a DOI (or an OpenAlex
+paper ID) and see which sources report a retraction, at which source tier, with
+which date.
+
+**Snapshot (updated 2026-10-25)**: ri-20261025-1526 — 98,868 papers, 144,814
+citation edges, 572 per-source retraction assertions. This is a snapshot, not a
+live query: a DOI outside it comes back as *not in snapshot*, never as
+"not retracted".
 
 - **Every row is a source-attributed fact, not a verdict.** The verdict
   (`CONTESTED` / `SUPPORTED` / `INSUFFICIENT_EVIDENCE`), the confidence and the
@@ -23,7 +29,7 @@ report a retraction, at which source tier, with which date.
 - Source tiers: **A** = publisher/registry retraction notice or Retraction Watch
   record (weight 1.0), **B** = peer-reviewed citing text (0.6),
   **C** = aggregator flags and citation lists (0.3).
-- Underlying dataset (CC0): [ashesborn6/integrity-citation-retraction-graph](https://huggingface.co/datasets/ashesborn6/integrity-citation-retraction-graph)
+- Underlying dataset (CC0, 244,254 rows): [retracted papers and citation integrity graph](https://huggingface.co/datasets/ashesborn6/retracted-papers-citation-integrity-graph)
 - Code: [github.com/sadofriod/graphrag-ts](https://github.com/sadofriod/graphrag-ts)
 
 This Space is a static page: it calls the public, CORS-enabled status endpoint

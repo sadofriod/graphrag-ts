@@ -2,11 +2,17 @@ import { errorResponse } from '../http.ts';
 
 const llmsTxt = `# Ashes Born retraction API
 
-> Check whether a paper is retracted. Free DOI lookup, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+> Check whether a paper is retracted. Free DOI lookup against a fixed snapshot, paid evidenced judgments over x402 (USDC on Base or Arbitrum).
+
+## Snapshot
+
+- Snapshot (updated 2026-10-25): ri-20261025-1526. 98,868 papers, 144,814 citation edges, 572 per-source retraction assertions. This is a snapshot, not a live query.
+- Sources: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists.
 
 ## Free
 
-- GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex, Crossref and Retraction Watch each assert, with tier and date. No source row is returned as no source row, never as "not retracted". No key.
+- GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex and Retraction Watch assert, and Crossref only when an update-to notice exists, with tier and date. A DOI that is not in the snapshot returns paper: null with abstention_reason "paper_not_in_snapshot", never "not retracted". No source row is returned as no source row. No key.
+- Alias: GET https://pay.ashesborn.cloud/paper?doi={DOI} returns the same document.
 
 ## Paid (x402)
 
@@ -16,7 +22,7 @@ const llmsTxt = `# Ashes Born retraction API
 
 - OpenAPI: https://pay.ashesborn.cloud/api/v1/openapi.json
 - Pricing: https://pay.ashesborn.cloud/api/v1/pricing
-- Live telemetry: https://pay.ashesborn.cloud/api/v1/telemetry
+- Telemetry: https://pay.ashesborn.cloud/api/v1/telemetry
 - Datasets (CC0): https://ashesborn.cloud/datasets/
 
 ## Example curl

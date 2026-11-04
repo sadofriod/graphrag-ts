@@ -39,7 +39,7 @@ export const handleManifest = (request: Request, settings: X402Settings): Respon
       method: 'POST', description: 'Assess academic retraction propagation and evidence.',
     }, {
       url: `${publicUrlForPath(request, '/api/v1/judge/paper', settings.publicBaseUrl)}?doi={DOI}`,
-      method: 'GET', description: 'Free retraction status for a DOI: what OpenAlex, Crossref and Retraction Watch each assert.', free: true,
+      method: 'GET', description: 'Free retraction status for a DOI: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists.', free: true,
     }],
     docs: 'https://github.com/sadofriod/graphrag-ts',
     attestation: { type: 'none' },

@@ -72,7 +72,7 @@ const document = {
       responses: { '200': { description: 'Public telemetry document.', content: { 'application/json': { schema: { type: 'object', properties: { generated_at: { type: 'string', format: 'date-time' }, corpus: { type: ['object', 'null'], additionalProperties: true }, payments: { type: 'object', additionalProperties: true }, public_calls: { type: 'object', additionalProperties: true }, verify: { type: 'object', additionalProperties: true } }, required: ['generated_at', 'corpus', 'payments', 'public_calls', 'verify'] }, example: { generated_at: '2026-01-01T00:00:00.000Z', corpus: null, payments: { mainnet: { settlements: 0, volume_usdc: '0.00', networks: [] }, testnet: { settlements: 0, volume_usdc: '0.00', networks: [] }, unclassified: [], recent_mainnet: [] }, public_calls: { window_days: 30, calls: 0, callers: 0, p95_latency_ms: null }, verify: { datasets: 'https://pay.ashesborn.cloud/api/v1/datasets', openapi: 'https://pay.ashesborn.cloud/api/v1/openapi.json', note: 'Aggregate counters.' } } } } }, '503': { description: 'Telemetry temporarily unavailable.' } },
     } },
     '/api/v1/judge/paper': { get: {
-      summary: 'Get paper status by DOI or paper ID', description: 'Free DOI/paper lookup showing what OpenAlex, Crossref, and Retraction Watch each assert.',
+      summary: 'Get paper status by DOI or paper ID', description: 'Free DOI/paper lookup: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists.',
       parameters: [
         { name: 'doi', in: 'query', required: false, schema: { type: 'string' }, example: '10.1016/S0140-6736(97)11096-0' },
         { name: 'paper_id', in: 'query', required: false, schema: { type: 'string' }, example: 'W123' },

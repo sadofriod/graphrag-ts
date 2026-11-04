@@ -56,8 +56,9 @@
 <body>
 <main>
   <h1>Retraction status <span class="pill">free</span></h1>
-  <p class="sub">Look a paper up in a citation graph built from OpenAlex, Crossref and Retraction&nbsp;Watch.
-     Every row is a source-attributed fact, not a verdict.</p>
+  <p class="sub">Look a paper up in a fixed snapshot built from OpenAlex and Retraction&nbsp;Watch, plus a
+     Crossref update-to notice where one exists. Every row is a source-attributed fact, not a verdict.</p>
+  <p class="sub">Snapshot (updated 2026-10-25) · 98,868 papers · 572 retraction assertions</p>
 
   <section class="card">
     <div class="row">
@@ -87,7 +88,9 @@
     confidence and the hop-by-hop evidence path come from the paid endpoint
     <a href="https://pay.ashesborn.cloud/api/v1/judge">/api/v1/judge</a> — $0.02 per judgment,
     $0.10 with the full evidence audit, settled per call over x402.<br>
-    Underlying dataset: <a href="https://huggingface.co/datasets/ashesborn6/integrity-citation-retraction-graph">ashesborn6/integrity-citation-retraction-graph</a> ·
+    Snapshot (updated 2026-10-25) · 98,868 papers · 572 retraction assertions. Sources: OpenAlex and
+    Retraction Watch; Crossref only when an update-to notice exists.<br>
+    Underlying dataset: <a href="https://huggingface.co/datasets/ashesborn6/retracted-papers-citation-integrity-graph">ashesborn6/retracted-papers-citation-integrity-graph</a> ·
     Code: <a href="https://github.com/sadofriod/graphrag-ts">graphrag-ts</a>
   </footer>
 </main>
@@ -133,12 +136,12 @@ async function lookup() {
   $("go").disabled = true;
   try {
     const res = await fetch(url, { headers: { accept: "application/json" } });
-    if (res.status === 404) { $("err").textContent = "This paper is not in the published snapshot."; return; }
+    if (res.status === 404) { $("err").textContent = "Not in snapshot (updated 2026-10-25): this lookup covers 98,868 papers and cannot say whether this DOI is retracted."; return; }
     if (res.status === 503) { $("err").textContent = "No snapshot is active right now — try again later."; return; }
     if (!res.ok) { $("err").textContent = `Unexpected response (${res.status}).`; return; }
     const data = await res.json();
     const p = data.paper || {};
-    if (!p.paper_id) { $("err").textContent = "This paper is not in the published snapshot."; return; }
+    if (!p.paper_id) { $("err").textContent = "Not in snapshot (updated 2026-10-25): this lookup covers 98,868 papers and cannot say whether this DOI is retracted."; return; }
     $("ptitle").textContent = p.title || "Untitled";
     $("pmeta").textContent = [p.year, p.doi].filter(Boolean).join(" · ");
     const statuses = Array.isArray(data.statuses) ? data.statuses : [];
