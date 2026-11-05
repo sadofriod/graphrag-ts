@@ -25,8 +25,14 @@ export class X402FacilitatorError extends Error {
   }
 }
 
-const httpError = (status: number): X402FacilitatorError =>
-  new X402FacilitatorError('FACILITATOR_HTTP', `Facilitator returned HTTP ${status}.`, status);
+const httpError = (status: number, bodyText?: string): X402FacilitatorError => {
+  const detail = bodyText?.slice(0, 500);
+  return new X402FacilitatorError(
+    'FACILITATOR_HTTP',
+    detail ? `Facilitator returned HTTP ${status}: ${detail}` : `Facilitator returned HTTP ${status}.`,
+    status,
+  );
+};
 
 const isPaymentRejection = (endpoint: 'verify' | 'settle', value: unknown): boolean => {
   if (typeof value !== 'object' || value === null) return false;
@@ -35,11 +41,18 @@ const isPaymentRejection = (endpoint: 'verify' | 'settle', value: unknown): bool
     : 'success' in value && value.success === false;
 };
 
-const readFacilitatorBody = async (response: Response): Promise<unknown> => {
+const readFacilitatorBody = async (response: Response): Promise<{ readonly body: unknown; readonly text: string }> => {
+  let text: string;
   try {
-    return await response.json() as unknown;
+    text = await response.text();
   } catch {
     if (!response.ok) throw httpError(response.status);
+    throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', 'Facilitator returned malformed JSON.');
+  }
+  try {
+    return { body: JSON.parse(text) as unknown, text };
+  } catch {
+    if (!response.ok) throw httpError(response.status, text);
     throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', 'Facilitator returned malformed JSON.');
   }
 };
@@ -54,11 +67,12 @@ const parseFacilitatorBody = <T>(
   body: unknown,
   response: Response,
   schema: { parse(value: unknown): T },
+  bodyText: string,
 ): T => {
   try {
     return schema.parse(body);
   } catch {
-    if (!response.ok) throw httpError(response.status);
+    if (!response.ok) throw httpError(response.status, bodyText);
     throw new X402FacilitatorError('FACILITATOR_INVALID_RESPONSE', 'Facilitator returned an invalid response.');
   }
 };
@@ -68,10 +82,11 @@ export const parseFacilitatorResponse = async <T>(
   endpoint: 'verify' | 'settle',
   schema: { parse(value: unknown): T },
 ): Promise<T> => {
-  if (!response.ok && ![400, 402, 403].includes(response.status)) throw httpError(response.status);
-  const body = normalizedRejectionBody(await readFacilitatorBody(response), response, endpoint);
-  const parsed = parseFacilitatorBody(body, response, schema);
-  if (!response.ok && !isPaymentRejection(endpoint, parsed)) throw httpError(response.status);
+  const { body: rawBody, text } = await readFacilitatorBody(response);
+  if (!response.ok && ![400, 402, 403].includes(response.status)) throw httpError(response.status, text);
+  const body = normalizedRejectionBody(rawBody, response, endpoint);
+  const parsed = parseFacilitatorBody(body, response, schema, text);
+  if (!response.ok && !isPaymentRejection(endpoint, parsed)) throw httpError(response.status, text);
   return parsed;
 };
 

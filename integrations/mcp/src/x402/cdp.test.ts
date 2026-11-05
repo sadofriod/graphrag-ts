@@ -111,10 +111,10 @@ describe('Coinbase CDP facilitator', () => {
   test('keeps unshaped HTTP 400 verify responses as FACILITATOR_HTTP', async () => {
     const client = createCdpFacilitatorClient({
       ...makeEd25519Credentials(),
-      fetchImpl: async () => new Response(JSON.stringify({ success: false, errorReason: 'invalid signature' }), { status: 400 }),
+      fetchImpl: async () => new Response(JSON.stringify({ invalidReason: 'invalid_payload', errorMessage: 'Payload does not match requirements.' }), { status: 400 }),
     });
 
-    await expect(client.verify(request)).rejects.toMatchObject({ code: 'FACILITATOR_HTTP', status: 400 });
+    await expect(client.verify(request)).rejects.toMatchObject({ code: 'FACILITATOR_HTTP', status: 400, message: expect.stringContaining('invalid_payload') });
   });
 
   test('signs ES256 JWTs from PKCS#8 PEM keys using JOSE-width signatures', async () => {
