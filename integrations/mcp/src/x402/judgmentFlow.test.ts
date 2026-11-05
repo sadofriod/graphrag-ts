@@ -78,6 +78,31 @@ describe('paid integrity judgment route', () => {
     expect(app.settleCalls).toBe(1);
   });
 
+  test('runs dependency_scan through one payment and persists OSV items and summary', async () => {
+    const scanResult = { source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z',
+      items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: false, advisories: [], note: 'No advisory recorded in OSV for this name and version. This is not a statement that the package is safe.', abstention_reason: null }],
+      summary: { requested: 1, checked: 1, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0 } };
+    const app = setup({ includeJudgment: true, dependencyResult: scanResult });
+    const response = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': app.sign('local', 'dependency-paid-flow-01') },
+      body: JSON.stringify({ packages: ['lodash@4.17.20'] }),
+    }));
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({ dataset: { tool: 'dependency_scan' }, judgment: scanResult, payment: { amount: '20000' } });
+    expect(app.settleCalls).toBe(1);
+  });
+
+  test('does not settle paid dependency scans when OSV is unavailable', async () => {
+    const app = setup({ includeJudgment: true, dependencyFailure: true });
+    const response = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': app.sign('local', 'dependency-source-error-01') },
+      body: JSON.stringify({ packages: ['lodash@4.17.20'] }),
+    }));
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toEqual({ error: 'advisory_source_unavailable' });
+    expect(app.settleCalls).toBe(0);
+  });
+
   test('rounds fractional judge latency before returning and writing the ledger', async () => {
     const app = setup({ includeJudgment: true });
     const completePayment = app.payments.completePayment.bind(app.payments);

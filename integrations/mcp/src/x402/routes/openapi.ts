@@ -12,7 +12,7 @@ const datasetResponse = {
       }, required: ['local', 'global'] },
     }, required: ['id', 'workspace_id', 'title', 'description', 'synthetic', 'license', 'tags', 'pricing'] },
     { type: 'object', properties: {
-       id: { type: 'string' }, product: { type: 'string', const: 'judgment' }, tool: { type: 'string', enum: ['retraction_propagation', 'evidence_audit', 'reference_batch'] },
+        id: { type: 'string' }, product: { type: 'string', enum: ['judgment', 'advisory'] }, tool: { type: 'string', enum: ['retraction_propagation', 'evidence_audit', 'reference_batch', 'dependency_scan'] },
        title: { type: 'string' }, description: { type: 'string' }, synthetic: { type: 'boolean' },
        max_items: { type: 'integer', minimum: 1, maximum: 100 },
       license: { type: 'object', properties: { spdx: { type: 'string' }, url: { type: 'string', format: 'uri' } }, required: ['spdx', 'url'] },
@@ -84,6 +84,63 @@ const queryResultSchema = {
   }, required: ['answer', 'mode', 'dataset', 'sources', 'usage', 'payment'],
 } as const;
 
+const dependencyScanResultSchema = {
+  type: 'object', properties: {
+    source: { const: 'OSV' }, queried_at: { type: 'string', format: 'date-time' },
+    items: { type: 'array', items: { type: 'object', properties: {
+      input: { type: 'string' }, name: { type: 'string' }, version: { type: 'string' }, ecosystem: { type: 'string' },
+      existence: { type: 'string', enum: ['confirmed', 'not_found', 'unchecked'] }, affected: { type: 'boolean' },
+      advisories: { type: 'array', items: { type: 'object', properties: {
+        id: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' },
+        severity_label: { type: 'string', enum: ['critical', 'high', 'medium', 'low', 'unknown'] },
+        fixed_versions: { type: 'array', items: { type: 'string' } }, published: { type: ['string', 'null'] }, modified: { type: ['string', 'null'] },
+        source_uri: { type: 'string', format: 'uri' }, tier: { type: 'string', const: 'A' },
+      }, required: ['id', 'aliases', 'summary', 'severity_label', 'fixed_versions', 'published', 'modified', 'source_uri', 'tier'], additionalProperties: false } },
+      note: { type: ['string', 'null'] },
+      abstention_reason: { type: ['string', 'null'], enum: ['package_not_found', null] },
+    }, required: ['input', 'name', 'version', 'ecosystem', 'existence', 'affected', 'advisories', 'note', 'abstention_reason'], additionalProperties: false } },
+    summary: { type: 'object', properties: {
+      requested: { type: 'integer' }, checked: { type: 'integer' }, affected_packages: { type: 'integer' }, advisory_count: { type: 'integer' }, not_found_packages: { type: 'integer' }, unchecked_packages: { type: 'integer' },
+    }, required: ['requested', 'checked', 'affected_packages', 'advisory_count', 'not_found_packages', 'unchecked_packages'], additionalProperties: false },
+  }, required: ['source', 'queried_at', 'items', 'summary'], additionalProperties: false,
+} as const;
+
+const dependencyScanOperation = (limit: 20 | 100, price: '0.02' | '0.10', datasetId: 'dependency-scan-20' | 'dependency-scan-100') => ({
+  post: {
+    summary: `Scan up to ${limit} package versions for vulnerabilities`,
+    description: `Pay $${price} with USDC on Base or Arbitrum to query OSV for up to ${limit} package versions in one call.`,
+    'x-price-usdc': price,
+    'x-networks': ['eip155:8453', 'eip155:42161'],
+    requestBody: { required: true, content: { 'application/json': {
+      schema: { type: 'object', properties: {
+        packages: { type: 'array', minItems: 1, maxItems: limit, items: { oneOf: [
+          { type: 'string', minLength: 1 },
+          { type: 'object', properties: { name: { type: 'string', minLength: 1 }, version: { type: 'string', minLength: 1 }, ecosystem: { type: 'string', minLength: 1 } }, required: ['name', 'version'], additionalProperties: false },
+        ] } }, ecosystem: { type: 'string' },
+      }, required: ['packages'], additionalProperties: false },
+      example: { packages: ['lodash@4.17.20', { name: 'next', version: '14.0.0' }] },
+    } } },
+    responses: {
+      '200': { description: 'Settled OSV advisory scan result.', content: { 'application/json': { schema: {
+        type: 'object', properties: {
+          dataset: { type: 'object', properties: { id: { type: 'string' }, tool: { const: 'dependency_scan' } }, required: ['id', 'tool'] },
+          judgment: dependencyScanResultSchema,
+          usage: { type: 'object', properties: { judge_ms: { type: 'number' } }, required: ['judge_ms'] },
+          payment: judgmentResultSchema.properties.payment,
+        }, required: ['dataset', 'judgment', 'usage', 'payment'], additionalProperties: false,
+      }, example: {
+        dataset: { id: datasetId, tool: 'dependency_scan' },
+        judgment: { source: 'OSV', queried_at: '2026-11-05T00:00:00.000Z', items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: true,
+          advisories: [{ id: 'GHSA-35jh-r3h4-6jhm', aliases: ['CVE-2021-23337'], summary: 'Command injection vulnerability.', severity_label: 'high', fixed_versions: ['4.17.21'], published: '2021-02-15T00:00:00Z', modified: '2022-01-01T00:00:00Z', source_uri: 'https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm', tier: 'A' }], note: null, abstention_reason: null }],
+          summary: { requested: 1, checked: 1, affected_packages: 1, advisory_count: 1, not_found_packages: 0, unchecked_packages: 0 } },
+        usage: { judge_ms: 87 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: price === '0.02' ? '20000' : '100000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' },
+      } } } },
+      '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements for this fixed dependency scan SKU.', schema: { type: 'string' } } } },
+      '503': { description: 'OSV advisory source unavailable; no scan result is returned.' },
+    },
+  },
+});
+
 const batchJudgeOperation = (limit: 10 | 50, datasetId: 'reference-audit-10' | 'reference-audit-50', price: '0.50' | '2.00', amount: '500000' | '2000000') => ({
   post: {
     summary: `Audit up to ${limit} references`,
@@ -134,6 +191,15 @@ const document = {
       ],
       responses: { '200': { description: 'Paper and source status records.', content: { 'application/json': { schema: paperStatusSchema, example: { paper: { paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Example paper', year: 1997, source_tier: 'C' }, statuses: [{ source: 'openalex', tier: 'C', status: false, retraction_date: null }, { source: 'crossref', tier: 'A', status: true, retraction_date: '2000-01-01' }, { source: 'retraction_watch', tier: 'A', status: true, retraction_date: '2000-01-01' }] } } } }, '400': { description: 'An identifier is required.' } },
     } },
+    '/api/v1/deps/check': { get: {
+      summary: 'Free OSV advisory lookup for one package version',
+      parameters: [
+        { name: 'name', in: 'query', required: true, schema: { type: 'string' }, example: 'lodash' },
+        { name: 'version', in: 'query', required: true, schema: { type: 'string' }, example: '4.17.20' },
+        { name: 'ecosystem', in: 'query', required: false, schema: { type: 'string', default: 'npm' } },
+      ],
+      responses: { '200': { description: 'OSV advisory scan for one package.', content: { 'application/json': { schema: dependencyScanResultSchema } } }, '400': { description: 'Package name and version are required.' }, '503': { description: 'OSV advisory source unavailable.' } },
+    } },
     '/api/v1/judge': { post: {
       summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit. For batch reference audits use /api/v1/judge/batch-10 ($0.50) or /api/v1/judge/batch-50 ($2.00).',
       'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
@@ -157,6 +223,8 @@ const document = {
     } },
     '/api/v1/judge/batch-10': batchJudgeOperation(10, 'reference-audit-10', '0.50', '500000'),
     '/api/v1/judge/batch-50': batchJudgeOperation(50, 'reference-audit-50', '2.00', '2000000'),
+    '/api/v1/deps/scan-20': dependencyScanOperation(20, '0.02', 'dependency-scan-20'),
+    '/api/v1/deps/scan-100': dependencyScanOperation(100, '0.10', 'dependency-scan-100'),
     '/api/v1/query': { post: {
       summary: 'Purchase a GraphRAG query', description: 'Paid GraphRAG query over a SYNTHETIC smart-contract sample corpus (fiction, for testing only). For real retraction evidence checks use /api/v1/judge.',
       'x-price-usdc': { local: '0.02', global: 'upto 0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],

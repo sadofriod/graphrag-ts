@@ -18,6 +18,7 @@ import { fetchSupportedKinds, findUptoFacilitatorAddress } from './x402/supporte
 import { createJudge } from './integrity/judge.ts';
 import { requestOrigin, wellKnownResponse } from './well-known.ts';
 import { hashIp } from './publicCalls.ts';
+import { createOsvClient } from './deps/osv.ts';
 
 const paidFacilitator = (config: AppConfig, facilitatorUrl: string) => {
   const hasKeyId = Boolean(config.CDP_API_KEY_ID);
@@ -367,7 +368,7 @@ const createPaidRoute = async (store: IndexStore, config: AppConfig, logger: Log
   }
   const route = (await import('./x402/gateway.ts')).createPaidQueryRoute({
     store, config, logger, registry, payments: store.paymentStore, integrity: store.integrityStore,
-    telemetry: store.telemetryStore, judge,
+     telemetry: store.telemetryStore, judge, advisories: createOsvClient(),
     facilitator, limiter, settings: { ...settings, ...(uptoFacilitatorAddress ? { uptoFacilitatorAddress } : {}) },
   });
   return { settings, route };

@@ -10,6 +10,7 @@ import type { X402Settings } from './settings.ts';
 import type { IntegrityStore } from '../integrity/store.ts';
 import type { Judge } from '../integrity/judge.ts';
 import type { TelemetryStore } from './telemetry.ts';
+import type { OsvClient } from '../deps/osv.ts';
 
 export type PaidRouteDeps = {
   readonly store: IndexStore;
@@ -23,6 +24,7 @@ export type PaidRouteDeps = {
   readonly integrity: IntegrityStore;
   readonly telemetry: TelemetryStore;
   readonly judge: Judge;
+  readonly advisories: OsvClient;
   readonly now?: () => number;
   readonly runQuery?: typeof runSnapshotQuery;
 };

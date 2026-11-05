@@ -70,6 +70,30 @@
       "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
       "pricing": { "per_call": "$2.00" },
       "tags": ["retractions", "citations", "bibliography", "academic", "integrity"]
+    },
+    {
+      "id": "dependency-scan-20",
+      "product": "judgment",
+      "tool": "dependency_scan",
+      "max_items": 20,
+      "title": "Dependency vulnerability scan - 20 packages",
+      "description": "Check up to 20 package@version entries for known vulnerabilities in one call. Send packages as strings (\"lodash@4.17.20\") or objects ({name, version, ecosystem}); supported ecosystems: npm (default), PyPI, Go, crates.io, Maven, NuGet, RubyGems, Packagist. Each entry comes back with affected yes or no, the advisory IDs and their CVE aliases, a severity label, the fixed versions, and the source URL. Advisories come from OSV; a package with no advisory is reported as no known advisory, never as safe. $0.02 per call.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$0.02" },
+      "tags": ["security", "dependencies", "supply-chain", "advisories"]
+    },
+    {
+      "id": "dependency-scan-100",
+      "product": "judgment",
+      "tool": "dependency_scan",
+      "max_items": 100,
+      "title": "Dependency vulnerability scan - 100 packages",
+      "description": "Check up to 100 package@version entries for known vulnerabilities in one call. Send packages as strings (\"lodash@4.17.20\") or objects ({name, version, ecosystem}); supported ecosystems: npm (default), PyPI, Go, crates.io, Maven, NuGet, RubyGems, Packagist. Each entry comes back with affected yes or no, the advisory IDs and their CVE aliases, a severity label, the fixed versions, and the source URL. Advisories come from OSV; a package with no advisory is reported as no known advisory, never as safe. $0.10 per call.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$0.10" },
+      "tags": ["security", "dependencies", "supply-chain", "advisories"]
     }
   ]
 }

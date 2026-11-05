@@ -164,3 +164,62 @@ export const referenceBatchBazaarDeclaration = (dataset: JudgmentDataset, includ
     },
   };
 };
+
+export const dependencyScanBazaarDeclaration = (dataset: JudgmentDataset) => {
+  const advisoryProperties = {
+    id: { type: 'string' }, aliases: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' },
+    severity_label: { enum: ['critical', 'high', 'medium', 'low', 'unknown'] }, fixed_versions: { type: 'array', items: { type: 'string' } },
+    published: { type: ['string', 'null'] }, modified: { type: ['string', 'null'] }, source_uri: { type: 'string', format: 'uri' }, tier: { const: 'A' },
+  };
+  const example = {
+    dataset: { id: dataset.id, tool: dataset.tool },
+    judgment: {
+      source: 'OSV', queried_at: '2026-11-05T00:00:00.000Z',
+      items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: true,
+        advisories: [{ id: 'GHSA-35jh-r3h4-6jhm', aliases: ['CVE-2021-23337'], summary: 'Command injection vulnerability.',
+          severity_label: 'high', fixed_versions: ['4.17.21'], published: '2021-02-15T00:00:00Z', modified: '2022-01-01T00:00:00Z',
+          source_uri: 'https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm', tier: 'A' }], note: null, abstention_reason: null }],
+      summary: { requested: 1, checked: 1, affected_packages: 1, advisory_count: 1, not_found_packages: 0, unchecked_packages: 0 },
+    },
+    usage: { judge_ms: 87 },
+    payment: { payment_id: '<uuid>', request_id: '<uuid>', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: dataset.pricing.per_call.atomic,
+      payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-11-05T00:00:00.000Z' },
+  };
+  return {
+    info: {
+      input: { type: 'http', method: 'POST', bodyType: 'json', body: { packages: ['lodash@4.17.20', { name: 'next', version: '14.0.0' }] } },
+      output: { type: 'json', example },
+    },
+    schema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object',
+      properties: {
+        input: { type: 'object', properties: {
+          type: { const: 'http' }, method: { const: 'POST' }, bodyType: { const: 'json' },
+          body: { type: 'object', properties: { packages: { type: 'array', minItems: 1, maxItems: dataset.maxItems,
+            items: { oneOf: [
+              { type: 'string', minLength: 1 },
+              { type: 'object', properties: { name: { type: 'string' }, version: { type: 'string' }, ecosystem: { type: 'string' } }, required: ['name', 'version'], additionalProperties: false },
+            ] } }, ecosystem: { type: 'string' } }, required: ['packages'], additionalProperties: false },
+        }, required: ['type', 'method', 'bodyType', 'body'], additionalProperties: false },
+        output: { type: 'object', properties: {
+          type: { const: 'json' }, example: { type: 'object', properties: {
+            dataset: { type: 'object', properties: { id: { type: 'string' }, tool: { const: 'dependency_scan' } }, required: ['id', 'tool'], additionalProperties: false },
+            judgment: { type: 'object', properties: {
+            source: { const: 'OSV' }, queried_at: { type: 'string', format: 'date-time' },
+            items: { type: 'array', items: { type: 'object', properties: {
+              input: { type: 'string' }, name: { type: 'string' }, version: { type: 'string' }, ecosystem: { type: 'string' },
+              existence: { enum: ['confirmed', 'not_found', 'unchecked'] }, affected: { type: 'boolean' }, advisories: { type: 'array', items: { type: 'object', properties: advisoryProperties,
+                required: ['id', 'aliases', 'summary', 'severity_label', 'fixed_versions', 'published', 'modified', 'source_uri', 'tier'], additionalProperties: false } },
+              note: { type: ['string', 'null'] },
+              abstention_reason: { enum: ['package_not_found', null] },
+            }, required: ['input', 'name', 'version', 'ecosystem', 'existence', 'affected', 'advisories', 'note', 'abstention_reason'], additionalProperties: false } },
+            summary: { type: 'object', properties: { requested: { type: 'integer' }, checked: { type: 'integer' }, affected_packages: { type: 'integer' }, advisory_count: { type: 'integer' }, not_found_packages: { type: 'integer' }, unchecked_packages: { type: 'integer' } },
+              required: ['requested', 'checked', 'affected_packages', 'advisory_count', 'not_found_packages', 'unchecked_packages'], additionalProperties: false },
+            }, required: ['source', 'queried_at', 'items', 'summary'], additionalProperties: false },
+            usage: { type: 'object', properties: { judge_ms: { type: 'number' } }, required: ['judge_ms'], additionalProperties: false },
+            payment: { type: 'object', properties: { payment_id: { type: 'string' }, request_id: { type: 'string' }, scheme: { type: 'string' }, network: { type: 'string' }, asset: { type: 'string' }, amount: { type: 'string' }, payer: { type: 'string' }, transaction: { type: 'string' }, settled_at: { type: 'string', format: 'date-time' } }, required: ['payment_id', 'request_id', 'scheme', 'network', 'asset', 'amount', 'payer', 'transaction', 'settled_at'], additionalProperties: false },
+          }, required: ['dataset', 'judgment', 'usage', 'payment'], additionalProperties: false } }, required: ['type', 'example'], additionalProperties: false },
+      }, required: ['input', 'output'], additionalProperties: false,
+    },
+  };
+};

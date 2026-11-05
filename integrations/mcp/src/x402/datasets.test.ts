@@ -105,9 +105,9 @@ describe('x402 dataset registry', () => {
     expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, pricing: { per_call: '$1e-3' } }] })).toThrow('Prices must be non-negative USD amounts');
   });
 
-  test('loads the five example datasets and requires max_items for reference_batch', async () => {
+  test('loads seven example datasets and requires max_items for batch datasets', async () => {
     const loaded = await loadDatasetRegistry(fileURLToPath(new URL('../../datasets.example.json', import.meta.url)));
-    expect(loaded.datasets).toHaveLength(5);
+    expect(loaded.datasets).toHaveLength(7);
     const batches = loaded.datasets.filter((dataset) => isJudgmentDataset(dataset) && dataset.tool === 'reference_batch');
     expect(batches.map((dataset) => isJudgmentDataset(dataset) ? [dataset.id, dataset.maxItems, dataset.pricing.per_call.atomic] : [])).toEqual([
       ['reference-audit-10', 10, '500000'], ['reference-audit-50', 50, '2000000'],
@@ -120,5 +120,12 @@ describe('x402 dataset registry', () => {
       title: 'Batch', description: 'Batch.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.com/license' },
       tags: ['integrity'], pricing: { per_call: '$0.50' } };
     expect(() => datasetRegistrySchema.parse({ datasets: [batchWithoutLimit] })).toThrow('reference_batch datasets require max_items');
+    const dependencyWithoutLimit = { ...batchWithoutLimit, id: 'dependency-missing-limit', tool: 'dependency_scan' };
+    expect(() => datasetRegistrySchema.parse({ datasets: [dependencyWithoutLimit] })).toThrow('dependency_scan datasets require max_items');
+    const dependencyProducts = loaded.datasets.filter((dataset) => isJudgmentDataset(dataset) && dataset.tool === 'dependency_scan');
+    expect(dependencyProducts.map((dataset) => isJudgmentDataset(dataset) ? [dataset.id, dataset.maxItems, dataset.pricing.per_call.atomic] : [])).toEqual([
+      ['dependency-scan-20', 20, '20000'], ['dependency-scan-100', 100, '100000'],
+    ]);
+    expect(toPublicDataset(dependencyProducts[0]!)).toMatchObject({ product: 'advisory', tool: 'dependency_scan', max_items: 20 });
   });
 });

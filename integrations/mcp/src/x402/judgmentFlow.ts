@@ -10,6 +10,8 @@ import { PaymentConflictError, PaymentReplayError, type PaymentRecord } from './
 import type { PaidRouteDeps } from './routeTypes.ts';
 import { withQuerySlot } from './slot.ts';
 import { runReferenceBatch } from '../integrity/batch.ts';
+import { runDependencyScan } from '../deps/scan.ts';
+import { OsvUnavailableError } from '../deps/osv.ts';
 
 const replayResponse = (record: PaymentRecord): Response => {
   if (record.status === 'settled' && record.responseBody !== null) {
@@ -31,11 +33,15 @@ const unknownSettlement = (requestId: string): Response => jsonResponse(409, {
 const canonicalPayer = (payer: string | undefined, fallback?: string): string | undefined => (payer?.trim() || fallback)?.toLowerCase();
 
 const invokeJudge = (dataset: JudgmentDataset, deps: PaidRouteDeps, input: PaidJudgmentInput) => {
+  if (dataset.tool === 'dependency_scan') {
+    if (!('packages' in input) || dataset.maxItems === undefined) throw new Error('Invalid dependency scan request.');
+    return runDependencyScan(deps.advisories, input.packages, dataset.maxItems, input.ecosystem);
+  }
   if (dataset.tool === 'reference_batch') {
     if (!('references' in input) || dataset.maxItems === undefined) throw new Error('Invalid reference batch request.');
     return runReferenceBatch(deps.judge, input.references, dataset.maxItems);
   }
-  if ('references' in input) throw new Error('Batch requests require a reference_batch dataset.');
+  if ('references' in input || 'packages' in input) throw new Error('Batch requests require a matching batch dataset.');
   const ref = { ...(input.doi === undefined ? {} : { doi: input.doi }), ...(input.paper_id === undefined ? {} : { paper_id: input.paper_id }) };
   return dataset.tool === 'evidence_audit' ? deps.judge.evidenceAudit(ref) : deps.judge.retractionPropagation(ref);
 };
@@ -91,9 +97,10 @@ const runAndSettle = async (
   const started = performance.now();
   let judgment;
   try { judgment = await invokeJudge(dataset, deps, input); } catch (error) {
+    const unavailable = error instanceof OsvUnavailableError;
     const noSnapshot = error instanceof Error && error.message.includes('No active integrity snapshot');
-    await deps.payments.failPayment(record.id, { errorReason: noSnapshot ? 'no_snapshot' : 'judge_failed', payer });
-    return errorResponse(noSnapshot ? 503 : 502, noSnapshot ? 'NO_SNAPSHOT' : 'JUDGE_FAILED');
+    await deps.payments.failPayment(record.id, { errorReason: unavailable ? 'advisory_source_unavailable' : noSnapshot ? 'no_snapshot' : 'judge_failed', payer });
+    return unavailable ? errorResponse(503, 'advisory_source_unavailable') : errorResponse(noSnapshot ? 503 : 502, noSnapshot ? 'NO_SNAPSHOT' : 'JUDGE_FAILED');
   }
   const judgeMs = Math.max(0, performance.now() - started);
   return settleJudgment(deps, dataset, payload, requirements, record, requestId, payer, judgment, judgeMs);
@@ -157,6 +164,8 @@ type JudgmentResponseBody = {
 export const handlePaidJudgment = async (request: Request, input: PaidJudgmentInput, deps: PaidRouteDeps, fixedBatchRoute = false): Promise<Response> => {
   const dataset = findDataset(deps.registry, input.dataset_id);
   if (!dataset || !isJudgmentDataset(dataset)) return errorResponse(404, 'Unknown judgment dataset.');
+  if (dataset.tool === 'dependency_scan' && !('packages' in input)) return errorResponse(400, 'Dependency scan requests require packages.');
+  if (dataset.tool !== 'dependency_scan' && 'packages' in input) return errorResponse(400, 'Dependency scan requests require a dependency_scan dataset.');
   const requirements = judgmentRequirements(dataset, deps.settings);
   const signature = request.headers.get('PAYMENT-SIGNATURE');
   if (!signature) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, undefined, fixedBatchRoute);

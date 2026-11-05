@@ -10,6 +10,7 @@ import { PaymentConflictError, PaymentReplayError, type PaymentRecord, type Paym
 import { authorizationContractFromPayload } from './payload.ts';
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
+import { OsvUnavailableError, type OsvClient } from '../deps/osv.ts';
 
 export { describe, expect, test };
 
@@ -50,6 +51,14 @@ export const batch50Dataset = {
   ...batch10Dataset, id: 'reference-audit-50', maxItems: 50,
   title: 'Reference list audit - 50 references', pricing: { per_call: { usd: '$2.00', atomic: '2000000' } },
 };
+export const dependency20Dataset = {
+  ...judgmentDataset, id: 'dependency-scan-20', tool: 'dependency_scan' as const, maxItems: 20,
+  title: 'Dependency vulnerability scan - 20 packages', pricing: { per_call: { usd: '$0.02', atomic: '20000' } },
+};
+export const dependency100Dataset = {
+  ...dependency20Dataset, id: 'dependency-scan-100', maxItems: 100,
+  title: 'Dependency vulnerability scan - 100 packages', pricing: { per_call: { usd: '$0.10', atomic: '100000' } },
+};
 
 const config = loadConfig({ DATABASE_URL: 'postgresql://localhost/unused', QUERY_TIMEOUT_MS: '1000' });
 const logger = createLogger('error');
@@ -73,6 +82,8 @@ export type SetupOptions = {
   readonly settlementClaimFails?: boolean;
   readonly includeJudgment?: boolean;
   readonly judgeFailure?: boolean;
+  readonly dependencyResult?: unknown;
+  readonly dependencyFailure?: boolean;
 };
 
 type LedgerState = {
@@ -239,7 +250,7 @@ const registryFor = (options: SetupOptions): DatasetRegistry => ({ datasets: [
     ...registry.datasets.map((dataset) => !isJudgmentDataset(dataset) && options.globalScheme ? ({
       ...dataset, pricing: { ...dataset.pricing, global: { ...dataset.pricing.global, scheme: options.globalScheme! } },
     }) : dataset),
-    ...(options.includeJudgment ? [judgmentDataset, auditDataset, batch10Dataset, batch50Dataset] : []),
+    ...(options.includeJudgment ? [judgmentDataset, auditDataset, batch10Dataset, batch50Dataset, dependency20Dataset, dependency100Dataset] : []),
   ] });
 
 const fakeJudge = (events: string[], options: SetupOptions) => ({
@@ -271,6 +282,18 @@ export const setup = (options: SetupOptions = {}) => {
   const payments = createLedger(ledgerState, options);
   const events = facilitation.events;
   const judge = fakeJudge(events, options);
+  const advisories: OsvClient = { scan: async (inputs, ecosystem = 'npm') => {
+    if (options.dependencyFailure) throw new OsvUnavailableError();
+    return options.dependencyResult as Awaited<ReturnType<OsvClient['scan']>> ?? ({
+      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', items: inputs.map((input) => ({
+        input: typeof input === 'string' ? input : `${input.name ?? ''}${input.version ? `@${input.version}` : ''}`,
+        name: typeof input === 'string' ? input.split('@').slice(0, -1).join('@') : input.name ?? '',
+        version: typeof input === 'string' ? input.split('@').at(-1) ?? '' : input.version ?? '',
+        ecosystem: typeof input === 'string' ? ecosystem : input.ecosystem ?? ecosystem,
+        existence: 'confirmed', affected: false, advisories: [], note: 'No advisory recorded in OSV for this name and version. This is not a statement that the package is safe.', abstention_reason: null,
+      })), summary: { requested: inputs.length, checked: inputs.length, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0 },
+    });
+  } };
   let releaseSlot: (() => void) | undefined;
   const limiter = options.capacity
     ? { tryAcquire: () => undefined }
@@ -288,7 +311,7 @@ export const setup = (options: SetupOptions = {}) => {
   }) as unknown as typeof runSnapshotQuery;
   const route = createPaidQueryRoute({
     store: leasedStore, config, logger, registry: testRegistry, payments, facilitator, limiter, settings,
-    integrity: {} as never, telemetry: {} as never, judge: judge as never,
+    integrity: {} as never, telemetry: {} as never, judge: judge as never, advisories,
     now: () => 1_700_000_000_000, runQuery,
   });
   const sign = createSigner(() => testRegistry);

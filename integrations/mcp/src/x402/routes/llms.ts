@@ -12,6 +12,7 @@ const llmsTxt = `# Ashes Born retraction API
 ## Free
 
 - GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex and Retraction Watch assert, and Crossref only when an update-to notice exists, with tier and date. A DOI that is not in the snapshot returns paper: null with abstention_reason "paper_not_in_snapshot", never "not retracted". No source row is returned as no source row. No key.
+- GET https://pay.ashesborn.cloud/api/v1/deps/check?name={NAME}&version={VERSION}: one package, same advisory fields, no key.
 - Alias: GET https://pay.ashesborn.cloud/paper?doi={DOI} returns the same document.
 
 ## Paid (x402)
@@ -21,6 +22,8 @@ const llmsTxt = `# Ashes Born retraction API
   - \`retraction-evidence-audit\` — full evidence path, tiers, conflict flags. $0.10.
 - POST https://pay.ashesborn.cloud/api/v1/judge/batch-10: up to 10 references (DOI strings or citation lines) in one call, per-item results plus an unmatched list. $0.50. Body: {"references": [...]}.
 - POST https://pay.ashesborn.cloud/api/v1/judge/batch-50: up to 50 references in one call. $2.00. Body: {"references": [...]}.
+- POST https://pay.ashesborn.cloud/api/v1/deps/scan-20: up to 20 package@version entries, advisory IDs with severity and fixed versions. $0.02. Body: {"packages": ["lodash@4.17.20"]}.
+- POST https://pay.ashesborn.cloud/api/v1/deps/scan-100: up to 100 entries. $0.10.
 
 ## Docs
 

@@ -18,6 +18,9 @@ describe('x402 paid query gateway', () => {
     expect(document.paths).toHaveProperty('/api/v1/judge/batch-10');
     expect(document.paths).toHaveProperty('/api/v1/judge/batch-50');
     expect(document.paths).toHaveProperty('/api/v1/judge/paper');
+    expect(document.paths).toHaveProperty('/api/v1/deps/scan-20');
+    expect(document.paths).toHaveProperty('/api/v1/deps/scan-100');
+    expect(document.paths).toHaveProperty('/api/v1/deps/check');
     expect(document.paths).toHaveProperty('/api/v1/query');
     expect(JSON.stringify(document.paths['/api/v1/judge'])).toContain('x-price-usdc');
     const judgePath = document.paths['/api/v1/judge'] as { post: { 'x-price-usdc': Record<string, string> } };
@@ -158,7 +161,9 @@ describe('x402 paid query gateway', () => {
     expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [
       { url: 'https://api.example.test/api/v1/query', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge', method: 'POST' },
       { url: 'https://api.example.test/api/v1/judge/batch-10', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge/batch-50', method: 'POST' },
+      { url: 'https://api.example.test/api/v1/deps/scan-20', method: 'POST' }, { url: 'https://api.example.test/api/v1/deps/scan-100', method: 'POST' },
       { url: 'https://api.example.test/api/v1/judge/paper?doi={DOI}', method: 'GET', free: true },
+      { url: 'https://api.example.test/api/v1/deps/check?name={NAME}&version={VERSION}&ecosystem={ECOSYSTEM}', method: 'GET', free: true },
     ] });
     const discovery = await app.route(new Request('https://internal.test/api/v1/discovery'));
     expect(discovery?.status).toBe(200);
@@ -191,6 +196,7 @@ describe('x402 paid query gateway', () => {
 ## Free
 
 - GET https://pay.ashesborn.cloud/api/v1/judge/paper?doi={DOI}: what OpenAlex and Retraction Watch assert, and Crossref only when an update-to notice exists, with tier and date. A DOI that is not in the snapshot returns paper: null with abstention_reason "paper_not_in_snapshot", never "not retracted". No source row is returned as no source row. No key.
+- GET https://pay.ashesborn.cloud/api/v1/deps/check?name={NAME}&version={VERSION}: one package, same advisory fields, no key.
 - Alias: GET https://pay.ashesborn.cloud/paper?doi={DOI} returns the same document.
 
 ## Paid (x402)
@@ -200,6 +206,8 @@ describe('x402 paid query gateway', () => {
   - \`retraction-evidence-audit\` — full evidence path, tiers, conflict flags. $0.10.
 - POST https://pay.ashesborn.cloud/api/v1/judge/batch-10: up to 10 references (DOI strings or citation lines) in one call, per-item results plus an unmatched list. $0.50. Body: {"references": [...]}.
 - POST https://pay.ashesborn.cloud/api/v1/judge/batch-50: up to 50 references in one call. $2.00. Body: {"references": [...]}.
+- POST https://pay.ashesborn.cloud/api/v1/deps/scan-20: up to 20 package@version entries, advisory IDs with severity and fixed versions. $0.02. Body: {"packages": ["lodash@4.17.20"]}.
+- POST https://pay.ashesborn.cloud/api/v1/deps/scan-100: up to 100 entries. $0.10.
 
 ## Docs
 
@@ -223,28 +231,32 @@ describe('x402 paid query gateway', () => {
     const app = setup({ includeJudgment: true });
     const catalogueResponse = await app.route(new Request('https://internal.test/api/v1/datasets'));
     const catalogue = await catalogueResponse?.json() as { datasets: { id: string; resource?: string }[] };
-    expect(catalogue.datasets).toHaveLength(5);
+    expect(catalogue.datasets).toHaveLength(7);
     expect(Object.fromEntries(catalogue.datasets.map(({ id, resource }) => [id, resource]))).toEqual({
       demo: undefined,
       'retraction-propagation': 'https://api.example.test/api/v1/judge',
       'retraction-evidence-audit': 'https://api.example.test/api/v1/judge',
       'reference-audit-10': 'https://api.example.test/api/v1/judge/batch-10',
       'reference-audit-50': 'https://api.example.test/api/v1/judge/batch-50',
+      'dependency-scan-20': 'https://api.example.test/api/v1/deps/scan-20',
+      'dependency-scan-100': 'https://api.example.test/api/v1/deps/scan-100',
     });
     const response = await app.route(new Request('https://internal.test/api/v1/discovery'));
     const body = await response?.json() as { items: { id: string; resource: string; accepts: PaymentRequirements[] }[] };
     const judgmentItems = body.items.filter((item) => item.id !== 'demo');
-    expect(judgmentItems).toHaveLength(4);
+    expect(judgmentItems).toHaveLength(6);
     expect(judgmentItems.map((item) => item.id).sort()).toEqual([
-      'reference-audit-10', 'reference-audit-50', 'retraction-evidence-audit', 'retraction-propagation',
+      'dependency-scan-100', 'dependency-scan-20', 'reference-audit-10', 'reference-audit-50', 'retraction-evidence-audit', 'retraction-propagation',
     ]);
     expect(judgmentItems.every((item) => item.accepts.length === 2)).toBe(true);
-    expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000', '2000000', '500000']);
+    expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '100000', '20000', '20000', '2000000', '500000']);
     expect(Object.fromEntries(judgmentItems.map((item) => [item.id, item.resource]))).toEqual({
       'retraction-propagation': 'https://api.example.test/api/v1/judge',
       'retraction-evidence-audit': 'https://api.example.test/api/v1/judge',
       'reference-audit-10': 'https://api.example.test/api/v1/judge/batch-10',
       'reference-audit-50': 'https://api.example.test/api/v1/judge/batch-50',
+      'dependency-scan-20': 'https://api.example.test/api/v1/deps/scan-20',
+      'dependency-scan-100': 'https://api.example.test/api/v1/deps/scan-100',
     });
     expect(judgmentItems.map((item) => item.accepts)).toEqual([
       [
@@ -284,6 +296,26 @@ describe('x402 paid query gateway', () => {
         },
         {
           scheme: 'exact', network: 'eip155:42161', amount: '2000000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ],
+      [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '20000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+      ],
+      [
+        {
+          scheme: 'exact', network: 'eip155:84532', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
+          maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
+        },
+        {
+          scheme: 'exact', network: 'eip155:42161', amount: '100000', asset: '0xasset', payTo: '0xreceiver',
           maxTimeoutSeconds: 60, extra: { name: 'USDC', version: '2' },
         },
       ],
@@ -348,6 +380,64 @@ describe('x402 paid query gateway', () => {
     expect(found?.status).toBe(200);
     expect(await found?.json()).toMatchObject({ paper: { paper_id: 'W123' } });
     expect((await app.route(new Request('https://internal.test/api/v1/judge/paper')))?.status).toBe(400);
+  });
+
+  test('challenges dependency scan SKUs at their own URLs and prices, validates limits, then returns fake scan results after payment', async () => {
+    const scanResult = {
+      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z',
+      items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: true, note: null,
+        advisories: [{ id: 'GHSA-test', aliases: ['CVE-2026-0001'], summary: 'Example advisory.', severity_label: 'high', fixed_versions: ['4.17.21'],
+          published: null, modified: null, source_uri: 'https://osv.dev/vulnerability/GHSA-test', tier: 'A' }], abstention_reason: null }],
+      summary: { requested: 1, checked: 1, affected_packages: 1, advisory_count: 1, not_found_packages: 0, unchecked_packages: 0 },
+    };
+    const app = setup({ includeJudgment: true, dependencyResult: scanResult });
+    for (const [path, amount] of [['/api/v1/deps/scan-20', '20000'], ['/api/v1/deps/scan-100', '100000']] as const) {
+      const challenge = await app.route(new Request(`https://internal.test${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packages: ['lodash@4.17.20'] }),
+      }));
+      expect(challenge?.status).toBe(402);
+      const required = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as {
+        accepts: PaymentRequirements[]; resource: { url: string };
+      };
+      expect(required.resource.url).toBe(`https://api.example.test${path}`);
+      expect(required.accepts).toEqual([
+        expect.objectContaining({ network: 'eip155:84532', amount }), expect.objectContaining({ network: 'eip155:42161', amount }),
+      ]);
+    }
+    const empty = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packages: [] }),
+    }));
+    expect(empty?.status).toBe(400);
+    expect(await empty?.json()).toEqual({ error: 'packages_required' });
+    const tooMany = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ packages: Array.from({ length: 21 }, (_, index) => `pkg-${index}@1.0.0`) }),
+    }));
+    expect(tooMany?.status).toBe(400);
+    expect(await tooMany?.json()).toEqual({ error: 'too_many_packages', limit: 20 });
+
+    const paid = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': app.sign('local', 'dependency-scan-payment-01', { amount: '20000' }) },
+      body: JSON.stringify({ packages: ['lodash@4.17.20'] }),
+    }));
+    expect(paid?.status).toBe(200);
+    expect(await paid?.json()).toMatchObject({ dataset: { id: 'dependency-scan-20', tool: 'dependency_scan' }, judgment: scanResult, payment: { amount: '20000' } });
+    expect(app.settleCalls).toBe(1);
+  });
+
+  test('serves free dependency lookup and validates required query parameters', async () => {
+    const app = setup({ includeJudgment: true });
+    const result = await app.route(new Request('https://internal.test/api/v1/deps/check?name=lodash&version=4.17.20&ecosystem=npm'));
+    expect(result?.status).toBe(200);
+    expect(await result?.json()).toMatchObject({ source: 'OSV', summary: { requested: 1, checked: 1 } });
+    const missing = await app.route(new Request('https://internal.test/api/v1/deps/check?name=lodash'));
+    expect(missing?.status).toBe(400);
+  });
+
+  test('returns advisory_source_unavailable when the free OSV source fails', async () => {
+    const app = setup({ includeJudgment: true, dependencyFailure: true });
+    const response = await app.route(new Request('https://internal.test/api/v1/deps/check?name=lodash&version=4.17.20'));
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toEqual({ error: 'advisory_source_unavailable' });
   });
 
   test('routes the /paper compatibility alias to the free paper status endpoint', async () => {

@@ -3,7 +3,7 @@ import { encodePaymentHeader, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { jsonResponse, publicUrl } from './http.ts';
 import { bazaarDeclaration } from './bazaar.ts';
-import { judgmentBazaarDeclaration, referenceBatchBazaarDeclaration } from './bazaar.ts';
+import { dependencyScanBazaarDeclaration, judgmentBazaarDeclaration, referenceBatchBazaarDeclaration } from './bazaar.ts';
 export { requirementsFor } from './pricing.ts';
 
 const asciiMetadata = (value: string, maximumLength: number): boolean =>
@@ -53,7 +53,8 @@ export const buildJudgmentChallenge = (
     resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.description),
       mimeType: 'application/json', serviceName: 'graphrag-ts', tags: dataset.tags.filter((tag) => asciiMetadata(tag, 32)).slice(0, 5) },
     accepts: requirements, extensions: { bazaar: dataset.tool === 'reference_batch'
-      ? referenceBatchBazaarDeclaration(dataset, !fixedBatchRoute) : judgmentBazaarDeclaration(dataset) },
+      ? referenceBatchBazaarDeclaration(dataset, !fixedBatchRoute)
+      : dataset.tool === 'dependency_scan' ? dependencyScanBazaarDeclaration(dataset) : judgmentBazaarDeclaration(dataset) },
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
 };

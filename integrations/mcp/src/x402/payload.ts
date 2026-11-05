@@ -22,10 +22,26 @@ export const batchJudgmentBodySchema = z.object({
   dataset_id: z.string().min(1), references: z.array(z.string().min(1).max(500)).min(1).max(100),
 }).strict();
 export type BatchJudgmentInput = z.infer<typeof batchJudgmentBodySchema>;
+export const dependencyScanBodySchema = z.object({
+  dataset_id: z.string().min(1),
+  packages: z.array(z.union([
+    z.string().min(1),
+    z.object({ name: z.string().optional(), version: z.string().optional(), ecosystem: z.string().optional() }).strict(),
+  ])),
+  ecosystem: z.string().optional(),
+}).strict();
+export type DependencyScanJudgmentInput = z.infer<typeof dependencyScanBodySchema>;
+const fixedDependencyScanBodySchema = z.object({
+  packages: z.array(z.union([
+    z.string().min(1),
+    z.object({ name: z.string().optional(), version: z.string().optional(), ecosystem: z.string().optional() }).strict(),
+  ])),
+  ecosystem: z.string().optional(),
+}).strict();
 const fixedBatchJudgmentBodySchema = z.object({
   dataset_id: z.unknown().optional(), references: z.array(z.string().min(1).max(500)).min(1),
 }).strict();
-export type PaidJudgmentInput = JudgmentInput | BatchJudgmentInput;
+export type PaidJudgmentInput = JudgmentInput | BatchJudgmentInput | DependencyScanJudgmentInput;
 
 const readRequestText = async (request: Request, maximumBytes = 8192): Promise<string> => {
   if (request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
@@ -76,6 +92,8 @@ export const parseJudgmentRequestBody = async (request: Request): Promise<{ inpu
     if (single.success) return { input: single.data };
     const batch = batchJudgmentBodySchema.safeParse(body);
     if (batch.success) return { input: batch.data };
+    const dependencyScan = dependencyScanBodySchema.safeParse(body);
+    if (dependencyScan.success) return { input: dependencyScan.data };
     return { error: 'invalid_request_body' };
   } catch {
     return { error: 'invalid_request_body' };
@@ -99,6 +117,20 @@ export const parseFixedBatchJudgmentRequestBody = async (request: Request): Prom
   } catch {
     return { error: 'invalid_request_body' };
   }
+};
+
+export const parseFixedDependencyScanRequestBody = async (request: Request): Promise<{
+  input?: { packages: Array<string | { name?: string | undefined; version?: string | undefined; ecosystem?: string | undefined }>; ecosystem?: string | undefined }; error?: string;
+}> => {
+  let text: string;
+  try { text = await readRequestText(request, 65_536); } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Invalid request body.' };
+  }
+  try {
+    const parsed = fixedDependencyScanBodySchema.safeParse(JSON.parse(text) as unknown);
+    if (!parsed.success) return { error: 'invalid_request_body' };
+    return { input: parsed.data };
+  } catch { return { error: 'invalid_request_body' }; }
 };
 
 export const parsePaymentPayload = (signature: string): { payload?: PaymentPayload; error?: string } => {
@@ -140,4 +172,6 @@ export const judgmentRequestHash = (input: JudgmentInput): string => createHash(
 
 export const paidJudgmentRequestHash = (input: PaidJudgmentInput): string => 'references' in input
   ? createHash('sha256').update(JSON.stringify({ dataset_id: input.dataset_id, references: input.references })).digest('hex')
-  : judgmentRequestHash(input);
+  : 'packages' in input
+    ? createHash('sha256').update(JSON.stringify({ dataset_id: input.dataset_id, packages: input.packages, ecosystem: input.ecosystem ?? null })).digest('hex')
+    : judgmentRequestHash(input);
