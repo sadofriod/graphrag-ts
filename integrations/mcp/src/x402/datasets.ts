@@ -26,7 +26,7 @@ const graphSchema = z.object({
 const judgmentSchema = z.object({
   product: z.literal('judgment'), id: datasetIdSchema, tool: z.enum(['retraction_propagation', 'evidence_audit', 'reference_batch', 'dependency_scan']),
   max_items: z.number().int().min(1).max(100).optional(),
-  title: z.string().min(1), description: z.string(), synthetic: z.boolean(),
+  title: z.string().min(1), description: z.string(), challenge_description: z.string().min(1).max(480).optional(), synthetic: z.boolean(),
   license: z.object({ spdx: z.string().min(1), url: z.string().url() }).strict(),
   tags: z.array(z.string()).max(5), pricing: z.object({ per_call: usdSchema }).strict(),
 }).strict();
@@ -48,7 +48,7 @@ export type GraphDataset = {
 export type JudgmentDataset = {
   readonly product: 'judgment'; readonly id: string; readonly tool: 'retraction_propagation' | 'evidence_audit' | 'reference_batch' | 'dependency_scan';
   readonly maxItems?: number;
-  readonly title: string; readonly description: string; readonly synthetic: boolean;
+  readonly title: string; readonly description: string; readonly challengeDescription?: string; readonly synthetic: boolean;
   readonly license: { readonly spdx: string; readonly url: string }; readonly tags: readonly string[];
   readonly pricing: { readonly per_call: { readonly usd: string; readonly atomic: string } };
 };
@@ -110,6 +110,7 @@ const parsedDataset = (dataset: z.infer<typeof defaultGraphProduct>): Dataset =>
   const common = { id: dataset.id, product: dataset.product, title: dataset.title, description: dataset.description,
     synthetic: dataset.synthetic, license: dataset.license, tags: dataset.tags };
   if (dataset.product === 'judgment') return { ...common, product: 'judgment', tool: dataset.tool,
+    ...(dataset.challenge_description === undefined ? {} : { challengeDescription: dataset.challenge_description }),
     ...(dataset.max_items === undefined ? {} : { maxItems: dataset.max_items }),
     pricing: { per_call: { usd: dataset.pricing.per_call, atomic: parseUsdToAtomic(dataset.pricing.per_call) } } };
   return { ...common, product: 'graph', workspaceId: dataset.workspace_id,
@@ -124,7 +125,15 @@ const parsedDataset = (dataset: z.infer<typeof defaultGraphProduct>): Dataset =>
 
 export const parseDatasetRegistry = (value: unknown): DatasetRegistry => {
   const parsed = datasetRegistrySchema.parse(value);
-  return { datasets: parsed.datasets.map(parsedDataset) };
+  const datasets = parsed.datasets.map(parsedDataset);
+  for (const dataset of datasets) {
+    if (!isJudgmentDataset(dataset)) continue;
+    const challengeDescription = (dataset.challengeDescription ?? dataset.description).replace(/\s+/g, ' ').trim();
+    if (challengeDescription.length > 480) {
+      throw new Error(`Dataset "${dataset.id}" challenge description is ${challengeDescription.length} characters (maximum 480); add challenge_description.`);
+    }
+  }
+  return { datasets };
 };
 
 export const loadDatasetRegistry = async (path: string): Promise<DatasetRegistry> => {

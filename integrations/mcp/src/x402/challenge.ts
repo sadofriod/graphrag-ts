@@ -50,7 +50,7 @@ export const buildJudgmentChallenge = (
   const required = {
     x402Version: 2,
     ...(error ? { error } : {}),
-    resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.description),
+    resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.challengeDescription ?? dataset.description),
       mimeType: 'application/json', serviceName: 'graphrag-ts', tags: dataset.tags.filter((tag) => asciiMetadata(tag, 32)).slice(0, 5) },
     accepts: requirements, extensions: { bazaar: dataset.tool === 'reference_batch'
       ? referenceBatchBazaarDeclaration(dataset, !fixedBatchRoute)

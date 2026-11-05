@@ -105,6 +105,21 @@ describe('x402 dataset registry', () => {
     expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, pricing: { per_call: '$1e-3' } }] })).toThrow('Prices must be non-negative USD amounts');
   });
 
+  test('maps challenge_description and rejects long fallback descriptions with dataset id and length', () => {
+    const judgment = { id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation',
+      title: 'Retraction propagation', description: 'Long public description.', challenge_description: 'Short payment challenge.', synthetic: false,
+      license: { spdx: 'CC0-1.0', url: 'https://example.com/license' }, tags: ['integrity'], pricing: { per_call: '$0.02' } };
+    const parsed = parseDatasetRegistry({ datasets: [judgment] }).datasets[0];
+    expect(parsed).toMatchObject({ description: 'Long public description.', challengeDescription: 'Short payment challenge.' });
+    expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, challenge_description: 'x'.repeat(481) }] })).toThrow();
+
+    const { challenge_description: _challengeDescription, ...judgmentWithoutChallenge } = judgment;
+    const tooLong = { ...judgmentWithoutChallenge, description: 'x'.repeat(481) };
+    expect(() => parseDatasetRegistry({ datasets: [tooLong] })).toThrow('retraction-propagation');
+    expect(() => parseDatasetRegistry({ datasets: [tooLong] })).toThrow('481 characters');
+    expect(() => parseDatasetRegistry({ datasets: [tooLong] })).toThrow('add challenge_description');
+  });
+
   test('loads seven example datasets and requires max_items for batch datasets', async () => {
     const loaded = await loadDatasetRegistry(fileURLToPath(new URL('../../datasets.example.json', import.meta.url)));
     expect(loaded.datasets).toHaveLength(7);
@@ -126,6 +141,12 @@ describe('x402 dataset registry', () => {
     expect(dependencyProducts.map((dataset) => isJudgmentDataset(dataset) ? [dataset.id, dataset.maxItems, dataset.pricing.per_call.atomic] : [])).toEqual([
       ['dependency-scan-20', 20, '20000'], ['dependency-scan-100', 100, '100000'],
     ]);
+    expect(loaded.datasets.filter(isJudgmentDataset).map(({ id, description, challengeDescription }) => [id, description.length, challengeDescription?.length])).toEqual([
+      ['retraction-propagation', expect.any(Number), 281], ['retraction-evidence-audit', expect.any(Number), 264],
+      ['reference-audit-10', expect.any(Number), 267], ['reference-audit-50', expect.any(Number), 267],
+      ['dependency-scan-20', expect.any(Number), 294], ['dependency-scan-100', expect.any(Number), 295],
+    ]);
     expect(toPublicDataset(dependencyProducts[0]!)).toMatchObject({ product: 'advisory', tool: 'dependency_scan', max_items: 20 });
+    expect(toPublicDataset(dependencyProducts[0]!)).toMatchObject({ description: expect.stringContaining('Check up to 20 package@version') });
   });
 });

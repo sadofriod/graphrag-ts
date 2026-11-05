@@ -35,7 +35,7 @@ export const registry: DatasetRegistry = { datasets: [{
 
 export const judgmentDataset = {
   product: 'judgment' as const, id: 'retraction-propagation', tool: 'retraction_propagation' as const,
-  title: 'Retraction propagation', description: 'Academic integrity judgment.', synthetic: false,
+  title: 'Retraction propagation', description: 'Academic integrity judgment.', challengeDescription: 'Short payment challenge description.', synthetic: false,
   license: { spdx: 'CC0-1.0', url: 'https://example.test/license' }, tags: ['integrity'],
   pricing: { per_call: { usd: '$0.02', atomic: '20000' } },
 };

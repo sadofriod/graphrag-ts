@@ -18,7 +18,7 @@ describe('paid integrity judgment route', () => {
     const response = await postJudge(app, judgmentBody);
     expect(response?.status).toBe(402);
     const required = decodePaymentHeader(response?.headers.get('payment-required') ?? '') as {
-      accepts: PaymentRequirements[]; resource: { url: string };
+      accepts: PaymentRequirements[]; resource: { url: string; description: string };
     };
     expect(required.accepts).toHaveLength(2);
     expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
@@ -34,6 +34,7 @@ describe('paid integrity judgment route', () => {
       },
     ]);
     expect(required.resource.url).toBe(`${settings.publicBaseUrl?.replace(/\/$/, '')}/api/v1/judge`);
+    expect(required.resource.description).toBe('Short payment challenge description.');
   });
 
   test('verifies and settles against the matched Arbitrum requirements', async () => {
