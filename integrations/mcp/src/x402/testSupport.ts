@@ -61,7 +61,6 @@ export const dependency100Dataset = {
 };
 
 const config = loadConfig({ DATABASE_URL: 'postgresql://localhost/unused', QUERY_TIMEOUT_MS: '1000' });
-const logger = createLogger('error');
 
 const recordBase = (input: Parameters<PaymentStore['beginPayment']>[0]): PaymentRecord => ({
   id: input.id, requestId: input.requestId, requestHash: input.requestHash, nonce: input.nonce, datasetId: input.datasetId,
@@ -80,6 +79,7 @@ export type SetupOptions = {
   readonly globalScheme?: 'upto' | 'exact';
   readonly settlementThrows?: boolean;
   readonly settlementClaimFails?: boolean;
+  readonly verificationThrows?: boolean;
   readonly includeJudgment?: boolean;
   readonly judgeFailure?: boolean;
   readonly dependencyResult?: unknown;
@@ -200,6 +200,7 @@ const createFacilitator = (state: FacilitationState, options: SetupOptions): Fac
   verify: async ({ paymentRequirements }: { paymentRequirements: PaymentRequirements }) => {
     state.verifyCalls += 1;
     state.verifiedNetworks.push(paymentRequirements.network);
+    if (options.verificationThrows) throw Object.assign(new Error('synthetic facilitator verify error'), { code: 'FACILITATOR_UNAVAILABLE', status: 503 });
     return state.valid
       ? { isValid: true, payer: '0xBUYER' }
       : { isValid: false, invalidReason: 'invalid payment', payer: '0xBUYER' };
@@ -272,6 +273,15 @@ const fakeJudge = (events: string[], options: SetupOptions) => ({
 });
 
 export const setup = (options: SetupOptions = {}) => {
+  const loggerErrors: { message: string; fields?: Record<string, unknown> }[] = [];
+  const baseLogger = createLogger('error');
+  const logger = {
+    ...baseLogger,
+    error: (message: string, fields?: Record<string, unknown>) => {
+      loggerErrors.push({ message, ...(fields ? { fields } : {}) });
+      baseLogger.error(message, fields);
+    },
+  };
   let testRegistry = registryFor(options);
   const ledgerState: LedgerState = {
     records: new Map<string, PaymentRecord>(), nonceRequests: new Map<string, string>(),
@@ -333,6 +343,7 @@ export const setup = (options: SetupOptions = {}) => {
     get settledAmounts() { return facilitation.settledAmounts; },
     get verifiedNetworks() { return facilitation.verifiedNetworks; },
     get settledNetworks() { return facilitation.settledNetworks; },
+    loggerErrors,
     events,
     get executions() { return counters.executions; },
     get releaseSlot() { return releaseSlot; },

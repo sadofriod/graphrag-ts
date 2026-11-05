@@ -46,6 +46,22 @@ describe('paid integrity judgment route', () => {
     expect([...app.records.values()][0]?.network).toBe('eip155:42161');
   });
 
+  test('logs facilitator verification exceptions and does not settle', async () => {
+    const app = setup({ includeJudgment: true, verificationThrows: true });
+    const response = await postJudge(app, judgmentBody, signed(app, 'judge-verify-throws-01'));
+    expect(response?.status).toBe(502);
+    expect(await response?.json()).toEqual({ error: 'Payment verification failed.' });
+    expect(app.settleCalls).toBe(0);
+    expect(app.loggerErrors).toHaveLength(1);
+    expect(app.loggerErrors[0]).toMatchObject({
+      message: 'Facilitator verify failed.',
+      fields: {
+        error_name: 'Error', error_code: 'FACILITATOR_UNAVAILABLE', error_status: 503,
+        error_message: 'synthetic facilitator verify error', network: settings.network, amount: '20000', dataset_id: judgmentDataset.id,
+      },
+    });
+  });
+
   test('returns 404 for unknown products and graph datasets', async () => {
     const app = setup({ includeJudgment: true });
     expect((await postJudge(app, { ...judgmentBody, dataset_id: 'missing' }))?.status).toBe(404);

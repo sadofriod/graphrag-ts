@@ -60,14 +60,31 @@ const replayByFingerprint = async (deps: PaidRouteDeps, dataset: JudgmentDataset
 
 type Verification = { readonly payer: string } | { readonly invalid: string; readonly payer?: string } | undefined;
 
-const verifyPayment = async (deps: PaidRouteDeps, payload: PaymentPayload, requirements: PaymentRequirements): Promise<Verification> => {
+const facilitatorErrorFields = (error: unknown) => {
+  const detail = error as { name?: unknown; code?: unknown; status?: unknown; message?: unknown } | null;
+  return {
+    error_name: typeof detail?.name === 'string' ? detail.name : 'UnknownError',
+    error_code: detail?.code ?? null,
+    error_status: detail?.status ?? null,
+    error_message: String(detail?.message ?? error).slice(0, 300),
+  };
+};
+
+const verifyPayment = async (
+  deps: PaidRouteDeps, payload: PaymentPayload, requirements: PaymentRequirements, datasetId?: string,
+): Promise<Verification> => {
   try {
     const result = await deps.facilitator.verify({ paymentPayload: payload, paymentRequirements: requirements });
     if (!result.isValid) return { invalid: result.invalidReason ?? 'Payment is invalid.', ...(result.payer ? { payer: result.payer } : {}) };
     const claimed = payload.payload.authorization?.from ?? payload.payload.permit2Authorization?.from;
     const payer = result.payer ?? (typeof claimed === 'string' ? claimed : undefined);
     return payer?.trim() ? { payer: payer.trim().toLowerCase() } : undefined;
-  } catch { return undefined; }
+  } catch (error) {
+    deps.logger.error('Facilitator verify failed.', {
+      ...facilitatorErrorFields(error), network: requirements.network, amount: requirements.amount, dataset_id: datasetId ?? null,
+    });
+    return undefined;
+  }
 };
 
 const registerPayment = async (
@@ -141,6 +158,12 @@ const settleJudgment = async (
   if (!await deps.payments.beginSettlement(record.id, body, requirements)) return jsonResponse(409, { status: 'payment_not_claimed', request_id: requestId });
   let settlement: SettleResponse;
   try { settlement = await deps.facilitator.settle({ paymentPayload: payload, paymentRequirements: requirements }); } catch (error) {
+    const errorTransaction = (error as { transaction?: unknown } | null)?.transaction;
+    deps.logger.error('Facilitator settle failed.', {
+      ...facilitatorErrorFields(error), dataset_id: dataset.id,
+      transaction: typeof errorTransaction === 'string' ? errorTransaction.slice(0, 12) : record.transaction?.slice(0, 12) ?? null,
+      network: requirements.network, amount: requirements.amount,
+    });
     await deps.payments.markSettlementUnknown(record.id, error instanceof Error ? error.message : 'Settlement transport failed.');
     return unknownSettlement(requestId);
   }
@@ -212,7 +235,7 @@ const executePaidJudgment = async (
   request: Request, deps: PaidRouteDeps, dataset: JudgmentDataset, input: PaidJudgmentInput, payload: PaymentPayload,
   requirements: PaymentRequirements, allRequirements: readonly PaymentRequirements[], fingerprint: string, bodyHash: string, requestId: string, fixedBatchRoute: boolean,
 ): Promise<Response> => {
-  const verification = await verifyPayment(deps, payload, requirements);
+  const verification = await verifyPayment(deps, payload, requirements, dataset.id);
   if (!verification) return errorResponse(502, 'Payment verification failed.');
   if ('invalid' in verification) return buildJudgmentChallenge(request, dataset, allRequirements, deps.settings, verification.invalid, fixedBatchRoute);
   const registered = await registerPayment(deps, dataset, input, payload, requirements, fingerprint, bodyHash, requestId, verification.payer);
