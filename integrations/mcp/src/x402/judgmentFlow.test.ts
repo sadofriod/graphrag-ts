@@ -103,6 +103,18 @@ describe('paid integrity judgment route', () => {
     expect(app.settleCalls).toBe(0);
   });
 
+  test('returns dependency_scan_failed and does not settle when scan throws', async () => {
+    const app = setup({ includeJudgment: true, dependencyThrow: true });
+    const response = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': app.sign('local', 'dependency-scan-throws-01') },
+      body: JSON.stringify({ packages: ['lodash@4.17.20'] }),
+    }));
+    expect(response?.status).toBe(502);
+    expect(await response?.json()).toEqual({ error: 'dependency_scan_failed', detail: 'Error' });
+    expect(app.settleCalls).toBe(0);
+    expect([...app.records.values()][0]?.status).toBe('failed');
+  });
+
   test('rounds fractional judge latency before returning and writing the ledger', async () => {
     const app = setup({ includeJudgment: true });
     const completePayment = app.payments.completePayment.bind(app.payments);

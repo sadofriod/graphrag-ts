@@ -84,6 +84,7 @@ export type SetupOptions = {
   readonly judgeFailure?: boolean;
   readonly dependencyResult?: unknown;
   readonly dependencyFailure?: boolean;
+  readonly dependencyThrow?: boolean;
 };
 
 type LedgerState = {
@@ -283,6 +284,7 @@ export const setup = (options: SetupOptions = {}) => {
   const events = facilitation.events;
   const judge = fakeJudge(events, options);
   const advisories: OsvClient = { scan: async (inputs, ecosystem = 'npm') => {
+    if (options.dependencyThrow) throw new Error('synthetic dependency scan error');
     if (options.dependencyFailure) throw new OsvUnavailableError();
     return options.dependencyResult as Awaited<ReturnType<OsvClient['scan']>> ?? ({
       source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', query_ms: 0, partial: false, items: inputs.map((input) => ({

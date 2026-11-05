@@ -11,7 +11,7 @@ import type { PaidRouteDeps } from './routeTypes.ts';
 import { withQuerySlot } from './slot.ts';
 import { runReferenceBatch } from '../integrity/batch.ts';
 import { runDependencyScan } from '../deps/scan.ts';
-import { OsvUnavailableError } from '../deps/osv.ts';
+import { OsvUnavailableError, type OsvScanResult } from '../deps/osv.ts';
 
 const replayResponse = (record: PaymentRecord): Response => {
   if (record.status === 'settled' && record.responseBody !== null) {
@@ -95,8 +95,31 @@ const runAndSettle = async (
   requirements: PaymentRequirements, record: PaymentRecord, requestId: string, payer: string,
 ): Promise<Response> => {
   const started = performance.now();
-  let judgment;
-  try { judgment = await invokeJudge(dataset, deps, input); } catch (error) {
+  let judgment: unknown;
+  if (dataset.tool === 'dependency_scan') {
+    try {
+      judgment = await invokeJudge(dataset, deps, input);
+    } catch (error) {
+      const scanError = error as { name?: unknown; message?: unknown; stack?: unknown } | null;
+      const errorName = typeof scanError?.name === 'string' ? scanError.name : 'UnknownError';
+      deps.logger.error('Dependency scan failed.', {
+        error_name: errorName,
+        error_message: String(scanError?.message).slice(0, 300),
+        stack_head: String(scanError?.stack).split('\n').slice(0, 3).join(' | ').slice(0, 500),
+        dataset_id: dataset.id, packages: 'packages' in input && Array.isArray(input.packages) ? input.packages.length : null,
+      });
+      const unavailable = error instanceof OsvUnavailableError;
+      await deps.payments.failPayment(record.id, { errorReason: unavailable ? 'advisory_source_unavailable' : 'dependency_scan_failed', payer });
+      return unavailable ? errorResponse(503, 'advisory_source_unavailable')
+        : jsonResponse(502, { error: 'dependency_scan_failed', detail: errorName });
+    }
+    const scan = judgment as OsvScanResult;
+    deps.logger.info('Dependency scan completed.', {
+      dataset_id: dataset.id, packages: 'packages' in input && Array.isArray(input.packages) ? input.packages.length : null,
+      query_ms: scan.query_ms, partial: scan.partial, advisory_count: scan.summary.advisory_count,
+      duration_ms: Math.max(0, performance.now() - started),
+    });
+  } else try { judgment = await invokeJudge(dataset, deps, input); } catch (error) {
     const unavailable = error instanceof OsvUnavailableError;
     const noSnapshot = error instanceof Error && error.message.includes('No active integrity snapshot');
     await deps.payments.failPayment(record.id, { errorReason: unavailable ? 'advisory_source_unavailable' : noSnapshot ? 'no_snapshot' : 'judge_failed', payer });
