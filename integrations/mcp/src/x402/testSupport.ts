@@ -285,13 +285,13 @@ export const setup = (options: SetupOptions = {}) => {
   const advisories: OsvClient = { scan: async (inputs, ecosystem = 'npm') => {
     if (options.dependencyFailure) throw new OsvUnavailableError();
     return options.dependencyResult as Awaited<ReturnType<OsvClient['scan']>> ?? ({
-      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', items: inputs.map((input) => ({
+      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', query_ms: 0, partial: false, items: inputs.map((input) => ({
         input: typeof input === 'string' ? input : `${input.name ?? ''}${input.version ? `@${input.version}` : ''}`,
         name: typeof input === 'string' ? input.split('@').slice(0, -1).join('@') : input.name ?? '',
         version: typeof input === 'string' ? input.split('@').at(-1) ?? '' : input.version ?? '',
         ecosystem: typeof input === 'string' ? ecosystem : input.ecosystem ?? ecosystem,
         existence: 'confirmed', affected: false, advisories: [], note: 'No advisory recorded in OSV for this name and version. This is not a statement that the package is safe.', abstention_reason: null,
-      })), summary: { requested: inputs.length, checked: inputs.length, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0 },
+      })), summary: { requested: inputs.length, checked: inputs.length, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0, budget_exceeded_packages: 0 },
     });
   } };
   let releaseSlot: (() => void) | undefined;

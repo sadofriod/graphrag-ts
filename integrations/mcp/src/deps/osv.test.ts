@@ -96,6 +96,41 @@ describe('OSV dependency scan client', () => {
     expect(result.summary.unchecked_packages).toBe(1);
   });
 
+  test('returns a partial result and abstains for work still pending when the scan budget expires', async () => {
+    const client = createOsvClient({ scanBudgetMs: 10, fetchImpl: async (url, init) => {
+      const body = JSON.parse(init?.body as string) as { package: { name: string } };
+      if (body.package.name === 'slow') return await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+      expect(String(url)).toBe('https://api.osv.dev/v1/query');
+      return response({ vulns: [{ id: 'GHSA-ready' }] });
+    } });
+
+    const result = await client.scan([
+      { name: 'ready', version: '1.0.0', ecosystem: 'Maven' },
+      { name: 'slow', version: '1.0.0', ecosystem: 'Maven' },
+    ]);
+
+    expect(result.partial).toBe(true);
+    expect(result.query_ms).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(result.query_ms)).toBe(true);
+    expect(result.items[0]).toMatchObject({ name: 'ready', affected: true, abstention_reason: null });
+    expect(result.items[1]).toEqual({ input: 'slow@1.0.0', name: 'slow', version: '1.0.0', ecosystem: 'Maven',
+      existence: 'unchecked', affected: false, advisories: [], note: null, abstention_reason: 'budget_exceeded' });
+    expect(result.summary).toMatchObject({ requested: 2, checked: 1, budget_exceeded_packages: 1 });
+  });
+
+  test('uses the package cache without making OSV or registry requests on a cache hit', async () => {
+    let requests = 0;
+    const client = createOsvClient({ fetchImpl: async () => { requests += 1; return response({ vulns: [{ id: 'GHSA-cached' }] }); } });
+    await client.scan(['cached-package@1.0.0']);
+    const requestsAfterMiss = requests;
+    const cached = await client.scan(['cached-package@1.0.0']);
+    expect(requestsAfterMiss).toBeGreaterThan(0);
+    expect(requests).toBe(requestsAfterMiss);
+    expect(cached.partial).toBe(false);
+  });
+
   test('throws OsvUnavailableError for HTTP failures', async () => {
     const client = createOsvClient({ fetchImpl: async () => response({}, 503) });
     await expect(client.scan(['lodash@4.17.20'])).rejects.toBeInstanceOf(OsvUnavailableError);

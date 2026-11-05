@@ -384,11 +384,11 @@ describe('x402 paid query gateway', () => {
 
   test('challenges dependency scan SKUs at their own URLs and prices, validates limits, then returns fake scan results after payment', async () => {
     const scanResult = {
-      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z',
+      source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', query_ms: 0, partial: false,
       items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: true, note: null,
         advisories: [{ id: 'GHSA-test', aliases: ['CVE-2026-0001'], summary: 'Example advisory.', severity_label: 'high', fixed_versions: ['4.17.21'],
           published: null, modified: null, source_uri: 'https://osv.dev/vulnerability/GHSA-test', tier: 'A' }], abstention_reason: null }],
-      summary: { requested: 1, checked: 1, affected_packages: 1, advisory_count: 1, not_found_packages: 0, unchecked_packages: 0 },
+      summary: { requested: 1, checked: 1, affected_packages: 1, advisory_count: 1, not_found_packages: 0, unchecked_packages: 0, budget_exceeded_packages: 0 },
     };
     const app = setup({ includeJudgment: true, dependencyResult: scanResult });
     for (const [path, amount] of [['/api/v1/deps/scan-20', '20000'], ['/api/v1/deps/scan-100', '100000']] as const) {

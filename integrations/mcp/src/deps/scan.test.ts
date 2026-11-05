@@ -3,8 +3,8 @@ import { runDependencyScan } from './scan.ts';
 import type { OsvClient, OsvScanResult } from './osv.ts';
 
 const result: OsvScanResult = {
-  source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', items: [],
-  summary: { requested: 1, checked: 1, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0 },
+  source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', query_ms: 0, partial: false, items: [],
+  summary: { requested: 1, checked: 1, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0, budget_exceeded_packages: 0 },
 };
 
 describe('runDependencyScan', () => {

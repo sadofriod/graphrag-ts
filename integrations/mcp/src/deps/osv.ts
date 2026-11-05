@@ -19,13 +19,15 @@ export type OsvScanItem = {
   affected: boolean;
   advisories: OsvAdvisory[];
   note: string | null;
-  abstention_reason: null | 'package_not_found';
+  abstention_reason: null | 'package_not_found' | 'budget_exceeded';
 };
 export type OsvScanResult = {
   source: 'OSV';
   queried_at: string;
+  query_ms: number;
+  partial: boolean;
   items: OsvScanItem[];
-  summary: { requested: number; checked: number; affected_packages: number; advisory_count: number; not_found_packages: number; unchecked_packages: number };
+  summary: { requested: number; checked: number; affected_packages: number; advisory_count: number; not_found_packages: number; unchecked_packages: number; budget_exceeded_packages: number };
 };
 export type OsvClient = { scan(inputs: readonly (string | OsvPackageInput | { name?: string | undefined; version?: string | undefined; ecosystem?: string | undefined })[], ecosystemDefault?: string | undefined): Promise<OsvScanResult> };
 
@@ -48,11 +50,11 @@ type OsvVulnerability = {
 };
 
 type CacheEntry = { value: unknown; expiresAt: number };
-const MAX_CACHE_ENTRIES = 5000;
-const DEFAULT_TTL_MS = 10 * 60 * 1000;
-const QUERY_TIMEOUT_MS = 10_000;
-const EXISTENCE_TIMEOUT_MS = 3_000;
-const MAX_CONCURRENCY = 8;
+const MAX_CACHE_ENTRIES = 20_000;
+const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
+const QUERY_TIMEOUT_MS = 8_000;
+const SCAN_BUDGET_MS = 40_000;
+const MAX_CONCURRENCY = 12;
 const QUERY_URL = 'https://api.osv.dev/v1/query';
 const NO_ADVISORY_NOTE = 'No advisory recorded in OSV for this name and version. This is not a statement that the package is safe.';
 
@@ -124,10 +126,11 @@ const toAdvisory = (vulnerability: OsvVulnerability): OsvAdvisory => {
   };
 };
 
-export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>; now?: () => number; cacheTtlMs?: number } = {}): OsvClient => {
+export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>; now?: () => number; cacheTtlMs?: number; scanBudgetMs?: number } = {}): OsvClient => {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const ttl = options.cacheTtlMs ?? DEFAULT_TTL_MS;
+  const scanBudgetMs = options.scanBudgetMs ?? SCAN_BUDGET_MS;
   const cache = new Map<string, CacheEntry>();
 
   const getCached = <T>(key: string): T | undefined => {
@@ -147,45 +150,70 @@ export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL
       cache.delete(oldest);
     }
   };
-  const requestJson = async (url: string, init: RequestInit | undefined, timeoutMs: number): Promise<unknown> => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetchImpl(url, { ...init, signal: controller.signal });
-      if (!response.ok) throw new OsvUnavailableError(`OSV returned HTTP ${response.status}.`);
-      try { return await response.json() as unknown; } catch { throw new OsvUnavailableError('OSV returned invalid JSON.'); }
-    } catch (error) {
-      if (error instanceof OsvUnavailableError) throw error;
-      throw new OsvUnavailableError(error instanceof Error ? error.message : undefined);
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
   return {
     async scan(inputs, ecosystemDefault = 'npm') {
       try {
+      const startedAt = performance.now();
+      let budgetExceeded = false;
+      const budgetController = new AbortController();
+      let expireBudget!: () => void;
+      const budgetExpired = new Promise<void>((resolve) => { expireBudget = resolve; });
+      const budgetTimer = setTimeout(() => {
+        budgetExceeded = true;
+        budgetController.abort();
+        expireBudget();
+      }, scanBudgetMs);
       const queriedAt = new Date(now()).toISOString();
       const normalized = inputs.map((input) => normalize(input, ecosystemDefault));
       const packageResults = new Map<string, PackageResult>();
+      const cachedPackageKeys = new Set<string>();
       const queries = new Map<string, OsvPackageInput>();
       for (const entry of normalized) {
         if (!entry.package) continue;
         const key = `${entry.package.ecosystem}@${entry.package.name}@${entry.package.version}`;
         const cached = getCached<PackageResult>(`package:${key}`);
-        if (cached) packageResults.set(key, cached);
+        if (cached) { packageResults.set(key, cached); cachedPackageKeys.add(key); }
         else queries.set(key, entry.package);
       }
 
       const pendingQueries = [...queries.entries()];
       let nextQuery = 0;
+      const activeControllers = new Set<AbortController>();
+      const existenceResults = new Map<string, OsvScanItem['existence']>();
+      const requestJson = async (url: string, init: RequestInit | undefined): Promise<unknown> => {
+        const controller = new AbortController();
+        activeControllers.add(controller);
+        const abortForBudget = (): void => controller.abort();
+        budgetController.signal.addEventListener('abort', abortForBudget, { once: true });
+        const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+        try {
+          const response = await fetchImpl(url, { ...init, signal: controller.signal });
+          if (!response.ok) throw new OsvUnavailableError(`OSV returned HTTP ${response.status}.`);
+          try { return await response.json() as unknown; } catch { throw new OsvUnavailableError('OSV returned invalid JSON.'); }
+        } catch (error) {
+          if (budgetExceeded) throw error;
+          if (error instanceof OsvUnavailableError) throw error;
+          throw new OsvUnavailableError(error instanceof Error ? error.message : undefined);
+        } finally {
+          clearTimeout(timer);
+          activeControllers.delete(controller);
+          budgetController.signal.removeEventListener('abort', abortForBudget);
+        }
+      };
       const queryWorker = async (): Promise<void> => {
-        while (nextQuery < pendingQueries.length) {
+        while (!budgetExceeded && nextQuery < pendingQueries.length) {
           const [key, pkg] = pendingQueries[nextQuery++]!;
-          const response = await requestJson(QUERY_URL, {
+          let response: { vulns?: OsvVulnerability[] };
+          try {
+            response = await requestJson(QUERY_URL, {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ package: { name: pkg.name, ecosystem: pkg.ecosystem }, version: pkg.version }),
-          }, QUERY_TIMEOUT_MS) as { vulns?: OsvVulnerability[] };
+            }) as { vulns?: OsvVulnerability[] };
+          } catch (error) {
+            if (budgetExceeded) return;
+            throw error;
+          }
+          if (budgetExceeded) return;
           if (!response || (response.vulns !== undefined && !Array.isArray(response.vulns))) throw new OsvUnavailableError('OSV returned an invalid query response.');
           const uniqueVulnerabilities = new Map<string, OsvVulnerability>();
           for (const vulnerability of response.vulns ?? []) {
@@ -199,7 +227,9 @@ export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL
           packageResults.set(key, { advisories: [...uniqueVulnerabilities.values()].map(toAdvisory) });
         }
       };
+      const work = (async (): Promise<void> => {
       await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, pendingQueries.length) }, () => queryWorker()));
+      if (budgetExceeded) return;
 
       // Only a zero-advisory OSV result needs an independent package-existence check.
       const checks = new Map<string, { ecosystem: string; name: string }>();
@@ -207,28 +237,35 @@ export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL
         if (!entry.package) continue;
         const key = `${entry.package.ecosystem}@${entry.package.name}@${entry.package.version}`;
         const result = packageResults.get(key)!;
-        if (result.advisories.length || result.existence) continue;
+        if (result.advisories.length || result.existence || cachedPackageKeys.has(key)) continue;
         const checkKey = `${entry.package.ecosystem}@${entry.package.name}`;
         if (entry.package.ecosystem === 'npm' || entry.package.ecosystem === 'PyPI') checks.set(checkKey, { ecosystem: entry.package.ecosystem, name: entry.package.name });
       }
-      const existenceResults = new Map<string, OsvScanItem['existence']>();
       const pendingChecks = [...checks.entries()];
       let nextCheck = 0;
       const existenceWorker = async (): Promise<void> => {
-        while (nextCheck < pendingChecks.length) {
+        while (!budgetExceeded && nextCheck < pendingChecks.length) {
           const [key, check] = pendingChecks[nextCheck++]!;
           try {
             const url = check.ecosystem === 'npm'
               ? `https://registry.npmjs.org/${encodeURIComponent(check.name)}`
               : `https://pypi.org/pypi/${encodeURIComponent(check.name)}/json`;
-            await requestJson(url, undefined, EXISTENCE_TIMEOUT_MS);
-            existenceResults.set(key, 'confirmed');
+            await requestJson(url, undefined);
+            if (!budgetExceeded) existenceResults.set(key, 'confirmed');
           } catch (error) {
+            if (budgetExceeded) return;
             existenceResults.set(key, error instanceof OsvUnavailableError && error.message.includes('HTTP 404') ? 'not_found' : 'unchecked');
           }
         }
       };
       await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENCY, pendingChecks.length) }, () => existenceWorker()));
+      })();
+      try {
+        await Promise.race([work, budgetExpired]);
+      } finally {
+        clearTimeout(budgetTimer);
+        for (const controller of activeControllers) controller.abort();
+      }
 
       const items: OsvScanItem[] = normalized.map((entry) => {
         if (!entry.package) return {
@@ -237,22 +274,33 @@ export const createOsvClient = (options: { fetchImpl?: (input: RequestInfo | URL
         };
         const pkg = entry.package;
         const key = `${pkg.ecosystem}@${pkg.name}@${pkg.version}`;
-        const result = packageResults.get(key)!;
+        const result = packageResults.get(key);
+        if (budgetExceeded && (!result || (!result.advisories.length && !result.existence
+          && (pkg.ecosystem === 'npm' || pkg.ecosystem === 'PyPI')
+          && !existenceResults.has(`${pkg.ecosystem}@${pkg.name}`)))) return {
+          input: entry.input, ...pkg, existence: 'unchecked', affected: false, advisories: [], note: null, abstention_reason: 'budget_exceeded',
+        };
+        if (!result) return {
+          input: entry.input, ...pkg, existence: 'unchecked', affected: false, advisories: [], note: null, abstention_reason: 'budget_exceeded',
+        };
         const affected = result.advisories.length > 0;
         const existence = affected ? 'confirmed' : result.existence ?? existenceResults.get(`${pkg.ecosystem}@${pkg.name}`) ?? 'unchecked';
         const completed = { advisories: result.advisories, existence };
         packageResults.set(key, completed);
-        setCached(`package:${key}`, existence === 'unchecked' ? { advisories: result.advisories } : completed);
+        setCached(`package:${key}`, completed);
         return { input: entry.input, ...pkg, existence, affected, advisories: result.advisories, note: affected ? null : NO_ADVISORY_NOTE, abstention_reason: null };
       });
       const affectedPackages = items.filter((item) => item.affected).length;
+      const partial = items.some((item) => item.abstention_reason === 'budget_exceeded');
+      const queryMs = Math.max(0, Math.round(performance.now() - startedAt));
       return {
-        source: 'OSV', queried_at: queriedAt, items,
+        source: 'OSV', queried_at: queriedAt, query_ms: queryMs, partial, items,
         summary: {
           requested: inputs.length, checked: items.filter((item) => item.abstention_reason === null).length,
           affected_packages: affectedPackages, advisory_count: items.reduce((total, item) => total + item.advisories.length, 0),
           not_found_packages: items.filter((item) => item.existence === 'not_found').length,
           unchecked_packages: items.filter((item) => item.existence === 'unchecked').length,
+          budget_exceeded_packages: items.filter((item) => item.abstention_reason === 'budget_exceeded').length,
         },
       };
       } catch (error) {

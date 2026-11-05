@@ -79,9 +79,9 @@ describe('paid integrity judgment route', () => {
   });
 
   test('runs dependency_scan through one payment and persists OSV items and summary', async () => {
-    const scanResult = { source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z',
+    const scanResult = { source: 'OSV', queried_at: '2026-01-01T00:00:00.000Z', query_ms: 0, partial: false,
       items: [{ input: 'lodash@4.17.20', name: 'lodash', version: '4.17.20', ecosystem: 'npm', existence: 'confirmed', affected: false, advisories: [], note: 'No advisory recorded in OSV for this name and version. This is not a statement that the package is safe.', abstention_reason: null }],
-      summary: { requested: 1, checked: 1, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0 } };
+      summary: { requested: 1, checked: 1, affected_packages: 0, advisory_count: 0, not_found_packages: 0, unchecked_packages: 0, budget_exceeded_packages: 0 } };
     const app = setup({ includeJudgment: true, dependencyResult: scanResult });
     const response = await app.route(new Request('https://internal.test/api/v1/deps/scan-20', {
       method: 'POST', headers: { 'content-type': 'application/json', 'PAYMENT-SIGNATURE': app.sign('local', 'dependency-paid-flow-01') },
