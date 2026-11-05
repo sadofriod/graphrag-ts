@@ -84,6 +84,32 @@ const queryResultSchema = {
   }, required: ['answer', 'mode', 'dataset', 'sources', 'usage', 'payment'],
 } as const;
 
+const batchJudgeOperation = (limit: 10 | 50, datasetId: 'reference-audit-10' | 'reference-audit-50', price: '0.50' | '2.00', amount: '500000' | '2000000') => ({
+  post: {
+    summary: `Audit up to ${limit} references`,
+    description: `Pay $${price} with USDC on Base or Arbitrum to audit up to ${limit} references in one call. The dataset is fixed by this URL; do not include dataset_id.`,
+    'x-price-usdc': price,
+    'x-networks': ['eip155:8453', 'eip155:42161'],
+    requestBody: { required: true, content: { 'application/json': {
+      schema: { type: 'object', properties: { references: { type: 'array', minItems: 1, maxItems: limit, items: { type: 'string', minLength: 1, maxLength: 500 } } }, required: ['references'], additionalProperties: false },
+      example: { references: ['10.1016/S0140-6736(97)11096-0', 'Wakefield AJ et al. Lancet. 1998;351:637-41.'] },
+    } } },
+    responses: {
+      '200': { description: 'Settled reference audit results.', content: { 'application/json': { schema: referenceBatchResultSchema, example: {
+        dataset: { id: datasetId, tool: 'reference_batch' }, judgment: {
+          snapshot: { id: 'ri-20261025-1526', built_at: '2026-10-25T00:00:00.000Z' }, items: [{
+            input: '10.1016/S0140-6736(97)11096-0', matched: true, paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0',
+            title: 'Example paper', year: 1998, verdict: 'CONTESTED', confidence: 0.96, confidence_basis: 'retraction_evidence',
+            retracted_roots: [], conflict_flags: [], coverage: { references: 42, resolved: 38, ratio: 0.905, indexed: true }, abstention_reason: null,
+          }],
+          summary: { requested: 2, matched: 1, unmatched: ['Wakefield et al.'], retracted_root_count: 1 },
+        }, usage: { judge_ms: 87 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount, payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' },
+      } } } },
+      '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements for this fixed batch SKU.', schema: { type: 'string' } } } },
+    },
+  },
+});
+
 const document = {
   openapi: '3.1.0',
   servers: [{ url: 'https://pay.ashesborn.cloud', description: 'production' }],
@@ -109,8 +135,8 @@ const document = {
       responses: { '200': { description: 'Paper and source status records.', content: { 'application/json': { schema: paperStatusSchema, example: { paper: { paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Example paper', year: 1997, source_tier: 'C' }, statuses: [{ source: 'openalex', tier: 'C', status: false, retraction_date: null }, { source: 'crossref', tier: 'A', status: true, retraction_date: '2000-01-01' }, { source: 'retraction_watch', tier: 'A', status: true, retraction_date: '2000-01-01' }] } } } }, '400': { description: 'An identifier is required.' } },
     } },
     '/api/v1/judge': { post: {
-      summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit. Batch SKUs process up to 10 or 50 references per call; each reference returns the same judgment fields as a single-paper result, with an additional summary.',
-      'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10', 'reference-audit-10': '0.50', 'reference-audit-50': '2.00' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
+      summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit. For batch reference audits use /api/v1/judge/batch-10 ($0.50) or /api/v1/judge/batch-50 ($2.00).',
+      'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
       requestBody: { required: true, content: { 'application/json': {
         schema: { oneOf: [
            { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, doi: { type: 'string', minLength: 1, maxLength: 300 } }, required: ['dataset_id', 'doi'], additionalProperties: false, example: { dataset_id: 'retraction-propagation', doi: '10.1016/S0140-6736(97)11096-0' } },
@@ -129,6 +155,8 @@ const document = {
         '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements to authorize the evidence check.', schema: { type: 'string' } } } },
       },
     } },
+    '/api/v1/judge/batch-10': batchJudgeOperation(10, 'reference-audit-10', '0.50', '500000'),
+    '/api/v1/judge/batch-50': batchJudgeOperation(50, 'reference-audit-50', '2.00', '2000000'),
     '/api/v1/query': { post: {
       summary: 'Purchase a GraphRAG query', description: 'Paid GraphRAG query over a SYNTHETIC smart-contract sample corpus (fiction, for testing only). For real retraction evidence checks use /api/v1/judge.',
       'x-price-usdc': { local: '0.02', global: 'upto 0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],

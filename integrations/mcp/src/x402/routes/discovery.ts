@@ -1,5 +1,5 @@
 import { isJudgmentDataset, toPublicDataset } from '../datasets.ts';
-import { bazaarDeclaration, judgmentBazaarDeclaration } from '../bazaar.ts';
+import { bazaarDeclaration, judgmentBazaarDeclaration, referenceBatchBazaarDeclaration } from '../bazaar.ts';
 import { errorResponse, jsonResponse, publicUrlForPath } from '../http.ts';
 import { judgmentRequirements, requirementsForNetworks } from '../pricing.ts';
 import type { PaidRouteDeps } from '../routeTypes.ts';
@@ -11,9 +11,10 @@ export const handleDiscovery = (request: Request, deps: PaidRouteDeps): Response
   if (path !== '/api/v1/discovery') return undefined;
   if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
   const items = deps.registry.datasets.map((dataset) => isJudgmentDataset(dataset) ? ({
-    ...toPublicDataset(dataset), resource: publicUrlForPath(request, '/api/v1/judge', deps.settings.publicBaseUrl),
+    ...toPublicDataset(dataset), resource: publicUrlForPath(request, judgmentResourcePath(dataset.id), deps.settings.publicBaseUrl),
     type: 'http', x402Version: 2, accepts: judgmentRequirements(dataset, deps.settings),
-    extensions: { bazaar: judgmentBazaarDeclaration(dataset) },
+    extensions: { bazaar: dataset.tool === 'reference_batch'
+      ? referenceBatchBazaarDeclaration(dataset, false) : judgmentBazaarDeclaration(dataset) },
   }) : ({
     ...toPublicDataset(dataset), resource: publicUrlForPath(request, '/api/v1/query', deps.settings.publicBaseUrl),
     type: 'http', x402Version: 2, accepts: requirementsForNetworks(dataset, 'local', deps.settings),
@@ -21,6 +22,9 @@ export const handleDiscovery = (request: Request, deps: PaidRouteDeps): Response
   }));
   return jsonResponse(200, { x402Version: 2, items, pagination: { limit: 20, offset: 0, total: items.length } }, { 'cache-control': 'public, max-age=300' });
 };
+
+export const judgmentResourcePath = (datasetId: string): string => datasetId === 'reference-audit-10' ? '/api/v1/judge/batch-10'
+  : datasetId === 'reference-audit-50' ? '/api/v1/judge/batch-50' : '/api/v1/judge';
 
 export const handleManifest = (request: Request, settings: X402Settings): Response => {
   if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
@@ -36,6 +40,12 @@ export const handleManifest = (request: Request, settings: X402Settings): Respon
     }, {
       url: publicUrlForPath(request, '/api/v1/judge', settings.publicBaseUrl),
       method: 'POST', description: 'Assess academic retraction propagation and evidence.',
+    }, {
+      url: publicUrlForPath(request, '/api/v1/judge/batch-10', settings.publicBaseUrl),
+      method: 'POST', description: 'Audit up to 10 references with per-item results.',
+    }, {
+      url: publicUrlForPath(request, '/api/v1/judge/batch-50', settings.publicBaseUrl),
+      method: 'POST', description: 'Audit up to 50 references with per-item results.',
     }, {
       url: `${publicUrlForPath(request, '/api/v1/judge/paper', settings.publicBaseUrl)}?doi={DOI}`,
       method: 'GET', description: 'Free retraction status for a DOI: OpenAlex and Retraction Watch; Crossref only when an update-to notice exists.', free: true,

@@ -154,12 +154,12 @@ type JudgmentResponseBody = {
   readonly payment: { readonly payment_id: string; readonly request_id: string; readonly scheme: string; readonly network: string; readonly asset: string; readonly amount: string; readonly payer: string; readonly transaction: string; readonly settled_at: string };
 };
 
-export const handlePaidJudgment = async (request: Request, input: PaidJudgmentInput, deps: PaidRouteDeps): Promise<Response> => {
+export const handlePaidJudgment = async (request: Request, input: PaidJudgmentInput, deps: PaidRouteDeps, fixedBatchRoute = false): Promise<Response> => {
   const dataset = findDataset(deps.registry, input.dataset_id);
   if (!dataset || !isJudgmentDataset(dataset)) return errorResponse(404, 'Unknown judgment dataset.');
   const requirements = judgmentRequirements(dataset, deps.settings);
   const signature = request.headers.get('PAYMENT-SIGNATURE');
-  if (!signature) return buildJudgmentChallenge(request, dataset, requirements, deps.settings);
+  if (!signature) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, undefined, fixedBatchRoute);
   const decoded = parsePaymentPayload(signature);
   if (!decoded.payload) return errorResponse(400, decoded.error ?? 'Payment payload is invalid.');
   const payload = decoded.payload;
@@ -168,21 +168,21 @@ export const handlePaidJudgment = async (request: Request, input: PaidJudgmentIn
   const replay = await replayByFingerprint(deps, dataset, fingerprint, bodyHash);
   if (replay) return replay;
   const matchedRequirements = matchRequirements(payload.accepted, requirements);
-  if (!matchedRequirements) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, 'payment requirements do not match');
+  if (!matchedRequirements) return buildJudgmentChallenge(request, dataset, requirements, deps.settings, 'payment requirements do not match', fixedBatchRoute);
   const key = request.headers.get('Idempotency-Key');
   if (!validIdempotencyKey(key)) return errorResponse(400, 'Invalid Idempotency-Key.');
   const requestId = key ?? `payment:${fingerprint}`;
   return withQuerySlot(deps.limiter, () => errorResponse(503, 'The server has reached its active query limit. Try again shortly.'),
-    async () => executePaidJudgment(request, deps, dataset, input, payload, matchedRequirements, requirements, fingerprint, bodyHash, requestId));
+    async () => executePaidJudgment(request, deps, dataset, input, payload, matchedRequirements, requirements, fingerprint, bodyHash, requestId, fixedBatchRoute));
 };
 
 const executePaidJudgment = async (
   request: Request, deps: PaidRouteDeps, dataset: JudgmentDataset, input: PaidJudgmentInput, payload: PaymentPayload,
-  requirements: PaymentRequirements, allRequirements: readonly PaymentRequirements[], fingerprint: string, bodyHash: string, requestId: string,
+  requirements: PaymentRequirements, allRequirements: readonly PaymentRequirements[], fingerprint: string, bodyHash: string, requestId: string, fixedBatchRoute: boolean,
 ): Promise<Response> => {
   const verification = await verifyPayment(deps, payload, requirements);
   if (!verification) return errorResponse(502, 'Payment verification failed.');
-  if ('invalid' in verification) return buildJudgmentChallenge(request, dataset, allRequirements, deps.settings, verification.invalid);
+  if ('invalid' in verification) return buildJudgmentChallenge(request, dataset, allRequirements, deps.settings, verification.invalid, fixedBatchRoute);
   const registered = await registerPayment(deps, dataset, input, payload, requirements, fingerprint, bodyHash, requestId, verification.payer);
   if (registered instanceof Response) return registered;
   return runAndSettle(deps, dataset, input, payload, requirements, registered, requestId, verification.payer);

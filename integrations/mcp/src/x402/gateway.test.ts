@@ -15,9 +15,24 @@ describe('x402 paid query gateway', () => {
     expect(document.openapi).toBe('3.1.0');
     expect(document.servers).toEqual([{ url: 'https://pay.ashesborn.cloud', description: 'production' }]);
     expect(document.paths).toHaveProperty('/api/v1/judge');
+    expect(document.paths).toHaveProperty('/api/v1/judge/batch-10');
+    expect(document.paths).toHaveProperty('/api/v1/judge/batch-50');
     expect(document.paths).toHaveProperty('/api/v1/judge/paper');
     expect(document.paths).toHaveProperty('/api/v1/query');
     expect(JSON.stringify(document.paths['/api/v1/judge'])).toContain('x-price-usdc');
+    const judgePath = document.paths['/api/v1/judge'] as { post: { 'x-price-usdc': Record<string, string> } };
+    expect(judgePath.post['x-price-usdc']).toEqual({ 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10' });
+    for (const [path, price] of [['/api/v1/judge/batch-10', '0.50'], ['/api/v1/judge/batch-50', '2.00']] as const) {
+      const operation = document.paths[path] as { post: { 'x-price-usdc': string; requestBody: { content: { 'application/json': { schema: { properties: Record<string, unknown>; required: string[] }; example: Record<string, unknown> } } } } };
+      expect(Object.keys(document.paths[path] as Record<string, unknown>)).toEqual(['post']);
+      expect(operation.post['x-price-usdc']).toBe(price);
+      const body = operation.post.requestBody.content['application/json'];
+      expect(body.schema.required).toEqual(['references']);
+      expect(body.schema.properties).toHaveProperty('references');
+      expect(body.schema.properties).not.toHaveProperty('dataset_id');
+      expect(body.example).toHaveProperty('references');
+      expect(body.example).not.toHaveProperty('dataset_id');
+    }
     expect(JSON.stringify(document.paths['/api/v1/query'])).toContain('x-networks');
 
     const app = setup({ includeJudgment: true });
@@ -112,6 +127,8 @@ describe('x402 paid query gateway', () => {
     expect(optionsOutsideApi).toBeUndefined();
 
     expect((await app.route(new Request('https://internal.test/api/v1/datasets', { method: 'POST' })))?.status).toBe(405);
+    expect((await app.route(new Request('https://internal.test/api/v1/judge/batch-10', { method: 'GET' })))?.status).toBe(405);
+    expect((await app.route(new Request('https://internal.test/api/v1/judge/batch-50', { method: 'GET' })))?.status).toBe(405);
     expect((await app.route(new Request('https://internal.test/api/v1/pricing', { method: 'POST' })))?.status).toBe(405);
     expect((await app.route(new Request('https://internal.test/api/v1/discovery', { method: 'POST' })))?.status).toBe(405);
     expect((await app.route(new Request('https://internal.test/.well-known/x402', { method: 'POST' })))?.status).toBe(405);
@@ -140,6 +157,7 @@ describe('x402 paid query gateway', () => {
     expect(manifest?.headers.get('access-control-allow-origin')).toBe('*');
     expect(await manifest?.json()).toMatchObject({ kind: 'resource-server', resources: [
       { url: 'https://api.example.test/api/v1/query', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge', method: 'POST' },
+      { url: 'https://api.example.test/api/v1/judge/batch-10', method: 'POST' }, { url: 'https://api.example.test/api/v1/judge/batch-50', method: 'POST' },
       { url: 'https://api.example.test/api/v1/judge/paper?doi={DOI}', method: 'GET', free: true },
     ] });
     const discovery = await app.route(new Request('https://internal.test/api/v1/discovery'));
@@ -177,11 +195,11 @@ describe('x402 paid query gateway', () => {
 
 ## Paid (x402)
 
-- POST https://pay.ashesborn.cloud/api/v1/judge: evidenced retraction work, priced per SKU.
-  - \`retraction-propagation\` — one paper: verdict, retracted roots, abstention. $0.02.
-  - \`retraction-evidence-audit\` — one paper: full evidence path, tiers, conflict flags. $0.10.
-  - \`reference-audit-10\` — up to 10 references (DOI strings or citation lines) in one call, per-item results plus an unmatched list. $0.50.
-  - \`reference-audit-50\` — up to 50 references in one call. $2.00.
+- POST https://pay.ashesborn.cloud/api/v1/judge: one paper, priced per SKU.
+  - \`retraction-propagation\` — verdict, retracted roots, abstention. $0.02.
+  - \`retraction-evidence-audit\` — full evidence path, tiers, conflict flags. $0.10.
+- POST https://pay.ashesborn.cloud/api/v1/judge/batch-10: up to 10 references (DOI strings or citation lines) in one call, per-item results plus an unmatched list. $0.50. Body: {"references": [...]}.
+- POST https://pay.ashesborn.cloud/api/v1/judge/batch-50: up to 50 references in one call. $2.00. Body: {"references": [...]}.
 
 ## Docs
 
@@ -203,15 +221,31 @@ describe('x402 paid query gateway', () => {
 
   test('advertises judgment products as paid judge resources', async () => {
     const app = setup({ includeJudgment: true });
+    const catalogueResponse = await app.route(new Request('https://internal.test/api/v1/datasets'));
+    const catalogue = await catalogueResponse?.json() as { datasets: { id: string; resource?: string }[] };
+    expect(catalogue.datasets).toHaveLength(5);
+    expect(Object.fromEntries(catalogue.datasets.map(({ id, resource }) => [id, resource]))).toEqual({
+      demo: undefined,
+      'retraction-propagation': 'https://api.example.test/api/v1/judge',
+      'retraction-evidence-audit': 'https://api.example.test/api/v1/judge',
+      'reference-audit-10': 'https://api.example.test/api/v1/judge/batch-10',
+      'reference-audit-50': 'https://api.example.test/api/v1/judge/batch-50',
+    });
     const response = await app.route(new Request('https://internal.test/api/v1/discovery'));
     const body = await response?.json() as { items: { id: string; resource: string; accepts: PaymentRequirements[] }[] };
-    const judgmentItems = body.items.filter((item) => item.resource.endsWith('/api/v1/judge'));
+    const judgmentItems = body.items.filter((item) => item.id !== 'demo');
     expect(judgmentItems).toHaveLength(4);
     expect(judgmentItems.map((item) => item.id).sort()).toEqual([
       'reference-audit-10', 'reference-audit-50', 'retraction-evidence-audit', 'retraction-propagation',
     ]);
     expect(judgmentItems.every((item) => item.accepts.length === 2)).toBe(true);
     expect(judgmentItems.map((item) => item.accepts[0]?.amount).sort()).toEqual(['100000', '20000', '2000000', '500000']);
+    expect(Object.fromEntries(judgmentItems.map((item) => [item.id, item.resource]))).toEqual({
+      'retraction-propagation': 'https://api.example.test/api/v1/judge',
+      'retraction-evidence-audit': 'https://api.example.test/api/v1/judge',
+      'reference-audit-10': 'https://api.example.test/api/v1/judge/batch-10',
+      'reference-audit-50': 'https://api.example.test/api/v1/judge/batch-50',
+    });
     expect(judgmentItems.map((item) => item.accepts)).toEqual([
       [
         {
@@ -256,32 +290,56 @@ describe('x402 paid query gateway', () => {
     ]);
   });
 
-  test('advertises batch SKU prices and rejects reference counts above each SKU limit before payment', async () => {
+  test('fixed batch paths challenge at their own resource and accept requests without dataset_id', async () => {
     const app = setup({ includeJudgment: true });
-    for (const [dataset_id, amount] of [['reference-audit-10', '500000'], ['reference-audit-50', '2000000']] as const) {
-      const challenge = await app.route(new Request('https://internal.test/api/v1/judge', {
+    for (const [path, datasetId, amount] of [
+      ['/api/v1/judge/batch-10', 'reference-audit-10', '500000'],
+      ['/api/v1/judge/batch-50', 'reference-audit-50', '2000000'],
+    ] as const) {
+      const challenge = await app.route(new Request(`https://internal.test${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dataset_id, references: ['10.1234/example'] }),
+        body: JSON.stringify({ references: ['10.1234/example'] }),
       }));
       expect(challenge?.status).toBe(402);
-      const paymentRequired = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as { accepts: PaymentRequirements[] };
+      const paymentRequired = decodePaymentHeader(challenge?.headers.get('payment-required') ?? '') as {
+        accepts: PaymentRequirements[]; resource: { url: string }; extensions: { bazaar: { info: { input: { body: Record<string, unknown> } }; schema: { properties: { input: { properties: { body: { required: string[] } } } } } } };
+      };
+      expect(paymentRequired.resource.url).toBe(`https://api.example.test${path}`);
       expect(paymentRequired.accepts).toEqual([
         expect.objectContaining({ network: 'eip155:84532', amount }),
         expect.objectContaining({ network: 'eip155:42161', amount }),
       ]);
+      expect(paymentRequired.extensions.bazaar.info.input.body).toEqual({ references: [
+        '10.1016/S0140-6736(97)11096-0', 'Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia... Lancet. 1998;351:637-41. doi:10.1016/S0140-6736(97)11096-0',
+      ] });
+      expect(paymentRequired.extensions.bazaar.schema.properties.input.properties.body.required).toEqual(['references']);
+      expect((await app.route(new Request(`https://internal.test${path}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ references: ['10.1234/example'], dataset_id: datasetId }),
+      })))?.status).toBe(402);
     }
-    const tooMany50 = await app.route(new Request('https://internal.test/api/v1/judge', {
+    const tooMany50 = await app.route(new Request('https://internal.test/api/v1/judge/batch-50', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dataset_id: 'reference-audit-50', references: Array.from({ length: 51 }, (_, index) => `doi ${index}`) }),
+      body: JSON.stringify({ references: Array.from({ length: 51 }, (_, index) => `doi ${index}`) }),
     }));
     expect(tooMany50?.status).toBe(400);
     expect(await tooMany50?.json()).toEqual({ error: 'too_many_references', limit: 50 });
-    const tooMany10 = await app.route(new Request('https://internal.test/api/v1/judge', {
+    const tooMany10 = await app.route(new Request('https://internal.test/api/v1/judge/batch-10', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ dataset_id: 'reference-audit-10', references: Array.from({ length: 11 }, (_, index) => `doi ${index}`) }),
+      body: JSON.stringify({ references: Array.from({ length: 11 }, (_, index) => `doi ${index}`) }),
     }));
     expect(tooMany10?.status).toBe(400);
     expect(await tooMany10?.json()).toEqual({ error: 'too_many_references', limit: 10 });
+    const mismatch = await app.route(new Request('https://internal.test/api/v1/judge/batch-10', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dataset_id: 'reference-audit-50', references: ['10.1234/example'] }),
+    }));
+    expect(mismatch?.status).toBe(400);
+    expect(await mismatch?.json()).toEqual({ error: 'dataset_id_mismatch', expected: 'reference-audit-10' });
+    const malformed = await app.route(new Request('https://internal.test/api/v1/judge/batch-10', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: 'not json',
+    }));
+    expect(malformed?.status).toBe(402);
+    expect(await malformed?.json()).toEqual({ error: 'invalid_request_body' });
   });
 
   test('serves the free paper existence endpoint and validates its required identifier', async () => {

@@ -45,6 +45,7 @@ export const buildJudgmentChallenge = (
   requirements: readonly PaymentRequirements[],
   settings: X402Settings,
   error?: string,
+  fixedBatchRoute = false,
 ): Response => {
   const required = {
     x402Version: 2,
@@ -52,7 +53,7 @@ export const buildJudgmentChallenge = (
     resource: { url: publicUrl(request, settings.publicBaseUrl), description: oneLineDescription(dataset.description),
       mimeType: 'application/json', serviceName: 'graphrag-ts', tags: dataset.tags.filter((tag) => asciiMetadata(tag, 32)).slice(0, 5) },
     accepts: requirements, extensions: { bazaar: dataset.tool === 'reference_batch'
-      ? referenceBatchBazaarDeclaration(dataset) : judgmentBazaarDeclaration(dataset) },
+      ? referenceBatchBazaarDeclaration(dataset, !fixedBatchRoute) : judgmentBazaarDeclaration(dataset) },
   };
   return jsonResponse(402, error ? { error } : {}, { 'payment-required': encodePaymentHeader(required) });
 };

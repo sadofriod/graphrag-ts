@@ -22,6 +22,9 @@ export const batchJudgmentBodySchema = z.object({
   dataset_id: z.string().min(1), references: z.array(z.string().min(1).max(500)).min(1).max(100),
 }).strict();
 export type BatchJudgmentInput = z.infer<typeof batchJudgmentBodySchema>;
+const fixedBatchJudgmentBodySchema = z.object({
+  dataset_id: z.unknown().optional(), references: z.array(z.string().min(1).max(500)).min(1),
+}).strict();
 export type PaidJudgmentInput = JudgmentInput | BatchJudgmentInput;
 
 const readRequestText = async (request: Request, maximumBytes = 8192): Promise<string> => {
@@ -74,6 +77,25 @@ export const parseJudgmentRequestBody = async (request: Request): Promise<{ inpu
     const batch = batchJudgmentBodySchema.safeParse(body);
     if (batch.success) return { input: batch.data };
     return { error: 'invalid_request_body' };
+  } catch {
+    return { error: 'invalid_request_body' };
+  }
+};
+
+export const parseFixedBatchJudgmentRequestBody = async (request: Request): Promise<{
+  input?: { dataset_id?: unknown; references: string[] }; error?: string;
+}> => {
+  let text: string;
+  try {
+    text = await readRequestText(request);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Invalid request body.' };
+  }
+
+  try {
+    const parsed = fixedBatchJudgmentBodySchema.safeParse(JSON.parse(text) as unknown);
+    if (!parsed.success) return { error: 'invalid_request_body' };
+    return { input: parsed.data };
   } catch {
     return { error: 'invalid_request_body' };
   }

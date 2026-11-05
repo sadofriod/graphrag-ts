@@ -79,7 +79,7 @@ export const judgmentBazaarDeclaration = (dataset: JudgmentDataset) => ({
   },
 });
 
-export const referenceBatchBazaarDeclaration = (dataset: JudgmentDataset) => {
+export const referenceBatchBazaarDeclaration = (dataset: JudgmentDataset, includeDatasetId = true) => {
   const status = { source: 'retraction_watch', tier: 'A', is_retracted: true, retraction_date: '2010-02-02', uri: 'https://retractionwatch.com/example' };
   const coverage = { references: 42, resolved: 38, ratio: 0.905, indexed: true };
   const itemProperties = {
@@ -102,7 +102,7 @@ export const referenceBatchBazaarDeclaration = (dataset: JudgmentDataset) => {
   return {
     info: {
       input: { type: 'http', method: 'POST', bodyType: 'json', body: {
-        dataset_id: dataset.id,
+        ...(includeDatasetId ? { dataset_id: dataset.id } : {}),
         references: ['10.1016/S0140-6736(97)11096-0', 'Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia... Lancet. 1998;351:637-41. doi:10.1016/S0140-6736(97)11096-0'],
       } },
       output: { type: 'json', example: {
@@ -128,9 +128,9 @@ export const referenceBatchBazaarDeclaration = (dataset: JudgmentDataset) => {
         input: { type: 'object', properties: {
           type: { const: 'http' }, method: { const: 'POST' }, bodyType: { const: 'json' },
           body: { type: 'object', properties: {
-            dataset_id: { type: 'string', minLength: 1 }, references: { type: 'array', minItems: 1, maxItems: dataset.maxItems,
+            ...(includeDatasetId ? { dataset_id: { type: 'string', minLength: 1 } } : {}), references: { type: 'array', minItems: 1, maxItems: dataset.maxItems,
               items: { type: 'string', minLength: 1, maxLength: 500 } },
-          }, required: ['dataset_id', 'references'], additionalProperties: false },
+          }, required: includeDatasetId ? ['dataset_id', 'references'] : ['references'], additionalProperties: false },
         }, required: ['type', 'method', 'bodyType', 'body'], additionalProperties: false },
         output: {
           type: 'object',

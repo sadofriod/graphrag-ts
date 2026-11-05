@@ -45,7 +45,7 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
   if (openApi) return openApi;
   const llmsTxt = handleLlmsTxt(request);
   if (llmsTxt) return llmsTxt;
-  const catalogue = handleCatalogue(request, deps.registry);
+  const catalogue = handleCatalogue(request, deps.registry, deps.settings);
   if (catalogue) return catalogue;
   const telemetry = await handleTelemetry(request, deps);
   if (telemetry) return telemetry;
