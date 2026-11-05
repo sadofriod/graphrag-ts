@@ -151,7 +151,23 @@ const post = async <T>(
     });
     return await parseFacilitatorResponse(response, endpoint, schema);
   } catch (error) {
-    if (error instanceof X402FacilitatorError) throw error;
+    if (error instanceof X402FacilitatorError) {
+      if (error.code === 'FACILITATOR_HTTP') {
+        const body = JSON.stringify({
+          x402Version: 2,
+          paymentRequirements: request.paymentRequirements,
+          paymentPayload: {
+            ...request.paymentPayload,
+            payload: {
+              ...(request.paymentPayload as any).payload,
+              signature: '<redacted>',
+            },
+          },
+        }).slice(0, 1500);
+        console.error(JSON.stringify({ level: 'error', message: 'CDP verify rejected payload.', body }));
+      }
+      throw error;
+    }
     throw new X402FacilitatorError('FACILITATOR_REQUEST_FAILED', `Facilitator ${endpoint} request failed.`);
   }
 };
