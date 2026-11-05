@@ -5,7 +5,7 @@
       "product": "graph",
       "workspace_id": "web3-security",
       "title": "Synthetic smart-contract security relations",
-      "description": "Paid query over a SYNTHETIC smart-contract sample corpus (fiction, for testing only). For real retraction judgments use /api/v1/judge.",
+      "description": "Synthetic smart-contract security corpus for testing x402 clients: graph retrieval over a fictional SWC-style audit corpus, with source excerpts. Fiction, kept as a test fixture, not a product. For real work use the retraction SKUs on /api/v1/judge.",
       "synthetic": true,
       "license": {
         "spdx": "MIT",
@@ -30,7 +30,7 @@
       "product": "judgment",
       "tool": "retraction_propagation",
       "title": "Retraction propagation judgment",
-      "description": "Deterministic analysis of retraction propagation through citations.",
+      "description": "Check one paper for retraction, and whether that retraction reaches the references it builds on. Send a DOI or paper ID; get a verdict (CONTESTED / SUPPORTED / INSUFFICIENT_EVIDENCE), the retracted papers it depends on with per-source status and date, and an explicit abstention instead of a guess when coverage is thin. Snapshot updated 2026-10-25: 98,868 papers, 572 retraction assertions. Deterministic verdict path, no LLM. $0.02 per call.",
       "synthetic": false,
       "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
       "pricing": { "per_call": "$0.02" },
@@ -41,11 +41,35 @@
       "product": "judgment",
       "tool": "evidence_audit",
       "title": "Retraction evidence audit",
-      "description": "Full retraction evidence path, source tiers, and deterministic explanation.",
+      "description": "The same retraction check as the $0.02 call, plus the full evidence trail: every citation hop with its source tier and URI, the context class (acknowledges the retraction / critical / supporting / neutral), cross-source conflict flags, and a deterministic written explanation. Use it when the answer has to survive review: journal screening, grant and tenure files, due diligence on a cited claim. Snapshot updated 2026-10-25. $0.10 per call.",
       "synthetic": false,
       "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
       "pricing": { "per_call": "$0.10" },
       "tags": ["integrity", "retractions", "evidence", "academic"]
+    },
+    {
+      "id": "reference-audit-10",
+      "product": "judgment",
+      "tool": "reference_batch",
+      "max_items": 10,
+      "title": "Reference list audit - 10 references",
+      "description": "Audit a bibliography: up to 10 references in one call, each DOI string or full citation line. For every item you get the matched paper, its retraction status from OpenAlex and Retraction Watch (Crossref when an update-to notice exists) with tier and date, the retracted papers it depends on, and an explicit unmatched list for anything not in the snapshot. One x402 payment and one round trip instead of ten. Snapshot updated 2026-10-25: 98,868 papers, 572 retraction assertions.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$0.50" },
+      "tags": ["retractions", "citations", "bibliography", "academic", "integrity"]
+    },
+    {
+      "id": "reference-audit-50",
+      "product": "judgment",
+      "tool": "reference_batch",
+      "max_items": 50,
+      "title": "Reference list audit - 50 references",
+      "description": "Audit a bibliography: up to 50 references in one call, each DOI string or full citation line. For every item you get the matched paper, its retraction status from OpenAlex and Retraction Watch (Crossref when an update-to notice exists) with tier and date, the retracted papers it depends on, and an explicit unmatched list for anything not in the snapshot. One x402 payment and one round trip instead of ten. Snapshot updated 2026-10-25: 98,868 papers, 572 retraction assertions. $0.04 per reference.",
+      "synthetic": false,
+      "license": { "spdx": "CC0-1.0", "url": "https://creativecommons.org/publicdomain/zero/1.0/" },
+      "pricing": { "per_call": "$2.00" },
+      "tags": ["retractions", "citations", "bibliography", "academic", "integrity"]
     }
   ]
 }

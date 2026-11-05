@@ -12,8 +12,9 @@ const datasetResponse = {
       }, required: ['local', 'global'] },
     }, required: ['id', 'workspace_id', 'title', 'description', 'synthetic', 'license', 'tags', 'pricing'] },
     { type: 'object', properties: {
-      id: { type: 'string' }, product: { type: 'string', const: 'judgment' }, tool: { type: 'string', enum: ['retraction_propagation', 'evidence_audit'] },
-      title: { type: 'string' }, description: { type: 'string' }, synthetic: { type: 'boolean' },
+       id: { type: 'string' }, product: { type: 'string', const: 'judgment' }, tool: { type: 'string', enum: ['retraction_propagation', 'evidence_audit', 'reference_batch'] },
+       title: { type: 'string' }, description: { type: 'string' }, synthetic: { type: 'boolean' },
+       max_items: { type: 'integer', minimum: 1, maximum: 100 },
       license: { type: 'object', properties: { spdx: { type: 'string' }, url: { type: 'string', format: 'uri' } }, required: ['spdx', 'url'] },
       tags: { type: 'array', items: { type: 'string' } },
       pricing: { type: 'object', properties: { per_call: { type: 'object', properties: { usd: { type: 'string' }, atomic: { type: 'string' } }, required: ['usd', 'atomic'] } }, required: ['per_call'] },
@@ -48,6 +49,31 @@ const judgmentResultSchema = {
   }, required: ['dataset', 'judgment', 'usage', 'payment'],
 } as const;
 
+const batchJudgmentItemSchema = {
+  type: 'object', properties: {
+    input: { type: 'string' }, matched: { type: 'boolean' }, paper_id: { type: ['string', 'null'] }, doi: { type: ['string', 'null'] },
+    title: { type: ['string', 'null'] }, year: { type: ['integer', 'null'] }, verdict: { type: 'string', enum: ['CONTESTED', 'SUPPORTED', 'INSUFFICIENT_EVIDENCE'] },
+    confidence: { type: 'number', minimum: 0, maximum: 1 }, confidence_basis: { type: 'string', enum: ['retraction_evidence', 'coverage'] },
+    retracted_roots: judgmentResultSchema.properties.judgment.properties.retracted_roots,
+    conflict_flags: judgmentResultSchema.properties.judgment.properties.conflict_flags,
+    coverage: judgmentResultSchema.properties.judgment.properties.coverage,
+    abstention_reason: { type: ['string', 'null'] },
+  }, required: ['input', 'matched', 'paper_id', 'doi', 'title', 'year', 'verdict', 'confidence', 'confidence_basis', 'retracted_roots', 'conflict_flags', 'coverage', 'abstention_reason'],
+} as const;
+
+const referenceBatchResultSchema = {
+  type: 'object', properties: {
+    dataset: { type: 'object', properties: { id: { type: 'string' }, tool: { type: 'string', const: 'reference_batch' } }, required: ['id', 'tool'] },
+    judgment: { type: 'object', properties: {
+      snapshot: { type: 'object', properties: { id: { type: 'string' }, built_at: { type: 'string', format: 'date-time' } }, required: ['id', 'built_at'] },
+      items: { type: 'array', items: batchJudgmentItemSchema },
+      summary: { type: 'object', properties: { requested: { type: 'integer' }, matched: { type: 'integer' }, unmatched: { type: 'array', items: { type: 'string' } }, retracted_root_count: { type: 'integer' } }, required: ['requested', 'matched', 'unmatched', 'retracted_root_count'] },
+    }, required: ['snapshot', 'items', 'summary'] },
+    usage: judgmentResultSchema.properties.usage,
+    payment: judgmentResultSchema.properties.payment,
+  }, required: ['dataset', 'judgment', 'usage', 'payment'],
+} as const;
+
 const queryResultSchema = {
   type: 'object', properties: {
     answer: { type: 'string' }, mode: { type: 'string', enum: ['local', 'global'] },
@@ -65,7 +91,10 @@ const document = {
   paths: {
     '/api/v1/datasets': { get: {
       summary: 'List available datasets', description: 'List public graph and evidence-check datasets with pricing and license metadata.',
-      responses: { '200': { description: 'Public dataset catalogue.', content: { 'application/json': { schema: datasetResponse, example: { datasets: [{ id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation', title: 'Retraction propagation', description: 'Retraction evidence check.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://ashesborn.cloud/datasets/' }, tags: ['integrity'], pricing: { per_call: { usd: '$0.02', atomic: '20000' } } }] } } } } },
+      responses: { '200': { description: 'Public dataset catalogue.', content: { 'application/json': { schema: datasetResponse, example: { datasets: [
+        { id: 'retraction-propagation', product: 'judgment', tool: 'retraction_propagation', title: 'Retraction propagation', description: 'Retraction evidence check.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://ashesborn.cloud/datasets/' }, tags: ['integrity'], pricing: { per_call: { usd: '$0.02', atomic: '20000' } } },
+        { id: 'reference-audit-10', product: 'judgment', tool: 'reference_batch', max_items: 10, title: 'Reference list audit - 10 references', description: 'Audit up to 10 references in one call.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://ashesborn.cloud/datasets/' }, tags: ['integrity', 'citations'], pricing: { per_call: { usd: '$0.50', atomic: '500000' } } },
+      ] } } } } },
     } },
     '/api/v1/telemetry': { get: {
       summary: 'Public aggregate telemetry', description: 'Aggregate corpus, settlements, and public-tier call telemetry.',
@@ -80,18 +109,22 @@ const document = {
       responses: { '200': { description: 'Paper and source status records.', content: { 'application/json': { schema: paperStatusSchema, example: { paper: { paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Example paper', year: 1997, source_tier: 'C' }, statuses: [{ source: 'openalex', tier: 'C', status: false, retraction_date: null }, { source: 'crossref', tier: 'A', status: true, retraction_date: '2000-01-01' }, { source: 'retraction_watch', tier: 'A', status: true, retraction_date: '2000-01-01' }] } } } }, '400': { description: 'An identifier is required.' } },
     } },
     '/api/v1/judge': { post: {
-      summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit.',
-      'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
+      summary: 'Purchase a retraction evidence check', description: 'Pay with USDC on Base or Arbitrum for a retraction propagation evidence check or a full evidence audit. Batch SKUs process up to 10 or 50 references per call; each reference returns the same judgment fields as a single-paper result, with an additional summary.',
+      'x-price-usdc': { 'retraction-propagation': '0.02', 'retraction-evidence-audit': '0.10', 'reference-audit-10': '0.50', 'reference-audit-50': '2.00' }, 'x-networks': ['eip155:8453', 'eip155:42161'],
       requestBody: { required: true, content: { 'application/json': {
         schema: { oneOf: [
-          { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, doi: { type: 'string', minLength: 1, maxLength: 300 } }, required: ['dataset_id', 'doi'], additionalProperties: false },
-          { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, paper_id: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9]*$' } }, required: ['dataset_id', 'paper_id'], additionalProperties: false },
-        ] }, example: { dataset_id: 'retraction-propagation', doi: '10.1016/S0140-6736(97)11096-0' },
+           { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, doi: { type: 'string', minLength: 1, maxLength: 300 } }, required: ['dataset_id', 'doi'], additionalProperties: false, example: { dataset_id: 'retraction-propagation', doi: '10.1016/S0140-6736(97)11096-0' } },
+           { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, paper_id: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9]*$' } }, required: ['dataset_id', 'paper_id'], additionalProperties: false, example: { dataset_id: 'retraction-evidence-audit', paper_id: 'W123' } },
+           { type: 'object', properties: { dataset_id: { type: 'string', minLength: 1 }, references: { type: 'array', minItems: 1, maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 500 } } }, required: ['dataset_id', 'references'], additionalProperties: false, example: { dataset_id: 'reference-audit-10', references: ['10.1016/S0140-6736(97)11096-0', 'Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia in children. Lancet. 1998;351:637-41. doi:10.1016/S0140-6736(97)11096-0'] } },
+         ] },
       } } },
       responses: {
         '200': { description: 'Settled evidence-check result.', content: { 'application/json': {
-          schema: judgmentResultSchema,
-          example: { dataset: { id: 'retraction-propagation', tool: 'retraction_propagation' }, judgment: { verdict: 'SUPPORTED', confidence: 0.9 }, usage: { judge_ms: 42 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '20000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' } },
+           schema: { oneOf: [judgmentResultSchema, referenceBatchResultSchema] },
+           examples: {
+             single: { value: { dataset: { id: 'retraction-propagation', tool: 'retraction_propagation' }, judgment: { verdict: 'SUPPORTED', confidence: 0.9 }, usage: { judge_ms: 42 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '20000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' } } },
+             batch: { value: { dataset: { id: 'reference-audit-10', tool: 'reference_batch' }, judgment: { snapshot: { id: 'ri-20261025-1526', built_at: '2026-10-25T00:00:00.000Z' }, items: [{ input: '10.1016/S0140-6736(97)11096-0', matched: true, paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children', year: 1998, verdict: 'CONTESTED', confidence: 0.96, confidence_basis: 'retraction_evidence', retracted_roots: [{ paper_id: 'W123', doi: '10.1016/S0140-6736(97)11096-0', title: 'Retracted paper', year: 1998, depth: 0, status: [{ source: 'retraction_watch', tier: 'A', is_retracted: true, retraction_date: '2010-02-02', uri: 'https://retractionwatch.com/example' }], weight: 1, agreement: 'strong' }], conflict_flags: [], coverage: { references: 42, resolved: 38, ratio: 0.905, indexed: true }, abstention_reason: null }], summary: { requested: 2, matched: 1, unmatched: ['Wakefield et al.'], retracted_root_count: 1 } }, usage: { judge_ms: 87 }, payment: { payment_id: 'payment-id', request_id: 'request-id', scheme: 'exact', network: 'eip155:8453', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', amount: '500000', payer: '0x0000000000000000000000000000000000000001', transaction: '0xtransaction', settled_at: '2026-01-01T00:00:00.000Z' } } },
+           },
         } } },
         '402': { description: 'Payment required.', headers: { 'PAYMENT-REQUIRED': { description: 'x402 payment requirements to authorize the evidence check.', schema: { type: 'string' } } } },
       },

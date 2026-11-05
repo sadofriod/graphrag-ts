@@ -62,6 +62,22 @@ describe('paid integrity judgment route', () => {
     expect(app.settleCalls).toBe(1);
   });
 
+  test('runs a batch SKU after one payment and preserves per-reference judgment fields', async () => {
+    const app = setup({ includeJudgment: true });
+    const response = await postJudge(app, { dataset_id: 'reference-audit-10', references: ['10.1234/example'] }, app.sign('local', 'judge-batch-success-01', {
+      amount: '500000', extra: { name: 'USDC', version: '2' },
+    }));
+    expect(response?.status).toBe(200);
+    expect(await response?.json()).toMatchObject({
+      dataset: { id: 'reference-audit-10', tool: 'reference_batch' },
+      judgment: { snapshot: { id: 'snapshot-1' }, items: [{ input: '10.1234/example', matched: true, verdict: 'SUPPORTED', paper_id: 'W123' }],
+        summary: { requested: 1, matched: 1, unmatched: [], retracted_root_count: 0 } },
+      payment: { amount: '500000' },
+    });
+    expect(app.events).toEqual(['judge', 'settle']);
+    expect(app.settleCalls).toBe(1);
+  });
+
   test('rounds fractional judge latency before returning and writing the ledger', async () => {
     const app = setup({ includeJudgment: true });
     const completePayment = app.payments.completePayment.bind(app.payments);

@@ -1,7 +1,7 @@
 import { jsonResponse, errorResponse } from '../x402/http.ts';
 import { handlePaidJudgment } from '../x402/judgmentFlow.ts';
-import { parseJudgmentRequestBody, type JudgmentInput } from '../x402/payload.ts';
-import { isJudgmentDataset } from '../x402/datasets.ts';
+import { parseJudgmentRequestBody, type JudgmentInput, type PaidJudgmentInput } from '../x402/payload.ts';
+import { findDataset, isJudgmentDataset } from '../x402/datasets.ts';
 import { judgmentRequirements } from '../x402/pricing.ts';
 import { buildJudgmentChallenge } from '../x402/challenge.ts';
 import type { PaidRouteDeps } from '../x402/routeTypes.ts';
@@ -12,7 +12,23 @@ export const handleIntegrityRoute = async (request: Request, deps: PaidRouteDeps
   if (url.pathname !== '/api/v1/judge') return undefined;
   if (request.method !== 'POST') return errorResponse(405, 'Method not allowed.');
   const parsed = await parseJudgmentRequestBody(request);
-  if (parsed.input) return handlePaidJudgment(request, parsed.input, deps);
+  if (parsed.input) {
+    if ('references' in parsed.input) {
+      const dataset = findDataset(deps.registry, parsed.input.dataset_id);
+      if (!dataset || !isJudgmentDataset(dataset) || dataset.tool !== 'reference_batch') {
+        return jsonResponse(400, { error: 'dataset_is_not_a_batch_sku' });
+      }
+      if (parsed.input.references.length > (dataset.maxItems ?? 0)) {
+        return jsonResponse(400, { error: 'too_many_references', limit: dataset.maxItems });
+      }
+    } else {
+      const dataset = findDataset(deps.registry, parsed.input.dataset_id);
+      if (dataset && isJudgmentDataset(dataset) && dataset.tool === 'reference_batch') {
+        return jsonResponse(400, { error: 'batch_references_required' });
+      }
+    }
+    return handlePaidJudgment(request, parsed.input, deps);
+  }
   const datasets = deps.registry.datasets.filter(isJudgmentDataset);
   const dataset = datasets.find((item) => item.tool === 'retraction_propagation') ?? datasets[0];
   if (dataset) return buildJudgmentChallenge(request, dataset, judgmentRequirements(dataset, deps.settings), deps.settings,
@@ -38,4 +54,4 @@ const handlePaperStatus = async (request: Request, url: URL, deps: PaidRouteDeps
   }
 };
 
-export type IntegrityRouteInput = JudgmentInput;
+export type IntegrityRouteInput = JudgmentInput | PaidJudgmentInput;

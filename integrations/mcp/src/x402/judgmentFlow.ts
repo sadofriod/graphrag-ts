@@ -4,11 +4,12 @@ import { findDataset, isJudgmentDataset } from './datasets.ts';
 import { buildJudgmentChallenge, matchRequirements } from './challenge.ts';
 import { judgmentRequirements } from './pricing.ts';
 import { errorResponse, jsonResponse } from './http.ts';
-import { judgmentRequestHash, nonceFromPayload, parsePaymentPayload, validIdempotencyKey, type JudgmentInput } from './payload.ts';
+import { paidJudgmentRequestHash, nonceFromPayload, parsePaymentPayload, validIdempotencyKey, type PaidJudgmentInput } from './payload.ts';
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements, type SettleResponse } from './types.ts';
 import { PaymentConflictError, PaymentReplayError, type PaymentRecord } from './payments.ts';
 import type { PaidRouteDeps } from './routeTypes.ts';
 import { withQuerySlot } from './slot.ts';
+import { runReferenceBatch } from '../integrity/batch.ts';
 
 const replayResponse = (record: PaymentRecord): Response => {
   if (record.status === 'settled' && record.responseBody !== null) {
@@ -29,7 +30,12 @@ const unknownSettlement = (requestId: string): Response => jsonResponse(409, {
 
 const canonicalPayer = (payer: string | undefined, fallback?: string): string | undefined => (payer?.trim() || fallback)?.toLowerCase();
 
-const invokeJudge = (dataset: JudgmentDataset, deps: PaidRouteDeps, input: JudgmentInput) => {
+const invokeJudge = (dataset: JudgmentDataset, deps: PaidRouteDeps, input: PaidJudgmentInput) => {
+  if (dataset.tool === 'reference_batch') {
+    if (!('references' in input) || dataset.maxItems === undefined) throw new Error('Invalid reference batch request.');
+    return runReferenceBatch(deps.judge, input.references, dataset.maxItems);
+  }
+  if ('references' in input) throw new Error('Batch requests require a reference_batch dataset.');
   const ref = { ...(input.doi === undefined ? {} : { doi: input.doi }), ...(input.paper_id === undefined ? {} : { paper_id: input.paper_id }) };
   return dataset.tool === 'evidence_audit' ? deps.judge.evidenceAudit(ref) : deps.judge.retractionPropagation(ref);
 };
@@ -59,7 +65,7 @@ const verifyPayment = async (deps: PaidRouteDeps, payload: PaymentPayload, requi
 };
 
 const registerPayment = async (
-  deps: PaidRouteDeps, dataset: JudgmentDataset, input: JudgmentInput, payload: PaymentPayload,
+  deps: PaidRouteDeps, dataset: JudgmentDataset, input: PaidJudgmentInput, payload: PaymentPayload,
   requirements: PaymentRequirements, fingerprint: string, bodyHash: string, requestId: string, payer: string,
 ): Promise<PaymentRecord | Response> => {
   try {
@@ -79,7 +85,7 @@ const registerPayment = async (
 };
 
 const runAndSettle = async (
-  deps: PaidRouteDeps, dataset: JudgmentDataset, input: JudgmentInput, payload: PaymentPayload,
+  deps: PaidRouteDeps, dataset: JudgmentDataset, input: PaidJudgmentInput, payload: PaymentPayload,
   requirements: PaymentRequirements, record: PaymentRecord, requestId: string, payer: string,
 ): Promise<Response> => {
   const started = performance.now();
@@ -148,7 +154,7 @@ type JudgmentResponseBody = {
   readonly payment: { readonly payment_id: string; readonly request_id: string; readonly scheme: string; readonly network: string; readonly asset: string; readonly amount: string; readonly payer: string; readonly transaction: string; readonly settled_at: string };
 };
 
-export const handlePaidJudgment = async (request: Request, input: JudgmentInput, deps: PaidRouteDeps): Promise<Response> => {
+export const handlePaidJudgment = async (request: Request, input: PaidJudgmentInput, deps: PaidRouteDeps): Promise<Response> => {
   const dataset = findDataset(deps.registry, input.dataset_id);
   if (!dataset || !isJudgmentDataset(dataset)) return errorResponse(404, 'Unknown judgment dataset.');
   const requirements = judgmentRequirements(dataset, deps.settings);
@@ -158,7 +164,7 @@ export const handlePaidJudgment = async (request: Request, input: JudgmentInput,
   if (!decoded.payload) return errorResponse(400, decoded.error ?? 'Payment payload is invalid.');
   const payload = decoded.payload;
   const fingerprint = createHash('sha256').update(signature).digest('hex');
-  const bodyHash = judgmentRequestHash(input);
+  const bodyHash = paidJudgmentRequestHash(input);
   const replay = await replayByFingerprint(deps, dataset, fingerprint, bodyHash);
   if (replay) return replay;
   const matchedRequirements = matchRequirements(payload.accepted, requirements);
@@ -171,7 +177,7 @@ export const handlePaidJudgment = async (request: Request, input: JudgmentInput,
 };
 
 const executePaidJudgment = async (
-  request: Request, deps: PaidRouteDeps, dataset: JudgmentDataset, input: JudgmentInput, payload: PaymentPayload,
+  request: Request, deps: PaidRouteDeps, dataset: JudgmentDataset, input: PaidJudgmentInput, payload: PaymentPayload,
   requirements: PaymentRequirements, allRequirements: readonly PaymentRequirements[], fingerprint: string, bodyHash: string, requestId: string,
 ): Promise<Response> => {
   const verification = await verifyPayment(deps, payload, requirements);

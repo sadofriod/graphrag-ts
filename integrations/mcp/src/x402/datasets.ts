@@ -24,7 +24,8 @@ const graphSchema = z.object({
 }).strict();
 
 const judgmentSchema = z.object({
-  product: z.literal('judgment'), id: datasetIdSchema, tool: z.enum(['retraction_propagation', 'evidence_audit']),
+  product: z.literal('judgment'), id: datasetIdSchema, tool: z.enum(['retraction_propagation', 'evidence_audit', 'reference_batch']),
+  max_items: z.number().int().min(1).max(100).optional(),
   title: z.string().min(1), description: z.string(), synthetic: z.boolean(),
   license: z.object({ spdx: z.string().min(1), url: z.string().url() }).strict(),
   tags: z.array(z.string()).max(5), pricing: z.object({ per_call: usdSchema }).strict(),
@@ -45,7 +46,8 @@ export type GraphDataset = {
 };
 
 export type JudgmentDataset = {
-  readonly product: 'judgment'; readonly id: string; readonly tool: 'retraction_propagation' | 'evidence_audit';
+  readonly product: 'judgment'; readonly id: string; readonly tool: 'retraction_propagation' | 'evidence_audit' | 'reference_batch';
+  readonly maxItems?: number;
   readonly title: string; readonly description: string; readonly synthetic: boolean;
   readonly license: { readonly spdx: string; readonly url: string }; readonly tags: readonly string[];
   readonly pricing: { readonly per_call: { readonly usd: string; readonly atomic: string } };
@@ -57,6 +59,7 @@ export const isJudgmentDataset = (dataset: Dataset): dataset is JudgmentDataset 
 
 export const toPublicDataset = (dataset: Dataset) => isJudgmentDataset(dataset) ? ({
   id: dataset.id, product: dataset.product, tool: dataset.tool, title: dataset.title, description: dataset.description,
+  ...(dataset.maxItems === undefined ? {} : { max_items: dataset.maxItems }),
   synthetic: dataset.synthetic, license: dataset.license, tags: dataset.tags,
   pricing: { per_call: dataset.pricing.per_call },
 }) : ({
@@ -81,6 +84,9 @@ export const datasetRegistrySchema = z.object({ datasets: z.array(defaultGraphPr
       for (const price of prices) validatePrice(price, context, index);
       validateUpto(dataset.pricing.global.upto, dataset.pricing.global.base, context, index);
     } else {
+      if (dataset.tool === 'reference_batch' && dataset.max_items === undefined) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ['datasets', index, 'max_items'], message: 'reference_batch datasets require max_items.' });
+      }
       validatePrice(dataset.pricing.per_call, context, index);
     }
   }
@@ -104,6 +110,7 @@ const parsedDataset = (dataset: z.infer<typeof defaultGraphProduct>): Dataset =>
   const common = { id: dataset.id, product: dataset.product, title: dataset.title, description: dataset.description,
     synthetic: dataset.synthetic, license: dataset.license, tags: dataset.tags };
   if (dataset.product === 'judgment') return { ...common, product: 'judgment', tool: dataset.tool,
+    ...(dataset.max_items === undefined ? {} : { maxItems: dataset.max_items }),
     pricing: { per_call: { usd: dataset.pricing.per_call, atomic: parseUsdToAtomic(dataset.pricing.per_call) } } };
   return { ...common, product: 'graph', workspaceId: dataset.workspace_id,
     pricing: {

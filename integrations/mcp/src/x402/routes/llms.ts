@@ -16,7 +16,11 @@ const llmsTxt = `# Ashes Born retraction API
 
 ## Paid (x402)
 
-- POST https://pay.ashesborn.cloud/api/v1/judge: retraction evidence check — every source row with tier and date, plus propagation. $0.02 single, $0.10 full audit.
+- POST https://pay.ashesborn.cloud/api/v1/judge: evidenced retraction work, priced per SKU.
+  - \`retraction-propagation\` — one paper: verdict, retracted roots, abstention. $0.02.
+  - \`retraction-evidence-audit\` — one paper: full evidence path, tiers, conflict flags. $0.10.
+  - \`reference-audit-10\` — up to 10 references (DOI strings or citation lines) in one call, per-item results plus an unmatched list. $0.50.
+  - \`reference-audit-50\` — up to 50 references in one call. $2.00.
 
 ## Docs
 

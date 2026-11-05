@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { datasetRegistrySchema, isJudgmentDataset, parseDatasetRegistry, parseUsdToAtomic, toPublicDataset } from './datasets.ts';
+import { datasetRegistrySchema, isJudgmentDataset, loadDatasetRegistry, parseDatasetRegistry, parseUsdToAtomic, toPublicDataset } from './datasets.ts';
+import { fileURLToPath } from 'node:url';
 
 const example = {
   datasets: [{
@@ -102,5 +103,22 @@ describe('x402 dataset registry', () => {
     expect(toPublicDataset(product)).toMatchObject({ tool: 'retraction_propagation', pricing: { per_call: { atomic: '20000' } } });
     expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, tool: 'unknown' }] })).toThrow();
     expect(() => datasetRegistrySchema.parse({ datasets: [{ ...judgment, pricing: { per_call: '$1e-3' } }] })).toThrow('Prices must be non-negative USD amounts');
+  });
+
+  test('loads the five example datasets and requires max_items for reference_batch', async () => {
+    const loaded = await loadDatasetRegistry(fileURLToPath(new URL('../../datasets.example.json', import.meta.url)));
+    expect(loaded.datasets).toHaveLength(5);
+    const batches = loaded.datasets.filter((dataset) => isJudgmentDataset(dataset) && dataset.tool === 'reference_batch');
+    expect(batches.map((dataset) => isJudgmentDataset(dataset) ? [dataset.id, dataset.maxItems, dataset.pricing.per_call.atomic] : [])).toEqual([
+      ['reference-audit-10', 10, '500000'], ['reference-audit-50', 50, '2000000'],
+    ]);
+    expect(batches.map((dataset) => {
+      const publicDataset = toPublicDataset(dataset);
+      return 'max_items' in publicDataset ? publicDataset.max_items : undefined;
+    })).toEqual([10, 50]);
+    const batchWithoutLimit = { id: 'reference-audit-missing-limit', product: 'judgment', tool: 'reference_batch',
+      title: 'Batch', description: 'Batch.', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.com/license' },
+      tags: ['integrity'], pricing: { per_call: '$0.50' } };
+    expect(() => datasetRegistrySchema.parse({ datasets: [batchWithoutLimit] })).toThrow('reference_batch datasets require max_items');
   });
 });

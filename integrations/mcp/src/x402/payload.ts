@@ -18,11 +18,17 @@ export const judgmentBodySchema = z.object({
 });
 export type JudgmentInput = z.infer<typeof judgmentBodySchema>;
 
-const readRequestText = async (request: Request): Promise<string> => {
+export const batchJudgmentBodySchema = z.object({
+  dataset_id: z.string().min(1), references: z.array(z.string().min(1).max(500)).min(1).max(100),
+}).strict();
+export type BatchJudgmentInput = z.infer<typeof batchJudgmentBodySchema>;
+export type PaidJudgmentInput = JudgmentInput | BatchJudgmentInput;
+
+const readRequestText = async (request: Request, maximumBytes = 8192): Promise<string> => {
   if (request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'application/json') {
     throw new Error('Request body must be JSON.');
   }
-  if (Number(request.headers.get('content-length') ?? 0) > 8192) throw new Error('Request body exceeds 8192 bytes.');
+  if (Number(request.headers.get('content-length') ?? 0) > maximumBytes) throw new Error(`Request body exceeds ${maximumBytes} bytes.`);
   const reader = request.body?.getReader();
   if (!reader) throw new Error('Invalid request body.');
   const chunks: Uint8Array[] = [];
@@ -31,9 +37,9 @@ const readRequestText = async (request: Request): Promise<string> => {
     const next = await reader.read();
     if (next.done) break;
     totalBytes += next.value.byteLength;
-    if (totalBytes > 8192) {
+    if (totalBytes > maximumBytes) {
       await reader.cancel();
-      throw new Error('Request body exceeds 8192 bytes.');
+      throw new Error(`Request body exceeds ${maximumBytes} bytes.`);
     }
     chunks.push(next.value);
   }
@@ -53,13 +59,23 @@ export const parseRequestBody = async (request: Request): Promise<{ input?: Quer
   }
 };
 
-export const parseJudgmentRequestBody = async (request: Request): Promise<{ input?: JudgmentInput; error?: string }> => {
+export const parseJudgmentRequestBody = async (request: Request): Promise<{ input?: PaidJudgmentInput; error?: string }> => {
+  let text: string;
   try {
-    const text = await readRequestText(request);
-    return { input: judgmentBodySchema.parse(JSON.parse(text) as unknown) };
+    text = await readRequestText(request);
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Invalid request body.';
-    return { error: ['Request body must be JSON.', 'Request body exceeds 8192 bytes.'].includes(message) ? message : 'invalid_request_body' };
+    return { error: error instanceof Error ? error.message : 'Invalid request body.' };
+  }
+
+  try {
+    const body = JSON.parse(text) as unknown;
+    const single = judgmentBodySchema.safeParse(body);
+    if (single.success) return { input: single.data };
+    const batch = batchJudgmentBodySchema.safeParse(body);
+    if (batch.success) return { input: batch.data };
+    return { error: 'invalid_request_body' };
+  } catch {
+    return { error: 'invalid_request_body' };
   }
 };
 
@@ -99,3 +115,7 @@ export const requestHash = (input: QueryInput): string => createHash('sha256')
 export const judgmentRequestHash = (input: JudgmentInput): string => createHash('sha256')
   .update(JSON.stringify({ dataset_id: input.dataset_id, doi: input.doi ?? null, paper_id: input.paper_id ?? null }))
   .digest('hex');
+
+export const paidJudgmentRequestHash = (input: PaidJudgmentInput): string => 'references' in input
+  ? createHash('sha256').update(JSON.stringify({ dataset_id: input.dataset_id, references: input.references })).digest('hex')
+  : judgmentRequestHash(input);

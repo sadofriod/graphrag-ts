@@ -219,6 +219,11 @@ const collectJudgmentConflicts = async (store: IntegrityStore, paper: PaperRecor
 };
 
 export const createJudge = (store: IntegrityStore) => ({
+  snapshot: async () => {
+    const snapshot = await store.activeSnapshot();
+    if (!snapshot) throw new Error('No active integrity snapshot is available.');
+    return { id: snapshot.id, built_at: isoTimestamp(snapshot.built_at) };
+  },
   paperStatus: async (ref: PaperRef) => {
     const resolved = await resolveRef(store, ref);
     if (!resolved.snapshot) throw new Error('No active integrity snapshot is available.');

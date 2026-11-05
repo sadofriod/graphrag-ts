@@ -42,6 +42,14 @@ export const auditDataset = {
   ...judgmentDataset, id: 'retraction-evidence-audit', tool: 'evidence_audit' as const,
   title: 'Retraction evidence audit', pricing: { per_call: { usd: '$0.10', atomic: '100000' } },
 };
+export const batch10Dataset = {
+  ...judgmentDataset, id: 'reference-audit-10', tool: 'reference_batch' as const, maxItems: 10,
+  title: 'Reference list audit - 10 references', pricing: { per_call: { usd: '$0.50', atomic: '500000' } },
+};
+export const batch50Dataset = {
+  ...batch10Dataset, id: 'reference-audit-50', maxItems: 50,
+  title: 'Reference list audit - 50 references', pricing: { per_call: { usd: '$2.00', atomic: '2000000' } },
+};
 
 const config = loadConfig({ DATABASE_URL: 'postgresql://localhost/unused', QUERY_TIMEOUT_MS: '1000' });
 const logger = createLogger('error');
@@ -231,15 +239,18 @@ const registryFor = (options: SetupOptions): DatasetRegistry => ({ datasets: [
     ...registry.datasets.map((dataset) => !isJudgmentDataset(dataset) && options.globalScheme ? ({
       ...dataset, pricing: { ...dataset.pricing, global: { ...dataset.pricing.global, scheme: options.globalScheme! } },
     }) : dataset),
-    ...(options.includeJudgment ? [judgmentDataset, auditDataset] : []),
+    ...(options.includeJudgment ? [judgmentDataset, auditDataset, batch10Dataset, batch50Dataset] : []),
   ] });
 
 const fakeJudge = (events: string[], options: SetupOptions) => ({
+  snapshot: async () => ({ id: 'snapshot-1', built_at: '2025-01-01' }),
   paperStatus: async () => ({ paper: { paper_id: 'W123' }, statuses: [] }),
   retractionPropagation: async () => {
     events.push('judge');
     if (options.judgeFailure) throw new Error('synthetic judge error');
-    return { snapshot: { id: 'snapshot-1', built_at: '2025-01-01' }, verdict: 'SUPPORTED', confidence: 0.8, retracted_roots: [], conflict_flags: [] };
+    return { snapshot: { id: 'snapshot-1', built_at: '2025-01-01' }, target: { paper_id: 'W123', doi: '10.1234/example', title: 'Example paper', year: 2020, source_tier: 'A' as const },
+      verdict: 'SUPPORTED', confidence: 0.8, confidence_basis: 'coverage' as const, retracted_roots: [], conflict_flags: [],
+      coverage: { references: 0, resolved: 0, ratio: 0, indexed: false }, abstention_reason: null };
   },
   evidenceAudit: async () => {
     events.push('judge');
