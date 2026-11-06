@@ -253,7 +253,7 @@ export const createHttpHandler = (
   return async (request: Request, runtimeRequestIp?: (request: Request) => string | undefined): Promise<Response> => {
     if (paidHostname && isPaidHostname(request, paidHostname)) {
       const path = new URL(request.url).pathname;
-      if (!path.startsWith('/api/v1/') && path !== '/.well-known/x402' && path !== '/llms.txt'
+      if (!path.startsWith('/api/v1/') && !path.startsWith('/.well-known/') && path !== '/llms.txt'
         && path !== '/' && path !== '/status' && path !== '/paper') {
         return httpError(404, 'Not found.');
       }

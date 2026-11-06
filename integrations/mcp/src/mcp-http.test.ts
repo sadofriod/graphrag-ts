@@ -252,6 +252,23 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     }
   });
 
+  test('lets the paid hostname answer well-known proofs but nothing else', async () => {
+    const app = fixture(true, {}, 'pay.example.test');
+    const saved = process.env.X402_INDEX_VERIFY_HASH;
+    try {
+      process.env.X402_INDEX_VERIFY_HASH = 'cafe';
+      const proof = await app.request('/.well-known/402index-verify.txt', undefined, { headers: { host: 'pay.example.test' } });
+      expect(proof.status).toBe(200);
+      expect(await proof.text()).toBe('cafe');
+      const stray = await app.request('/not-a-route', undefined, { headers: { host: 'pay.example.test' } });
+      expect(stray.status).toBe(404);
+    } finally {
+      if (saved === undefined) delete process.env.X402_INDEX_VERIFY_HASH;
+      else process.env.X402_INDEX_VERIFY_HASH = saved;
+      await app.close();
+    }
+  });
+
   test('returns not found for unsupported OAuth and MCP discovery documents', async () => {
     const app = fixture();
     try {
