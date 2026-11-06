@@ -132,9 +132,11 @@ describe('x402 paid query gateway', () => {
         x402Version: number; accepts: PaymentRequirements | PaymentRequirements[];
       };
       expect(required.x402Version).toBe(2);
-      const accepts = Array.isArray(required.accepts) ? required.accepts : [required.accepts];
-      expect(accepts.length).toBeGreaterThan(0);
-      expect(accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
+      // The challenge must carry a real accepts array: registries and x402
+      // clients reject a bare object.
+      expect(Array.isArray(required.accepts)).toBe(true);
+      expect(required.accepts.length).toBeGreaterThan(0);
+      expect(required.accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
     }
     expect(app.verifyCalls).toBe(0);
     expect(app.settleCalls).toBe(0);

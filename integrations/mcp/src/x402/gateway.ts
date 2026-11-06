@@ -1,4 +1,5 @@
-import { buildChallenge, requirementsFor } from './challenge.ts';
+import { buildChallenge } from './challenge.ts';
+import { requirementsForNetworks } from './pricing.ts';
 import { findDataset, isJudgmentDataset } from './datasets.ts';
 import type { PaidRouteDeps } from './routeTypes.ts';
 import { parseRequestBody } from './payload.ts';
@@ -75,5 +76,5 @@ const unauthoredChallenge = (request: Request, deps: PaidRouteDeps): Response =>
   const named = findDataset(deps.registry, CHALLENGE_FALLBACK_DATASET);
   const dataset = named && !isJudgmentDataset(named) ? named : graphs[0];
   if (!dataset || isJudgmentDataset(dataset)) return errorResponse(503, 'No graph dataset is available.');
-  return buildChallenge(request, dataset, 'local', requirementsFor(dataset, 'local', deps.settings), deps.settings);
+  return buildChallenge(request, dataset, 'local', requirementsForNetworks(dataset, 'local', deps.settings), deps.settings);
 };
