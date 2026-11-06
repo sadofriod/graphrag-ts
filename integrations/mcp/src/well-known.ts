@@ -31,6 +31,16 @@ export const wellKnownResponse = (
     return response;
   }
 
+  // Registry domain proof (402 Index): the hash of a claim token, served so a
+  // directory can confirm the operator controls this hostname.
+  const registryProof = process.env.X402_INDEX_VERIFY_HASH?.trim();
+  if (url.pathname === '/.well-known/402index-verify.txt' && registryProof) {
+    return new Response(request.method === 'HEAD' ? null : registryProof, {
+      status: 200,
+      headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=300' },
+    });
+  }
+
   const origin = requestOrigin(request, options?.publicBaseUrl);
   if (url.pathname === '/.well-known/oauth-protected-resource'
     || url.pathname === '/.well-known/oauth-protected-resource/mcp') {

@@ -235,6 +235,23 @@ describe('hosted HTTP boundary and MCP protocol', () => {
     } finally { await app.close(); }
   });
 
+  test('serves the registry domain proof only when a hash is configured', async () => {
+    const app = fixture();
+    const saved = process.env.X402_INDEX_VERIFY_HASH;
+    try {
+      expect((await app.request('/.well-known/402index-verify.txt')).status).toBe(404);
+      process.env.X402_INDEX_VERIFY_HASH = 'deadbeef';
+      const response = await app.request('/.well-known/402index-verify.txt');
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toContain('text/plain');
+      expect(await response.text()).toBe('deadbeef');
+    } finally {
+      if (saved === undefined) delete process.env.X402_INDEX_VERIFY_HASH;
+      else process.env.X402_INDEX_VERIFY_HASH = saved;
+      await app.close();
+    }
+  });
+
   test('returns not found for unsupported OAuth and MCP discovery documents', async () => {
     const app = fixture();
     try {
