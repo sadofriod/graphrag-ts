@@ -118,6 +118,38 @@ describe('x402 paid query gateway', () => {
     }
   });
 
+  test('challenges an unpaid caller even when the body is missing or malformed', async () => {
+    const app = setup();
+    const bodies: Array<string | undefined> = [undefined, '', '{}', 'not json', JSON.stringify({ dataset_id: 'demo' })];
+    for (const body of bodies) {
+      const response = await app.route(new Request('https://internal.test/api/v1/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body }),
+      }));
+      expect(response?.status).toBe(402);
+      const required = decodePaymentHeader(response?.headers.get('payment-required') ?? '') as {
+        x402Version: number; accepts: PaymentRequirements | PaymentRequirements[];
+      };
+      expect(required.x402Version).toBe(2);
+      const accepts = Array.isArray(required.accepts) ? required.accepts : [required.accepts];
+      expect(accepts.length).toBeGreaterThan(0);
+      expect(accepts[0]).toMatchObject({ scheme: 'exact', amount: '20000' });
+    }
+    expect(app.verifyCalls).toBe(0);
+    expect(app.settleCalls).toBe(0);
+  });
+
+  test('rejects an invalid body once a payment signature is attached, without touching the facilitator', async () => {
+    const app = setup();
+    const response = await app.request({ dataset_id: 'demo' });
+    expect(response?.status).toBe(400);
+    expect(await response?.json()).toMatchObject({ error: 'Invalid request body.' });
+    expect(app.verifyCalls).toBe(0);
+    expect(app.settleCalls).toBe(0);
+    expect(app.records.size).toBe(0);
+  });
+
   test('routes only known paths, enforces route methods, and handles OPTIONS only below the API prefix', async () => {
     const app = setup();
     expect(await app.route(new Request('https://internal.test/not-found'))).toBeUndefined();
