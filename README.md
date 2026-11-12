@@ -91,6 +91,17 @@ configure the models and run `docker compose --profile showcase up -d --build --
 `http://127.0.0.1:8080`. The showcase is a local demo, not an authentication layer; do not expose
 it to untrusted users.
 
+### Install the package
+
+```bash
+bun add @ashes_born/graph-rag-ts
+```
+
+The package ships TypeScript sources consumed directly by Bun and requires Bun >= 1.1.
+It is not importable from plain Node without a TypeScript loader.
+It expects PostgreSQL with pgvector and RAG_* model settings configured as in the self-hosted path below.
+Published package: https://www.npmjs.com/package/@ashes_born/graph-rag-ts.
+
 ### Use the library
 
 ```bash

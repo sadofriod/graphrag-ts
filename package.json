@@ -40,6 +40,37 @@
   },
   "description": "Reference implementation of a chunked GraphRAG engine: markdown-aware ingestion, Leiden community detection, hybrid vector+keyword retrieval and evidence-grounded answers (Bun + TypeScript).",
   "license": "MIT",
+  "author": "Ashes Born",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sadofriod/graphrag-ts.git"
+  },
+  "homepage": "https://github.com/sadofriod/graphrag-ts#readme",
+  "bugs": {
+    "url": "https://github.com/sadofriod/graphrag-ts/issues"
+  },
+  "keywords": [
+    "graphrag",
+    "graph-rag",
+    "rag",
+    "retrieval-augmented-generation",
+    "knowledge-graph",
+    "community-detection",
+    "leiden",
+    "pgvector",
+    "postgres",
+    "postgresql",
+    "vector-search",
+    "hybrid-search",
+    "typescript",
+    "bun",
+    "mcp",
+    "model-context-protocol",
+    "agent",
+    "llm",
+    "citations",
+    "provenance"
+  ],
   "engines": {
     "node": ">=20",
     "bun": ">=1.1.0"
@@ -78,5 +109,8 @@
   },
   "prisma": {
     "schema": "prisma/schema.prisma"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
