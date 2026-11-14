@@ -1,0 +1,22 @@
+{
+  "harness": "deepseek",
+  "database": {
+    "url": "${DATABASE_URL}"
+  },
+  "models": {
+    "slice": {
+      "model": "${DEEPSEEK_SLICE_MODEL:-deepseek-chat}",
+      "apiKey": "${DEEPSEEK_API_KEY}"
+    },
+    "judge": {
+      "model": "${DEEPSEEK_JUDGE_MODEL:-deepseek-chat}",
+      "apiKey": "${DEEPSEEK_API_KEY}"
+    },
+    "embedding": {
+      "provider": "openai",
+      "baseURL": "${EMBED_BASE_URL}",
+      "model": "${EMBED_MODEL}",
+      "apiKey": "${EMBED_API_KEY}"
+    }
+  }
+}

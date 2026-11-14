@@ -43,4 +43,12 @@ export interface EvidenceSnippet {
   text: string;
   sourceDocumentId?: string;
   sourceChunkId?: string;
+  /** First PDF page the supporting chunk came from. */
+  page?: number;
+  /** Last PDF page the supporting chunk spans; equals page for single-page chunks. */
+  pageEnd?: number;
+  /** Bounding box [x1, y1, x2, y2] of the first matched block on the page. */
+  bbox?: [number, number, number, number];
+  /** How the anchor was resolved: exact text match, fuzzy similarity, or unattributed. */
+  anchorMethod?: 'exact' | 'fuzzy' | 'none';
 }
