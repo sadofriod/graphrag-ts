@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.30 — 2026-11-16
+
+- **chore(package)**: add repository, homepage, bugs, keywords and publishConfig (#30)
+
 ## 0.1.29 — 2026-11-02
 
 - **docs(readme)**: embed the hosted-endpoint health badge (#26)
