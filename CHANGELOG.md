@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.32 — 2026-11-17
+
+- **feat(retrieval)**: report which communities a partial global answer lost (#31)
+
 ## 0.1.31 — 2026-11-17
 
 - **feat(mcp)**: zero-config catalog entry and catalog-grade tool definitions (#32)
