@@ -99,4 +99,12 @@ export interface GlobalRetrievalResult {
   answer: string;
   selectedMapAnswers: GlobalMapAnswer[];
   failedMapBatches: number;
+  /** Community IDs belonging to batches that failed during Map processing. */
+  failedCommunities: CommunityId[];
+  /** Community IDs represented in the Map answers retained for Reduce. */
+  retainedCommunities: CommunityId[];
+  /** Community IDs represented by useful Map answers omitted for the Reduce token budget. */
+  droppedForBudget: CommunityId[];
+  /** Whether one or more useful Map answers were omitted because of the Reduce token budget. */
+  budgetLimited: boolean;
 }

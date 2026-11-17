@@ -53,6 +53,10 @@ test('formats global search metadata and truncates within the configured respons
     answer: 'a'.repeat(4000),
     selectedMapAnswers: [{ answer: 'map answer', usefulness: 0.9, communityIds: ['community-1'] }],
     failedMapBatches: 1,
+    failedCommunities: ['community-failed'],
+    retainedCommunities: ['community-1'],
+    droppedForBudget: ['community-dropped'],
+    budgetLimited: true,
   };
   const output = formatGlobalQueryOutput(result, { id: 'version-id', workspaceId: 'workspace-a' }, 512);
   const parsed = JSON.parse(output) as {
@@ -60,6 +64,9 @@ test('formats global search metadata and truncates within the configured respons
     status: string;
     community_level: number | 'leaf';
     failed_map_batches: number;
+    failed_communities: readonly string[];
+    dropped_for_budget: readonly string[];
+    budget_limited: boolean;
     selected_map_answers: readonly unknown[];
     truncated: boolean;
   };
@@ -68,5 +75,8 @@ test('formats global search metadata and truncates within the configured respons
   expect(parsed.status).toBe('partial');
   expect(parsed.community_level).toBe(1);
   expect(parsed.failed_map_batches).toBe(1);
+  expect(parsed.failed_communities).toEqual(['community-failed']);
+  expect(parsed.dropped_for_budget).toEqual(['community-dropped']);
+  expect(parsed.budget_limited).toBe(true);
   expect(parsed.truncated).toBe(true);
 });

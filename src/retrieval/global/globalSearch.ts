@@ -10,7 +10,7 @@ import type {
   GlobalRetrievalResult,
 } from '../types/retrieval';
 import { runGlobalMap } from './globalMap';
-import { generateGlobalReduceAnswer, selectGlobalReduceAnswers } from './globalReduce';
+import { generateGlobalReduceAnswer, selectGlobalReduceAnswersWithCoverage } from './globalReduce';
 import { buildSummaryBatches } from './summaryBatcher';
 import { computeCommunityIdentity } from '../../build/detectCommunity/summary/communityFingerprint';
 import { getSliceModelFingerprint } from '../../build/modelLoader';
@@ -75,6 +75,8 @@ const noResults = (
   query: string,
   communityLevel: number | 'leaf',
   failedMapBatches = 0,
+  failedCommunities: string[] = [],
+  droppedForBudget: string[] = [],
 ): GlobalRetrievalResult => ({
   query,
   communityLevel,
@@ -82,7 +84,14 @@ const noResults = (
   answer: NO_RESULTS_ANSWER,
   selectedMapAnswers: [],
   failedMapBatches,
+  failedCommunities,
+  retainedCommunities: [],
+  droppedForBudget,
+  budgetLimited: droppedForBudget.length > 0,
 });
+
+const uniqueCommunityIds = (answers: readonly { communityIds: readonly string[] }[]): string[] =>
+  [...new Set(answers.flatMap(({ communityIds }) => communityIds))];
 
 interface CommunitySummaryRow {
   id: string;
@@ -233,24 +242,42 @@ const generateGlobalResult = async (
     .filter((answer) => answer.usefulness > 0)
     .sort((left, right) => right.usefulness - left.usefulness);
   if (rankedAnswers.length === 0) {
-    return noResults(query, communityLevel, mapAnswers.errors.length);
+    return noResults(
+      query,
+      communityLevel,
+      mapAnswers.errors.length,
+      uniqueCommunityIds(mapAnswers.failures),
+    );
   }
+
+  const failedCommunities = uniqueCommunityIds(mapAnswers.failures);
+  const coverageNote = failedCommunities.length > 0
+    ? `Coverage gap: Map processing failed for communities ${failedCommunities.join(', ')}. State which coverage is missing in your answer. Do not present a complete overview.`
+    : undefined;
 
   const reducePromptSkeleton = await awaitRetrieval(() => assmblyAgent(
     { query, content: '' },
     agentRegistry.globalReduce,
   ));
-  const selectedAnswers = selectGlobalReduceAnswers(
+  const coverageAwareSkeleton = [reducePromptSkeleton.prompt, coverageNote].filter(Boolean).join('\n\n');
+  const { selected: selectedAnswers, dropped } = selectGlobalReduceAnswersWithCoverage(
     rankedAnswers,
-    reducePromptSkeleton.prompt,
+    coverageAwareSkeleton,
     reducePromptBudget,
   );
+  const droppedForBudget = uniqueCommunityIds(dropped);
   if (selectedAnswers.length === 0) {
     logger.warn({ query, reducePromptBudget }, 'No Global Map answer fit the Reduce token budget.');
-    return noResults(query, communityLevel, mapAnswers.errors.length);
+    return noResults(
+      query,
+      communityLevel,
+      mapAnswers.errors.length,
+      failedCommunities,
+      droppedForBudget,
+    );
   }
 
-  const reduceResult = await awaitRetrieval(() => generateGlobalReduceAnswer(query, selectedAnswers));
+  const reduceResult = await awaitRetrieval(() => generateGlobalReduceAnswer(query, selectedAnswers, coverageNote));
   logger.debug({
     communityLevel,
     summaryCount: summariesCount,
@@ -265,10 +292,15 @@ const generateGlobalResult = async (
   return {
     query,
     communityLevel,
-    status: mapAnswers.errors.length > 0 ? 'partial' : 'completed',
+    // Budget-limited packing is normal operation, and folding it into status would make every large corpus permanently partial.
+    status: failedCommunities.length > 0 ? 'partial' : 'completed',
     answer: reduceResult.answer,
     selectedMapAnswers: selectedAnswers,
     failedMapBatches: mapAnswers.errors.length,
+    failedCommunities,
+    retainedCommunities: uniqueCommunityIds(selectedAnswers),
+    droppedForBudget,
+    budgetLimited: droppedForBudget.length > 0,
   };
 };
 
