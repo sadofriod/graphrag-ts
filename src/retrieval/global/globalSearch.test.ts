@@ -176,7 +176,7 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
     const result = await new GraphRAGRetrievalService().retrieveGlobal({
       namespace: 'global-partial-coverage-test',
       query: 'Summarize both topics.',
-      options: { communityLevel: 0, mapTokenBudget: 450, mapOutputReserve: 0 },
+      options: { communityLevel: 0, mapTokenBudget: 600, mapOutputReserve: 0 },
     });
 
     expect(result.status).toBe('partial');
