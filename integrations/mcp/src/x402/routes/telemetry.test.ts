@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { PaidRouteDeps } from '../routeTypes.ts';
 import { usdcFromAtomic } from '../telemetry.ts';
+import type { DatasetSettlementRow, GraphCorpusRow, ToolCallRow } from '../telemetry.ts';
 import { handleTelemetry } from './telemetry.ts';
 
 const transaction = '0xabc123';
 const settlement = (network: string, amountAtomic = '20000') => ({
+  datasetId: 'graph-one',
   network,
   amountAtomic,
   transaction,
@@ -14,8 +16,12 @@ const settlement = (network: string, amountAtomic = '20000') => ({
 const createDeps = (options: {
   readonly settlements?: readonly { network: string; settled: number; settledAtomic: string; lastSettledAt: string | null }[];
   readonly recent?: readonly ReturnType<typeof settlement>[];
+  readonly byDataset?: readonly DatasetSettlementRow[];
+  readonly byTool?: readonly ToolCallRow[];
+  readonly graph?: readonly GraphCorpusRow[];
   readonly snapshot?: boolean;
   readonly fail?: boolean;
+  readonly failRejected?: boolean;
 } = {}): PaidRouteDeps => {
   const telemetry = {
     settlementSummary: async () => {
@@ -24,6 +30,13 @@ const createDeps = (options: {
     },
     recentSettlements: async () => options.recent ?? [],
     publicCallSummary: async () => ({ calls: 13, callers: 3, p95LatencyMs: 11 }),
+    settlementByDataset: async () => options.byDataset ?? [],
+    publicCallsByTool: async () => options.byTool ?? [],
+    rejectedAttempts: async () => {
+      if (options.failRejected) throw new Error('new telemetry query unavailable');
+      return 3;
+    },
+    activeGraphCorpus: async () => options.graph ?? [],
   };
   const integrity = {
     activeSnapshot: async () => options.snapshot === false ? undefined : ({
@@ -32,7 +45,11 @@ const createDeps = (options: {
       manifest: { counts: { papers: 218841, cites: 247137, retractions: 1234, contexts: 0 } },
     }),
   };
-  return { telemetry, integrity } as unknown as PaidRouteDeps;
+  const registry = { datasets: [{ product: 'graph' as const, id: 'graph-one', title: 'Graph One', workspaceId: 'workspace-one',
+    description: '', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.test' }, tags: [],
+    pricing: { local: { usd: '$0.02', atomic: '20000' }, global: { scheme: 'upto' as const,
+      upto: { usd: '$0.10', atomic: '100000' }, base: { usd: '$0.02', atomic: '20000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } } } }] };
+  return { telemetry, integrity, registry } as unknown as PaidRouteDeps;
 };
 
 describe('public telemetry route', () => {
@@ -51,17 +68,20 @@ describe('public telemetry route', () => {
     const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({
       settlements: [{ network: 'eip155:42161', settled: 4, settledAtomic: '80000', lastSettledAt: '2026-11-02T02:31:55.000Z' }],
       recent: [settlement('eip155:42161')],
+      graph: [{ workspaceId: 'workspace-one', entities: 2, relationships: 1, publishedAt: null }],
     }));
     expect(response?.status).toBe(200);
     expect(response?.headers.get('access-control-allow-origin')).toBe('*');
     const payload = await response?.json();
     expect(payload).toMatchObject({
-      corpus: { snapshot_id: 'ri-20261025-1526', papers: 218841, citation_edges: 247137, retractions: 1234 },
+      corpus: { snapshot_id: 'ri-20261025-1526', papers: 218841, citation_edges: 247137, retractions: 1234,
+        graph: { entities: 2, relationships: 1, workspaces: [{ workspace_id: 'workspace-one', published_at: null }] } },
       payments: {
         mainnet: { settlements: 4, volume_usdc: '0.08', networks: ['eip155:42161'] },
-        recent_mainnet: [{ explorer_url: `https://arbiscan.io/tx/${transaction}` }],
+        recent_mainnet: [{ explorer_url: `https://arbiscan.io/tx/${transaction}`, dataset_id: 'graph-one', title: 'Graph One' }],
+        rejected: { window_days: 30, attempts: 3 },
       },
-      public_calls: { window_days: 30, calls: 13, callers: 3, p95_latency_ms: 11 },
+      public_calls: { window_days: 30, calls: 13, callers: 3, p95_latency_ms: 11, by_tool: [] },
       verify: {
         datasets: 'https://pay.ashesborn.cloud/api/v1/datasets',
         openapi: 'https://pay.ashesborn.cloud/api/v1/openapi.json',
@@ -90,6 +110,38 @@ describe('public telemetry route', () => {
   test('returns a null corpus when there is no active snapshot', async () => {
     const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({ snapshot: false }));
     expect(await response?.json()).toMatchObject({ corpus: null });
+  });
+
+  test('groups settlements by registered and unknown dataset and sorts by mainnet volume', async () => {
+    const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({ byDataset: [
+      { datasetId: 'unknown-sku', network: 'eip155:8453', settled: 2, settledAtomic: '90000', lastSettledAt: '2026-11-01T00:00:00.000Z' },
+      { datasetId: 'graph-one', network: 'eip155:42161', settled: 1, settledAtomic: '20000', lastSettledAt: null },
+      { datasetId: 'graph-one', network: 'eip155:84532', settled: 1, settledAtomic: '20000', lastSettledAt: null },
+    ] }));
+    const payload = await response?.json();
+    expect(payload.payments.by_dataset).toEqual([
+      { dataset_id: 'unknown-sku', product: 'unknown', title: 'unknown-sku', price_usd: null,
+        mainnet: { settlements: 2, volume_usdc: '0.09' }, testnet: { settlements: 0, volume_usdc: '0.00' }, last_settled_at: '2026-11-01T00:00:00.000Z' },
+      { dataset_id: 'graph-one', product: 'graph', title: 'Graph One', price_usd: '$0.02',
+        mainnet: { settlements: 1, volume_usdc: '0.02' }, testnet: { settlements: 1, volume_usdc: '0.02' }, last_settled_at: null },
+    ]);
+  });
+
+  test('reports null graph corpus and sorts per-tool calls', async () => {
+    const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({
+      graph: [], byTool: [{ tool: 'z_tool', calls: 2 }, { tool: 'b_tool', calls: 4 }, { tool: 'a_tool', calls: 4 }],
+    }));
+    const payload = await response?.json();
+    expect(payload).toMatchObject({ corpus: { graph: null }, public_calls: { by_tool: [
+      { tool: 'a_tool', calls: 4 }, { tool: 'b_tool', calls: 4 }, { tool: 'z_tool', calls: 2 },
+    ] } });
+  });
+
+  test('falls back to zero rejected attempts when the new query fails', async () => {
+    const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({ failRejected: true }));
+    expect(response?.status).toBe(200);
+    const payload = await response?.json();
+    expect(payload.payments.rejected).toEqual({ window_days: 30, attempts: 0 });
   });
 
   test('rejects non-GET methods and ignores unrelated paths', async () => {

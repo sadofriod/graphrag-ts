@@ -1,6 +1,7 @@
 import type { PaidRouteDeps } from '../routeTypes.ts';
 import { errorResponse, jsonResponse } from '../http.ts';
 import { usdcFromAtomic } from '../telemetry.ts';
+import { datasetBreakdown, datasetTitle, graphCorpus, toolBreakdown } from './telemetrySections.ts';
 
 const MAINNET_NETWORKS = new Set(['eip155:8453', 'eip155:42161']);
 const TESTNET_NETWORKS = new Set(['eip155:84532', 'eip155:421614']);
@@ -18,13 +19,27 @@ const settlementGroup = (rows: Awaited<ReturnType<PaidRouteDeps['telemetry']['se
   };
 };
 
+const rejectedCount = (result: PromiseSettledResult<number>): number => result.status === 'fulfilled' ? result.value : 0;
+
 const buildPayload = async (deps: PaidRouteDeps) => {
-  const [settlements, recentSettlements, publicCalls, snapshot] = await Promise.all([
+  const [settlementsResult, recentResult, publicCallsResult, snapshotResult, datasetResult, toolsResult, rejectedResult, graphResult] = await Promise.allSettled([
     deps.telemetry.settlementSummary(),
     deps.telemetry.recentSettlements(100),
     deps.telemetry.publicCallSummary(30),
     deps.integrity.activeSnapshot(),
+    deps.telemetry.settlementByDataset(),
+    deps.telemetry.publicCallsByTool(30),
+    deps.telemetry.rejectedAttempts(30),
+    deps.telemetry.activeGraphCorpus(),
   ]);
+  if (settlementsResult.status === 'rejected' || recentResult.status === 'rejected') throw new Error('Required telemetry query failed.');
+  const settlements = settlementsResult.value;
+  const recentSettlements = recentResult.value;
+  const publicCalls = publicCallsResult.status === 'fulfilled' ? publicCallsResult.value : { calls: 0, callers: 0, p95LatencyMs: 0 };
+  const snapshot = snapshotResult.status === 'fulfilled' ? snapshotResult.value : undefined;
+  const datasets = datasetResult.status === 'fulfilled' ? datasetResult.value : [];
+  const tools = toolsResult.status === 'fulfilled' ? toolsResult.value : [];
+  const graph = graphResult.status === 'fulfilled' ? graphResult.value : [];
   const recentMainnet = recentSettlements
     .filter((row) => MAINNET_NETWORKS.has(row.network) && EXPLORERS[row.network] !== undefined)
     .slice(0, 5)
@@ -34,6 +49,8 @@ const buildPayload = async (deps: PaidRouteDeps) => {
       transaction: row.transaction,
       settled_at: row.settledAt,
       explorer_url: `${EXPLORERS[row.network]}${row.transaction}`,
+      dataset_id: row.datasetId,
+      title: datasetTitle(deps.registry, row.datasetId),
     }));
   const unclassified = settlements
     .filter((row) => !MAINNET_NETWORKS.has(row.network) && !TESTNET_NETWORKS.has(row.network))
@@ -48,11 +65,14 @@ const buildPayload = async (deps: PaidRouteDeps) => {
       papers: snapshot.manifest.counts.papers,
       citation_edges: snapshot.manifest.counts.cites,
       retractions: snapshot.manifest.counts.retractions,
+      graph: graphCorpus(graph),
     } : null,
     payments: {
       mainnet: settlementGroup(settlements, MAINNET_NETWORKS),
       testnet: settlementGroup(settlements, TESTNET_NETWORKS),
       unclassified,
+      rejected: { window_days: 30, attempts: rejectedCount(rejectedResult) },
+      by_dataset: datasetBreakdown(datasets, deps.registry),
       recent_mainnet: recentMainnet,
     },
     public_calls: {
@@ -60,6 +80,7 @@ const buildPayload = async (deps: PaidRouteDeps) => {
       calls: publicCalls.calls,
       callers: publicCalls.callers,
       p95_latency_ms: publicCalls.p95LatencyMs,
+      by_tool: toolBreakdown(tools),
     },
     verify: {
       datasets: 'https://pay.ashesborn.cloud/api/v1/datasets',
