@@ -1,32 +1,27 @@
 import { expect, test } from 'bun:test';
 
+type CatalogTool = {
+  readonly name: string;
+  readonly description?: string;
+  readonly inputSchema?: { readonly properties?: Readonly<Record<string, { readonly description?: string }>> };
+  readonly annotations?: { readonly readOnlyHint?: unknown };
+};
+
 type RpcResponse = {
   readonly id?: number;
   readonly result?: {
     readonly serverInfo?: { readonly name?: string };
-    readonly tools?: readonly {
-      readonly name: string;
-      readonly description?: string;
-      readonly inputSchema?: unknown;
-    }[];
+    readonly tools?: readonly CatalogTool[];
   };
 };
 
-test('catalog stdio entrypoint exposes tool metadata without database or model configuration', async () => {
-  const child = Bun.spawn(['bun', 'src/stdio-catalog.ts'], {
-    cwd: import.meta.dir.replace(/\/src$/, ''),
-    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  const reader = child.stdout.getReader();
+const createResponseReader = (reader: ReadableStreamDefaultReader<Uint8Array>) => {
   const decoder = new TextDecoder();
   let buffered = '';
   const responses = new Map<number, RpcResponse>();
   const deadline = Date.now() + 30_000;
 
-  const readResponse = async (id: number): Promise<RpcResponse> => {
+  return async (id: number): Promise<RpcResponse> => {
     while (!responses.has(id)) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) throw new Error('Timed out waiting for MCP response.');
@@ -48,43 +43,90 @@ test('catalog stdio entrypoint exposes tool metadata without database or model c
     if (!response) throw new Error(`Missing MCP response ${id}.`);
     return response;
   };
+};
 
+const initializeAndListTools = async (
+  stdin: Bun.FileSink,
+  readResponse: (id: number) => Promise<RpcResponse>,
+): Promise<readonly CatalogTool[]> => {
+  stdin.write(`${JSON.stringify({
+    jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: {
+      protocolVersion: '2025-06-18',
+      capabilities: {},
+      clientInfo: { name: 'catalog-test', version: '1.0.0' },
+    },
+  })}\n`);
+  const initialized = await readResponse(1);
+  expect(initialized.result?.serverInfo?.name).toBe('graphrag-mcp-server');
+
+  stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
+  stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
+  return (await readResponse(2)).result?.tools ?? [];
+};
+
+const catalogToolNames = [
+  'integrity_paper_status',
+  'retraction_propagation',
+  'integrity_evidence_audit',
+  'query_graph',
+  'query_graph_global',
+  'submit_index_job',
+  'remember_text',
+  'get_index_job',
+];
+
+const integrityToolNames = ['integrity_paper_status', 'retraction_propagation', 'integrity_evidence_audit'];
+
+const assertCatalogToolNames = (tools: readonly CatalogTool[]): void => {
+  expect(tools.length).toBeGreaterThanOrEqual(8);
+  for (const name of catalogToolNames) {
+    expect(tools.some((tool) => tool.name === name)).toBe(true);
+  }
+};
+
+const assertCatalogToolMetadata = (tools: readonly CatalogTool[]): void => {
+  for (const tool of tools) {
+    expect(tool.description?.trim().length ?? 0).toBeGreaterThanOrEqual(300);
+    expect(typeof tool.inputSchema).toBe('object');
+    expect(tool.inputSchema).not.toBeNull();
+    expect(typeof tool.annotations?.readOnlyHint).toBe('boolean');
+  }
+};
+
+const assertNonEmptyPropertyDescription = (tool: CatalogTool | undefined, property: 'doi' | 'paper_id'): void => {
+  expect(tool?.inputSchema?.properties?.[property]?.description?.trim().length ?? 0).toBeGreaterThan(0);
+};
+
+const assertIntegrityToolProperties = (tools: readonly CatalogTool[]): void => {
+  for (const name of integrityToolNames) {
+    const tool = tools.find((candidate) => candidate.name === name);
+    assertNonEmptyPropertyDescription(tool, 'doi');
+    assertNonEmptyPropertyDescription(tool, 'paper_id');
+  }
+};
+
+const assertCatalogTools = (tools: readonly CatalogTool[]): void => {
+  assertCatalogToolNames(tools);
+  assertCatalogToolMetadata(tools);
+  assertIntegrityToolProperties(tools);
+};
+
+test('catalog stdio entrypoint exposes tool metadata without database or model configuration', async () => {
+  const child = Bun.spawn(['bun', 'src/stdio-catalog.ts'], {
+    cwd: import.meta.dir.replace(/\/src$/, ''),
+    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const reader = child.stdout.getReader();
+  const stdin = child.stdin;
+  if (!stdin || typeof stdin === 'number') throw new Error('Catalog MCP process has no piped stdin.');
+  const readResponse = createResponseReader(reader);
   try {
-    child.stdin.write(`${JSON.stringify({
-      jsonrpc: '2.0', id: 1, method: 'initialize',
-      params: {
-        protocolVersion: '2025-06-18',
-        capabilities: {},
-        clientInfo: { name: 'catalog-test', version: '1.0.0' },
-      },
-    })}\n`);
-    const initialized = await readResponse(1);
-    expect(initialized.result?.serverInfo?.name).toBe('graphrag-mcp-server');
-
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
-    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })}\n`);
-
-    const listed = await readResponse(2);
-    const tools = listed.result?.tools ?? [];
-    expect(tools.length).toBeGreaterThanOrEqual(8);
-    for (const name of [
-      'integrity_paper_status',
-      'retraction_propagation',
-      'integrity_evidence_audit',
-      'query_graph',
-      'query_graph_global',
-      'submit_index_job',
-      'remember_text',
-      'get_index_job',
-    ]) {
-      expect(tools.some((tool) => tool.name === name)).toBe(true);
-    }
-    for (const tool of tools) {
-      expect(tool.description?.trim().length ?? 0).toBeGreaterThan(0);
-      expect(typeof tool.inputSchema).toBe('object');
-      expect(tool.inputSchema).not.toBeNull();
-      expect(Array.isArray(tool.inputSchema)).toBe(false);
-    }
+    const tools = await initializeAndListTools(stdin, readResponse);
+    assertCatalogTools(tools);
   } finally {
     child.kill();
     await child.exited;
