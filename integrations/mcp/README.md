@@ -21,6 +21,16 @@ For the optional browser showcase, configure reachable slice, judge, and embeddi
 
 PostgreSQL is not exposed on a host port, and MCP is bound to host loopback only. `docker compose down` stops the services but retains the named database volume; `docker compose down -v` deletes the indexed data.
 
+## Catalog / introspection image
+
+The repository-root Docker image provides a zero-config stdio MCP server for catalog metadata/introspection and local stdio use. Build and run it from the repository root:
+
+```sh
+docker build -t graphrag-ts-catalog . && docker run --rm -i graphrag-ts-catalog
+```
+
+Tool calls that access GraphRAG data or produce judgments require a real database and model endpoints; this image is for metadata/introspection and local stdio use.
+
 ## Paid query API (optional)
 
 The service can also expose `POST /api/v1/query`, an x402 (v2) paid HTTP endpoint for agents, next to the free `/api/v1/datasets` and `/api/v1/pricing` catalogue. It is disabled unless `X402_ENABLED=true`, prices come from a dataset registry file (`integrations/mcp/datasets.example.json`), and `dataset_id` — never `workspace_id` — selects the corpus. Local retrieval is charged with the `exact` scheme, global Map-Reduce with `upto`, and settlement happens only after an answer was produced. See [`x402.env.example`](x402.env.example) for the optional settings; Compose users must add the variables they need to their own Compose override.
