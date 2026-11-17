@@ -45,10 +45,16 @@ const createDeps = (options: {
       manifest: { counts: { papers: 218841, cites: 247137, retractions: 1234, contexts: 0 } },
     }),
   };
-  const registry = { datasets: [{ product: 'graph' as const, id: 'graph-one', title: 'Graph One', workspaceId: 'workspace-one',
-    description: '', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.test' }, tags: [],
-    pricing: { local: { usd: '$0.02', atomic: '20000' }, global: { scheme: 'upto' as const,
-      upto: { usd: '$0.10', atomic: '100000' }, base: { usd: '$0.02', atomic: '20000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } } } }] };
+  const registry = { datasets: [
+    { product: 'graph' as const, id: 'graph-one', title: 'Graph One', workspaceId: 'workspace-one',
+      description: '', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.test' }, tags: [],
+      pricing: { local: { usd: '$0.02', atomic: '20000' }, global: { scheme: 'upto' as const,
+        upto: { usd: '$0.10', atomic: '100000' }, base: { usd: '$0.02', atomic: '20000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } } } },
+    { product: 'graph' as const, id: 'graph-two', title: 'Graph Two', workspaceId: 'workspace-two',
+      description: '', synthetic: false, license: { spdx: 'CC0-1.0', url: 'https://example.test' }, tags: [],
+      pricing: { local: { usd: '$0.05', atomic: '50000' }, global: { scheme: 'upto' as const,
+        upto: { usd: '$0.20', atomic: '200000' }, base: { usd: '$0.05', atomic: '50000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } } } },
+  ] };
   return { telemetry, integrity, registry } as unknown as PaidRouteDeps;
 };
 
@@ -124,6 +130,8 @@ describe('public telemetry route', () => {
         mainnet: { settlements: 2, volume_usdc: '0.09' }, testnet: { settlements: 0, volume_usdc: '0.00' }, last_settled_at: '2026-11-01T00:00:00.000Z' },
       { dataset_id: 'graph-one', product: 'graph', title: 'Graph One', price_usd: '$0.02',
         mainnet: { settlements: 1, volume_usdc: '0.02' }, testnet: { settlements: 1, volume_usdc: '0.02' }, last_settled_at: null },
+      { dataset_id: 'graph-two', product: 'graph', title: 'Graph Two', price_usd: '$0.05',
+        mainnet: { settlements: 0, volume_usdc: '0.00' }, testnet: { settlements: 0, volume_usdc: '0.00' }, last_settled_at: null },
     ]);
   });
 

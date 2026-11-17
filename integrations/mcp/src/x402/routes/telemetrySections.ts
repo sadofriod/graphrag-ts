@@ -34,8 +34,10 @@ export const datasetBreakdown = (rows: readonly DatasetSettlementRow[], registry
     datasetRows.push(row);
     grouped.set(row.datasetId, datasetRows);
   }
+  for (const dataset of registry.datasets) {
+    if (!grouped.has(dataset.id)) grouped.set(dataset.id, []);
+  }
   return [...grouped.entries()].map(([datasetId, datasetRows]) => breakdownRow(datasetId, datasetRows, registry))
-    .filter((row) => row.mainnet.settlements > 0 || row.testnet.settlements > 0)
     .sort((left, right) => left.mainnetAtomic === right.mainnetAtomic
       ? left.dataset_id.localeCompare(right.dataset_id)
       : left.mainnetAtomic > right.mainnetAtomic ? -1 : 1)
