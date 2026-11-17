@@ -21,6 +21,7 @@ export const settings: X402Settings = {
     { network: 'eip155:84532', asset: '0xasset', assetName: 'USDC', assetVersion: '2' },
     { network: 'eip155:42161', asset: '0xasset', assetName: 'USDC', assetVersion: '2' },
   ],
+  operatorPayers: ['0xoperator'],
   uptoFacilitatorAddress: '0x68EFaFE862d89cE66dd3D7B07d5A3747A0871164',
 };
 

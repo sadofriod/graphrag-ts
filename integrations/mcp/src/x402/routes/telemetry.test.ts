@@ -11,17 +11,22 @@ const settlement = (network: string, amountAtomic = '20000') => ({
   amountAtomic,
   transaction,
   settledAt: '2026-11-02T02:31:55.000Z',
+  payer: null as string | null,
 });
 
 const createDeps = (options: {
   readonly settlements?: readonly { network: string; settled: number; settledAtomic: string; lastSettledAt: string | null }[];
   readonly recent?: readonly ReturnType<typeof settlement>[];
   readonly byDataset?: readonly DatasetSettlementRow[];
+  readonly byNetworkPayer?: readonly { network: string; payer: string | null; settled: number; settledAtomic: string }[];
+  readonly byDatasetPayer?: readonly (DatasetSettlementRow & { payer: string | null })[];
   readonly byTool?: readonly ToolCallRow[];
   readonly graph?: readonly GraphCorpusRow[];
   readonly snapshot?: boolean;
   readonly fail?: boolean;
   readonly failRejected?: boolean;
+  readonly failPayers?: boolean;
+  readonly operatorPayers?: readonly string[];
 } = {}): PaidRouteDeps => {
   const telemetry = {
     settlementSummary: async () => {
@@ -37,6 +42,14 @@ const createDeps = (options: {
       return 3;
     },
     activeGraphCorpus: async () => options.graph ?? [],
+    settlementByNetworkPayer: async () => {
+      if (options.failPayers) throw new Error('payer queries unavailable');
+      return options.byNetworkPayer ?? [];
+    },
+    settlementByDatasetPayer: async () => {
+      if (options.failPayers) throw new Error('payer queries unavailable');
+      return options.byDatasetPayer ?? [];
+    },
   };
   const integrity = {
     activeSnapshot: async () => options.snapshot === false ? undefined : ({
@@ -55,7 +68,7 @@ const createDeps = (options: {
       pricing: { local: { usd: '$0.05', atomic: '50000' }, global: { scheme: 'upto' as const,
         upto: { usd: '$0.20', atomic: '200000' }, base: { usd: '$0.05', atomic: '50000' }, perMapAnswer: { usd: '$0.01', atomic: '10000' } } } },
   ] };
-  return { telemetry, integrity, registry } as unknown as PaidRouteDeps;
+  return { telemetry, integrity, registry, settings: { operatorPayers: options.operatorPayers ?? [] } } as unknown as PaidRouteDeps;
 };
 
 describe('public telemetry route', () => {
@@ -83,8 +96,9 @@ describe('public telemetry route', () => {
       corpus: { snapshot_id: 'ri-20261025-1526', papers: 218841, citation_edges: 247137, retractions: 1234,
         graph: { entities: 2, relationships: 1, workspaces: [{ workspace_id: 'workspace-one', published_at: null }] } },
       payments: {
+        operator_wallets: 0,
         mainnet: { settlements: 4, volume_usdc: '0.08', networks: ['eip155:42161'] },
-        recent_mainnet: [{ explorer_url: `https://arbiscan.io/tx/${transaction}`, dataset_id: 'graph-one', title: 'Graph One' }],
+        recent_mainnet: [{ explorer_url: `https://arbiscan.io/tx/${transaction}`, dataset_id: 'graph-one', title: 'Graph One', operator: false }],
         rejected: { window_days: 30, attempts: 3 },
       },
       public_calls: { window_days: 30, calls: 13, callers: 3, p95_latency_ms: 11, by_tool: [] },
@@ -127,12 +141,48 @@ describe('public telemetry route', () => {
     const payload = await response?.json();
     expect(payload.payments.by_dataset).toEqual([
       { dataset_id: 'unknown-sku', product: 'unknown', title: 'unknown-sku', price_usd: null,
-        mainnet: { settlements: 2, volume_usdc: '0.09' }, testnet: { settlements: 0, volume_usdc: '0.00' }, last_settled_at: '2026-11-01T00:00:00.000Z' },
+        mainnet: { settlements: 2, volume_usdc: '0.09', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 },
+        testnet: { settlements: 0, volume_usdc: '0.00', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 },
+        last_settled_at: '2026-11-01T00:00:00.000Z' },
       { dataset_id: 'graph-one', product: 'graph', title: 'Graph One', price_usd: '$0.02',
-        mainnet: { settlements: 1, volume_usdc: '0.02' }, testnet: { settlements: 1, volume_usdc: '0.02' }, last_settled_at: null },
+        mainnet: { settlements: 1, volume_usdc: '0.02', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 },
+        testnet: { settlements: 1, volume_usdc: '0.02', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 }, last_settled_at: null },
       { dataset_id: 'graph-two', product: 'graph', title: 'Graph Two', price_usd: '$0.05',
-        mainnet: { settlements: 0, volume_usdc: '0.00' }, testnet: { settlements: 0, volume_usdc: '0.00' }, last_settled_at: null },
+        mainnet: { settlements: 0, volume_usdc: '0.00', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 },
+        testnet: { settlements: 0, volume_usdc: '0.00', payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 }, last_settled_at: null },
     ]);
+  });
+
+  test('splits operator and external payer counts while excluding null payers', async () => {
+    const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({
+      byNetworkPayer: [
+        { network: 'eip155:42161', payer: '0xoperator', settled: 1, settledAtomic: '20000' },
+        { network: 'eip155:42161', payer: '0xexternal', settled: 2, settledAtomic: '40000' },
+        { network: 'eip155:42161', payer: null, settled: 1, settledAtomic: '20000' },
+      ],
+      byDatasetPayer: [
+        { datasetId: 'graph-one', network: 'eip155:42161', payer: '0xoperator', settled: 1, settledAtomic: '20000', lastSettledAt: null },
+        { datasetId: 'graph-one', network: 'eip155:42161', payer: '0xexternal', settled: 2, settledAtomic: '40000', lastSettledAt: null },
+        { datasetId: 'graph-one', network: 'eip155:42161', payer: null, settled: 1, settledAtomic: '20000', lastSettledAt: null },
+      ],
+      recent: [{ ...settlement('eip155:42161'), payer: '0xoperator' }], operatorPayers: ['0xoperator'],
+    }));
+    const payload = await response?.json();
+    expect(payload.payments.operator_wallets).toBe(1);
+    expect(payload.payments.mainnet).toMatchObject({ payers: 2, operator_settlements: 1, external_settlements: 2, external_volume_usdc: '0.04', external_payers: 1 });
+    expect(payload.payments.by_dataset[0].mainnet).toMatchObject({ payers: 2, operator_settlements: 1, external_settlements: 2, external_volume_usdc: '0.04', external_payers: 1 });
+    expect(payload.payments.recent_mainnet[0].operator).toBe(true);
+  });
+
+  test('uses zeroed attribution when payer queries fail', async () => {
+    const response = await handleTelemetry(new Request('https://api.example/api/v1/telemetry'), createDeps({
+      settlements: [{ network: 'eip155:42161', settled: 1, settledAtomic: '20000', lastSettledAt: null }],
+      recent: [{ ...settlement('eip155:42161'), payer: '0xoperator' }], failPayers: true, operatorPayers: ['0xoperator'],
+    }));
+    const payload = await response?.json();
+    expect(response?.status).toBe(200);
+    expect(payload.payments.mainnet).toMatchObject({ payers: 0, operator_settlements: 0, external_settlements: 0, external_volume_usdc: '0.00', external_payers: 0 });
+    expect(payload.payments.recent_mainnet[0].operator).toBe(false);
   });
 
   test('reports null graph corpus and sorts per-tool calls', async () => {

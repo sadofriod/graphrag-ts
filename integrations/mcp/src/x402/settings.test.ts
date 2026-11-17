@@ -36,8 +36,14 @@ describe('x402 settings', () => {
         { network: 'eip155:8453', asset: evmAddress, assetName: 'USDC', assetVersion: '2' },
         { network: 'eip155:42161', asset: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', assetName: 'USD Coin', assetVersion: '2' },
       ],
+      operatorPayers: [],
       publicBaseUrl: 'https://pay.example.test',
     });
+  });
+
+  test('normalizes, validates, and deduplicates operator payer addresses', () => {
+    const config = enabledConfig({ X402_OPERATOR_PAYERS: ` ${evmAddress.toUpperCase()}, ${evmAddress}, invalid, 0x123 ` });
+    expect(x402Settings(config)?.operatorPayers).toEqual([evmAddress]);
   });
 
   test('allows explicit judge network overrides, canonical Arbitrum USDC, asset validation, and deduplication', () => {

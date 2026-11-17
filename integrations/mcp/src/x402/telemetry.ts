@@ -15,6 +15,18 @@ export type DatasetSettlementRow = {
   readonly lastSettledAt: string | null;
 };
 
+export type NetworkPayerSettlementRow = {
+  readonly network: string;
+  readonly payer: string | null;
+  readonly settled: number;
+  readonly settledAtomic: string;
+};
+
+export type DatasetPayerSettlementRow = NetworkPayerSettlementRow & {
+  readonly datasetId: string;
+  readonly lastSettledAt: string | null;
+};
+
 export type ToolCallRow = { readonly tool: string; readonly calls: number };
 export type GraphCorpusRow = {
   readonly workspaceId: string;
@@ -36,6 +48,19 @@ type RecentSettlementDbRow = {
   readonly amount_settled: string;
   readonly transaction: string;
   readonly settled_at: Date | string;
+  readonly payer: string | null;
+};
+
+type NetworkPayerDbRow = {
+  readonly network: string;
+  readonly payer: string | null;
+  readonly settled: number | string;
+  readonly settled_atomic: string;
+};
+
+type DatasetPayerDbRow = NetworkPayerDbRow & {
+  readonly dataset_id: string;
+  readonly last_settled_at: Date | string | null;
 };
 
 type DatasetSettlementDbRow = {
@@ -79,13 +104,13 @@ const settlementSummary = async (pool: Pick<Pool, 'query'>): Promise<readonly Se
 
 const recentSettlements = async (pool: Pick<Pool, 'query'>, limit: number) => {
   const result = await pool.query<RecentSettlementDbRow>(
-      `SELECT dataset_id, network, amount_settled, transaction, settled_at FROM x402_payments
+      `SELECT dataset_id, network, amount_settled, transaction, settled_at, lower(payer) AS payer FROM x402_payments
        WHERE status = 'settled' AND transaction IS NOT NULL ORDER BY settled_at DESC LIMIT $1`,
       [limit],
   );
   return result.rows.map((row) => ({
     datasetId: row.dataset_id, network: row.network, amountAtomic: String(row.amount_settled),
-    transaction: row.transaction, settledAt: toIsoString(row.settled_at),
+    transaction: row.transaction, settledAt: toIsoString(row.settled_at), payer: row.payer,
   }));
 };
 
@@ -98,6 +123,31 @@ const settlementByDataset = async (pool: Pick<Pool, 'query'>): Promise<readonly 
   );
   return result.rows.map((row) => ({
     datasetId: row.dataset_id, network: row.network, settled: Number(row.settled),
+    settledAtomic: String(row.settled_atomic),
+    lastSettledAt: row.last_settled_at === null ? null : toIsoString(row.last_settled_at),
+  }));
+};
+
+const settlementByNetworkPayer = async (pool: Pick<Pool, 'query'>): Promise<readonly NetworkPayerSettlementRow[]> => {
+  const result = await pool.query<NetworkPayerDbRow>(
+    `SELECT network, lower(payer) AS payer, count(*) FILTER (WHERE status='settled') AS settled,
+     COALESCE(sum(amount_settled) FILTER (WHERE status='settled'),0) AS settled_atomic
+     FROM x402_payments GROUP BY network, lower(payer)`,
+  );
+  return result.rows.map((row) => ({
+    network: row.network, payer: row.payer, settled: Number(row.settled), settledAtomic: String(row.settled_atomic),
+  }));
+};
+
+const settlementByDatasetPayer = async (pool: Pick<Pool, 'query'>): Promise<readonly DatasetPayerSettlementRow[]> => {
+  const result = await pool.query<DatasetPayerDbRow>(
+    `SELECT dataset_id, network, lower(payer) AS payer, count(*) FILTER (WHERE status='settled') AS settled,
+     COALESCE(sum(amount_settled) FILTER (WHERE status='settled'),0) AS settled_atomic,
+     max(settled_at) FILTER (WHERE status='settled') AS last_settled_at
+     FROM x402_payments GROUP BY dataset_id, network, lower(payer)`,
+  );
+  return result.rows.map((row) => ({
+    datasetId: row.dataset_id, network: row.network, payer: row.payer, settled: Number(row.settled),
     settledAtomic: String(row.settled_atomic),
     lastSettledAt: row.last_settled_at === null ? null : toIsoString(row.last_settled_at),
   }));
@@ -154,6 +204,8 @@ export const createTelemetryStore = (pool: Pick<Pool, 'query'>) => ({
   settlementSummary: () => settlementSummary(pool),
   recentSettlements: (limit: number) => recentSettlements(pool, limit),
   settlementByDataset: () => settlementByDataset(pool),
+  settlementByNetworkPayer: () => settlementByNetworkPayer(pool),
+  settlementByDatasetPayer: () => settlementByDatasetPayer(pool),
   publicCallSummary: (days: number) => publicCallSummary(pool, days),
   publicCallsByTool: (days: number) => publicCallsByTool(pool, days),
   rejectedAttempts: (days: number) => rejectedAttempts(pool, days),
