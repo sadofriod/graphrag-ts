@@ -189,6 +189,47 @@ describe('GraphRAGRetrievalService.retrieveGlobal', () => {
     )).toBe(true);
   });
 
+  it('limits failed community IDs in the Reduce note while retaining surviving answers', async () => {
+    const failedIds = Array.from({ length: 100 }, (_, index) => `lost-topic-${index.toString().padStart(3, '0')}`);
+    prismaClient.rAGCommunitySummary.findMany = (() => Promise.resolve([
+      { id: 'retained-topic', level: 0, parentCommunityId: null, summaryContent: `Retained topic. ${'retained details '.repeat(200)}` },
+      ...failedIds.map((id) => ({
+        id,
+        level: 0,
+        parentCommunityId: null,
+        summaryContent: `Lost topic. ${'lost details '.repeat(70)}`,
+      })),
+    ])) as never;
+    prismaClient.rAGClaim.findMany = (() => Promise.resolve([])) as never;
+    const prompts: string[] = [];
+    modelLoaderSingleton.models = {
+      slice: {
+        invoke: async (prompt: string) => {
+          prompts.push(prompt);
+          if (prompt.includes('lost details')) throw new Error('lost-topic Map failure');
+          return prompt.includes('Reduce stage of GraphRAG global retrieval')
+            ? JSON.stringify({ answer: 'Only the retained topic is covered.' })
+            : JSON.stringify({ answer: 'Retained topic details.', usefulness: 90 });
+        },
+      },
+    } as never;
+
+    const result = await new GraphRAGRetrievalService().retrieveGlobal({
+      namespace: 'global-bounded-coverage-test',
+      query: 'Summarize all topics.',
+      options: { communityLevel: 0, mapTokenBudget: 600, mapOutputReserve: 0 },
+    });
+    const reducePrompt = prompts.find((prompt) => prompt.includes('Reduce stage of GraphRAG global retrieval'));
+
+    expect(result.status).toBe('partial');
+    expect(result.failedCommunities).toHaveLength(failedIds.length);
+    expect(result.selectedMapAnswers.map(({ communityIds }) => communityIds).flat()).toContain('retained-topic');
+    const notedIds = reducePrompt?.match(/lost-topic-\d{3}/g) ?? [];
+    expect(notedIds.length).toBeGreaterThan(0);
+    expect(notedIds.length).toBeLessThan(failedIds.length);
+    expect(reducePrompt).toContain('IDs omitted');
+  });
+
   it('reports Reduce budget omissions without making status partial', async () => {
     prismaClient.rAGCommunitySummary.findMany = (() => Promise.resolve([
       { id: 'budget-one', level: 0, parentCommunityId: null, summaryContent: `First topic. ${'first details '.repeat(70)}` },

@@ -13,10 +13,12 @@ import { runGlobalMap } from './globalMap';
 import { generateGlobalReduceAnswer, selectGlobalReduceAnswersWithCoverage } from './globalReduce';
 import { buildSummaryBatches } from './summaryBatcher';
 import { computeCommunityIdentity } from '../../build/detectCommunity/summary/communityFingerprint';
+import { estimateTokens } from '../../build/detectCommunity/summary/estimateTokens';
 import { getSliceModelFingerprint } from '../../build/modelLoader';
 import { withCachedGlobalResult } from './globalResultCache';
 
 const NO_RESULTS_ANSWER = 'No relevant community summaries were found for this query.';
+const MAX_COVERAGE_NOTE_TOKENS = 128;
 
 interface GlobalSearchSettings {
   communityLevel: number | 'leaf';
@@ -92,6 +94,40 @@ const noResults = (
 
 const uniqueCommunityIds = (answers: readonly { communityIds: readonly string[] }[]): string[] =>
   [...new Set(answers.flatMap(({ communityIds }) => communityIds))];
+
+const createCoverageNote = (
+  failedCommunities: readonly string[],
+  promptSkeleton: string,
+  promptBudget: number,
+): string | undefined => {
+  if (failedCommunities.length === 0) {
+    return undefined;
+  }
+
+  const formatNote = (communityIds: readonly string[]) => {
+    const omittedCount = failedCommunities.length - communityIds.length;
+    const ids = communityIds.length > 0 ? `: ${communityIds.join(', ')}` : '';
+    const omitted = omittedCount > 0 ? `; ${omittedCount} IDs omitted` : '';
+    return `Coverage gap: ${failedCommunities.length} communities failed${ids}${omitted}. State missing coverage; do not claim a complete overview.`;
+  };
+  const availableTokens = Math.max(0, promptBudget - estimateTokens(promptSkeleton));
+  const minimumNoteTokens = estimateTokens(formatNote([]));
+  const noteBudget = Math.min(
+    MAX_COVERAGE_NOTE_TOKENS,
+    Math.max(minimumNoteTokens, Math.floor(availableTokens * 0.1)),
+  );
+  const includedIds: string[] = [];
+
+  for (const communityId of failedCommunities) {
+    const candidateIds = [...includedIds, communityId];
+    if (estimateTokens(formatNote(candidateIds)) > noteBudget) {
+      break;
+    }
+    includedIds.push(communityId);
+  }
+
+  return formatNote(includedIds);
+};
 
 interface CommunitySummaryRow {
   id: string;
@@ -251,14 +287,12 @@ const generateGlobalResult = async (
   }
 
   const failedCommunities = uniqueCommunityIds(mapAnswers.failures);
-  const coverageNote = failedCommunities.length > 0
-    ? `Coverage gap: Map processing failed for communities ${failedCommunities.join(', ')}. State which coverage is missing in your answer. Do not present a complete overview.`
-    : undefined;
 
   const reducePromptSkeleton = await awaitRetrieval(() => assmblyAgent(
     { query, content: '' },
     agentRegistry.globalReduce,
   ));
+  const coverageNote = createCoverageNote(failedCommunities, reducePromptSkeleton.prompt, reducePromptBudget);
   const coverageAwareSkeleton = [reducePromptSkeleton.prompt, coverageNote].filter(Boolean).join('\n\n');
   const { selected: selectedAnswers, dropped } = selectGlobalReduceAnswersWithCoverage(
     rankedAnswers,
