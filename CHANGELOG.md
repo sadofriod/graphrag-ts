@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.31 — 2026-11-17
+
+- **feat(mcp)**: zero-config catalog entry and catalog-grade tool definitions (#32)
+
 ## 0.1.30 — 2026-11-16
 
 - **chore(package)**: add repository, homepage, bugs, keywords and publishConfig (#30)
