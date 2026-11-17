@@ -14,6 +14,7 @@ interface ParsedMapAnswer {
 
 export interface MapBatchResult {
   answers: GlobalMapAnswer[];
+  failures: Array<{ batchIndex: number; communityIds: string[]; error: Error }>;
   errors: Error[];
 }
 
@@ -59,11 +60,11 @@ const runBatchWithRetry = async (
   query: string,
   batch: SummaryBatch,
   batchIndex: number,
-): Promise<{ answer?: GlobalMapAnswer; error?: Error }> => {
+): Promise<{ batchIndex: number; answer?: GlobalMapAnswer; error?: Error; communityIds: string[] }> => {
   let lastError: Error | undefined;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      return { answer: await awaitRetrieval(() => mapBatch(query, batch)) };
+      return { batchIndex, answer: await awaitRetrieval(() => mapBatch(query, batch)), communityIds: batch.communityIds };
     } catch (error) {
       throwIfRetrievalAborted();
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -72,7 +73,7 @@ const runBatchWithRetry = async (
 
   const error = lastError ?? new Error(`Global Map batch ${batchIndex} failed.`);
   logger.warn({ batchIndex, communityIds: batch.communityIds, err: error }, 'Global Map batch failed after retry.');
-  return { error };
+  return { batchIndex, error, communityIds: batch.communityIds };
 };
 
 export const runGlobalMap = async (
@@ -80,8 +81,12 @@ export const runGlobalMap = async (
   batches: readonly SummaryBatch[],
   concurrency: number,
 ): Promise<MapBatchResult> => {
-  const results: Array<{ answer?: GlobalMapAnswer; error?: Error } | undefined> =
-    Array.from({ length: batches.length });
+  const results: Array<{
+    batchIndex: number;
+    answer?: GlobalMapAnswer;
+    error?: Error;
+    communityIds: string[];
+  } | undefined> = Array.from({ length: batches.length });
   let nextIndex = 0;
   const workerCount = Math.min(concurrency, batches.length);
 
@@ -103,9 +108,14 @@ export const runGlobalMap = async (
   }
 
   const answers = results.flatMap((result) => result?.answer ? [result.answer] : []);
-  const errors = results.flatMap((result) => result?.error ? [result.error] : []);
+  const failures = results.flatMap((result) =>
+    result?.error
+      ? [{ batchIndex: result.batchIndex, communityIds: result.communityIds, error: result.error }]
+      : [],
+  );
+  const errors = failures.map(({ error }) => error);
   if (batches.length > 0 && answers.length === 0 && errors.length > 0) {
     throw new AggregateError(errors, 'Every Global Map batch failed.');
   }
-  return { answers, errors };
+  return { answers, failures, errors };
 };

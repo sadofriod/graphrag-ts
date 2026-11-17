@@ -4,6 +4,9 @@ import type {
 } from '@ashes_born/graph-rag-ts/retrieval/types/retrieval';
 import { formatWithBudget } from './output/format-with-budget.ts';
 
+// The response has a hard character budget, so community ID lists are capped.
+const MAX_COMMUNITY_IDS = 20;
+
 export type QueryOutput = {
   readonly answer: string;
   readonly sources: readonly { readonly source: string; readonly excerpt: string }[];
@@ -60,6 +63,10 @@ export const formatGlobalQueryOutput = (
       community_level: result.communityLevel,
       selected_map_answers: selectedAnswers,
       failed_map_batches: result.failedMapBatches,
+      failed_communities: result.failedCommunities.slice(0, MAX_COMMUNITY_IDS),
+      dropped_for_budget: result.droppedForBudget.slice(0, MAX_COMMUNITY_IDS),
+      budget_limited: result.budgetLimited,
+      // Retained communities are already represented by selected_map_answers[].community_ids.
       index_version: { id: version.id, workspace_id: version.workspaceId },
       truncated: isTruncated,
     }),

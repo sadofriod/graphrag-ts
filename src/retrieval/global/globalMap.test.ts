@@ -58,11 +58,41 @@ describe('parseGlobalMapOutput', () => {
     );
 
     expect(result.answers).toHaveLength(3);
+    expect(result.failures).toEqual([]);
     expect(result.errors).toHaveLength(0);
     expect(callCount).toBe(4);
     expect(maxActiveCalls).toBeLessThanOrEqual(2);
     } finally {
     modelLoaderSingleton.models = originalModels;
+    }
+  });
+
+  it('preserves failed batch identity and mirrors failures in errors', async () => {
+    const originalModels = modelLoaderSingleton.models;
+    modelLoaderSingleton.models = {
+      slice: {
+        invoke: async (prompt: string) => {
+          if (prompt.includes('FAIL_THIS_BATCH')) throw new Error('permanent model failure');
+          return JSON.stringify({ answer: 'Relevant answer', usefulness: 80 });
+        },
+      },
+    } as never;
+
+    try {
+      const result = await runGlobalMap('query', [
+        { content: 'successful batch', communityIds: ['covered-topic'] },
+        { content: 'FAIL_THIS_BATCH', communityIds: ['lost-topic', 'related-topic'] },
+      ], 1);
+
+      expect(result.failures).toHaveLength(1);
+      expect(result.failures[0]).toMatchObject({
+        batchIndex: 1,
+        communityIds: ['lost-topic', 'related-topic'],
+      });
+      expect(result.failures[0]?.error).toBeInstanceOf(Error);
+      expect(result.errors).toEqual(result.failures.map(({ error }) => error));
+    } finally {
+      modelLoaderSingleton.models = originalModels;
     }
   });
 });

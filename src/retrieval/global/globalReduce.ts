@@ -14,11 +14,11 @@ export interface GlobalReduceResult {
 const formatAnswer = (answer: GlobalMapAnswer): string =>
   `[Usefulness: ${answer.usefulness}; Community IDs: ${answer.communityIds.join(', ')}]\n${answer.answer}`;
 
-export const selectGlobalReduceAnswers = (
+export const selectGlobalReduceAnswersWithCoverage = (
   answers: readonly GlobalMapAnswer[],
   promptSkeleton: string,
   promptBudget: number,
-): GlobalMapAnswer[] => {
+): { selected: GlobalMapAnswer[]; dropped: GlobalMapAnswer[] } => {
   const ranked = answers
     .filter((answer) => answer.usefulness > 0)
     .map((answer, index) => ({ answer, index }))
@@ -26,19 +26,28 @@ export const selectGlobalReduceAnswers = (
       right.answer.usefulness - left.answer.usefulness || left.index - right.index,
     );
   const selected: GlobalMapAnswer[] = [];
+  const dropped: GlobalMapAnswer[] = [];
   let context = '';
 
   for (const { answer } of ranked) {
     const candidate = [context, formatAnswer(answer)].filter(Boolean).join('\n\n');
     if (estimateTokens(`${promptSkeleton}\n${candidate}`) > promptBudget) {
+      dropped.push(answer);
       continue;
     }
     selected.push(answer);
     context = candidate;
   }
 
-  return selected;
+  return { selected, dropped };
 };
+
+export const selectGlobalReduceAnswers = (
+  answers: readonly GlobalMapAnswer[],
+  promptSkeleton: string,
+  promptBudget: number,
+): GlobalMapAnswer[] =>
+  selectGlobalReduceAnswersWithCoverage(answers, promptSkeleton, promptBudget).selected;
 
 export const parseGlobalReduceOutput = (raw: string): string => {
   const parsed = parseLlmJson<unknown>(raw);
@@ -54,8 +63,10 @@ export const parseGlobalReduceOutput = (raw: string): string => {
 export const generateGlobalReduceAnswer = async (
   query: string,
   answers: readonly GlobalMapAnswer[],
+  coverageNote?: string,
 ): Promise<GlobalReduceResult> => {
-  const content = answers.map(formatAnswer).join('\n\n');
+  const answerContent = answers.map(formatAnswer).join('\n\n');
+  const content = [answerContent, coverageNote].filter(Boolean).join('\n\n');
   const prompt = await awaitRetrieval(() => assmblyAgent({ query, content }, agentRegistry.globalReduce));
   const raw = await invokeSliceModel(prompt);
   return { answer: parseGlobalReduceOutput(raw), promptTokens: estimateTokens(prompt.prompt) };

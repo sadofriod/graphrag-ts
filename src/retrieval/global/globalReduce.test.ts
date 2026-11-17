@@ -2,7 +2,11 @@ import { describe, expect, it } from 'bun:test';
 
 import { estimateTokens } from '../../build/detectCommunity/summary/estimateTokens';
 import type { GlobalMapAnswer } from '../types/retrieval';
-import { parseGlobalReduceOutput, selectGlobalReduceAnswers } from './globalReduce';
+import {
+  parseGlobalReduceOutput,
+  selectGlobalReduceAnswers,
+  selectGlobalReduceAnswersWithCoverage,
+} from './globalReduce';
 
 describe('selectGlobalReduceAnswers', () => {
   it('ranks positive answers and keeps stable order for ties within budget', () => {
@@ -42,5 +46,18 @@ describe('selectGlobalReduceAnswers', () => {
     expect(estimateTokens(
       `${skeleton}\n[Usefulness: 80; Community IDs: c2]\nFits`,
     )).toBeLessThanOrEqual(20);
+  });
+
+  it('returns useful answers omitted for budget separately from zero-usefulness answers', () => {
+    const answers: GlobalMapAnswer[] = [
+      { answer: 'x'.repeat(400), usefulness: 90, communityIds: ['dropped'] },
+      { answer: 'Fits', usefulness: 80, communityIds: ['selected'] },
+      { answer: '', usefulness: 0, communityIds: ['no-signal'] },
+    ];
+    const { selected, dropped } = selectGlobalReduceAnswersWithCoverage(answers, 'Question prompt', 20);
+
+    expect(selected.map(({ communityIds }) => communityIds)).toEqual([['selected']]);
+    expect(dropped.map(({ communityIds }) => communityIds)).toEqual([['dropped']]);
+    expect(selectGlobalReduceAnswers(answers, 'Question prompt', 20)).toEqual(selected);
   });
 });

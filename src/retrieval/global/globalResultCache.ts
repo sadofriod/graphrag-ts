@@ -4,12 +4,36 @@ import { prismaClient } from '../../build/helper/prismaClient';
 import { awaitRetrieval, throwIfRetrievalAborted } from '../retrievalContext';
 import type { GlobalRetrievalResult } from '../types/retrieval';
 
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+interface CachedGlobalResult extends Prisma.JsonObject {
+  query: string;
+  communityLevel: number | 'leaf';
+  status: 'completed';
+  answer: string;
+  selectedMapAnswers: Prisma.JsonArray;
+  failedMapBatches: number;
+  failedCommunities: string[];
+  retainedCommunities: string[];
+  droppedForBudget: string[];
+  budgetLimited: boolean;
+}
+
+const hasValidResultFields = (value: Prisma.JsonObject): value is CachedGlobalResult =>
+  typeof value.query === 'string' && typeof value.answer === 'string' && value.status === 'completed' &&
+  (value.communityLevel === 'leaf' || typeof value.communityLevel === 'number') &&
+  typeof value.failedMapBatches === 'number' && Array.isArray(value.selectedMapAnswers) &&
+  isStringArray(value.failedCommunities) && isStringArray(value.retainedCommunities) &&
+  isStringArray(value.droppedForBudget) && typeof value.budgetLimited === 'boolean';
+
 const decodeResult = (value: Prisma.JsonValue): GlobalRetrievalResult | undefined => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const { query, communityLevel, status, answer, selectedMapAnswers, failedMapBatches } = value;
-  if (typeof query !== 'string' || typeof answer !== 'string' || status !== 'completed' ||
-      (communityLevel !== 'leaf' && typeof communityLevel !== 'number') ||
-      typeof failedMapBatches !== 'number' || !Array.isArray(selectedMapAnswers)) return undefined;
+  if (!hasValidResultFields(value)) return undefined;
+  const {
+    query, communityLevel, status, answer, selectedMapAnswers, failedMapBatches,
+    failedCommunities, retainedCommunities, droppedForBudget, budgetLimited,
+  } = value;
   const answers = selectedMapAnswers.flatMap((item) => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
     if (typeof item.answer !== 'string' || typeof item.usefulness !== 'number' ||
@@ -17,7 +41,10 @@ const decodeResult = (value: Prisma.JsonValue): GlobalRetrievalResult | undefine
     return [{ answer: item.answer, usefulness: item.usefulness, communityIds: item.communityIds }];
   });
   if (answers.length !== selectedMapAnswers.length) return undefined;
-  return { query, communityLevel, status, answer, selectedMapAnswers: answers, failedMapBatches };
+  return {
+    query, communityLevel, status, answer, selectedMapAnswers: answers, failedMapBatches,
+    failedCommunities, retainedCommunities, droppedForBudget, budgetLimited,
+  };
 };
 
 export const withCachedGlobalResult = (
