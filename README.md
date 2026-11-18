@@ -154,6 +154,8 @@ and the report for benchmark scope.
 - [integrations/mcp/docs/hosted-beta.md](integrations/mcp/docs/hosted-beta.md): hosted pilot operations checklist
 - [integrations/mcp/docs/x402-discovery.md](integrations/mcp/docs/x402-discovery.md): how agents discover the paid API (Bazaar, .well-known/x402)
 - [integrations/mcp/docs/deploy-x402.md](integrations/mcp/docs/deploy-x402.md): deploying the paid API on a Docker/Colima host behind Cloudflare Tunnel
+- [The GraphRAG-in-TypeScript series](https://blog.ashesborn.cloud/blog/graphrag-in-typescript-the-series-index): the eleven write-ups behind this implementation, in the order the system is built
+- [graphrag-ts case study](https://ashesborn.cloud/work/graphrag-ts): what a deployed instance looks like, and [retrieval engineering](https://ashesborn.cloud/services/retrieval-engineering) if you want it built
 - [CONTRIBUTING.md](CONTRIBUTING.md): contribution guide
 
 ## Contributing
