@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.33 — 2026-11-18
+
+- **docs**: link the write-up series and the case study from Documentation (#33)
+
 ## 0.1.32 — 2026-11-17
 
 - **feat(retrieval)**: report which communities a partial global answer lost (#31)
