@@ -11,6 +11,7 @@ import { handleDiscovery } from './routes/discovery.ts';
 import { handleOpenApi } from './routes/openapi.ts';
 import { handleLlmsTxt } from './routes/llms.ts';
 import { handleLanding } from './routes/landing.ts';
+import { handleVersion } from './routes/version.ts';
 import { handleIntegrityRoute } from '../integrity/routes.ts';
 
 export type { PaidRouteDeps } from './routeTypes.ts';
@@ -20,6 +21,9 @@ export const createPaidQueryRoute = (deps: PaidRouteDeps) => async (request: Req
   const response = await routeRequest(request, deps);
   return response ? withServerTiming(response, startedAt) : undefined;
 };
+
+const freeSurface = async (request: Request, deps: PaidRouteDeps): Promise<Response | undefined> =>
+  (await handleLanding(request, deps)) ?? (await handleVersion(request, deps));
 
 const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Response | undefined> => {
   const path = new URL(request.url).pathname;
@@ -31,8 +35,8 @@ const routeRequest = async (request: Request, deps: PaidRouteDeps): Promise<Resp
       'access-control-max-age': '600',
     } });
   }
-  const landing = handleLanding(request);
-  if (landing) return landing;
+  const surface = await freeSurface(request, deps);
+  if (surface) return surface;
   if (path === '/paper') {
     if (request.method !== 'GET') return errorResponse(405, 'Method not allowed.');
     const url = new URL(request.url);

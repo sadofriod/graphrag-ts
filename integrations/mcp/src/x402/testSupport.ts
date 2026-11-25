@@ -11,8 +11,23 @@ import { authorizationContractFromPayload } from './payload.ts';
 import { encodePaymentHeader, type PaymentPayload, type PaymentRequirements } from './types.ts';
 import type { X402Settings } from './settings.ts';
 import { OsvUnavailableError, type OsvClient } from '../deps/osv.ts';
+import type { SnapshotRecord } from '../integrity/types.ts';
+import type { IntegrityStore } from '../integrity/store.ts';
 
 export { describe, expect, test };
+
+export const FIXED_SNAPSHOT: SnapshotRecord = {
+  id: 'ri-20261125-1712',
+  built_at: '2026-11-25T17:20:00.000Z',
+  manifest: {
+    snapshot_id: 'ri-20261125-1712', built_at: '2026-11-25T17:20:00.000Z', seeds: [],
+    counts: { papers: 99123, cites: 145002, retractions: 611, contexts: 0 }, sources: {}, params: {},
+  },
+};
+
+const fakeIntegrity = {
+  activeSnapshot: async () => FIXED_SNAPSHOT,
+} as IntegrityStore;
 
 export const settings: X402Settings = {
   facilitatorUrl: 'https://facilitator.invalid', network: 'eip155:84532', asset: '0xasset', assetName: 'USDC',
@@ -322,11 +337,12 @@ export const setup = (options: SetupOptions = {}) => {
       : { answer: 'local answer', evidence: [{ text: 'evidence', sourceDocumentId: 'source.md' }] };
     return { result, version: { id: 'version-1', workspaceId: 'workspace-demo' }, durationMs: 12, leaseId: 'lease-1' };
   }) as unknown as typeof runSnapshotQuery;
-  const route = createPaidQueryRoute({
+  const deps = {
     store: leasedStore, config, logger, registry: testRegistry, payments, facilitator, limiter, settings,
-    integrity: {} as never, telemetry: {} as never, judge: judge as never, advisories,
+    integrity: fakeIntegrity, telemetry: {} as never, judge: judge as never, advisories,
     now: () => 1_700_000_000_000, runQuery,
-  });
+  };
+  const route = createPaidQueryRoute(deps);
   const sign = createSigner(() => testRegistry);
   const request = (
     body: unknown = { dataset_id: 'demo', query: 'test' },
@@ -338,7 +354,7 @@ export const setup = (options: SetupOptions = {}) => {
     body: JSON.stringify(body),
   }));
   return {
-    route, request, sign, records: ledgerState.records, payments, rejected: ledgerState.rejected,
+    route, deps, request, sign, records: ledgerState.records, payments, rejected: ledgerState.rejected,
     get verifyCalls() { return facilitation.verifyCalls; },
     get settleCalls() { return facilitation.settleCalls; },
     get settledAmounts() { return facilitation.settledAmounts; },

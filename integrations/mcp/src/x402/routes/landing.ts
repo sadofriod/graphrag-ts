@@ -1,6 +1,8 @@
 import { errorResponse } from '../http.ts';
+import type { PaidRouteDeps } from '../routeTypes.ts';
+import type { SnapshotRecord } from '../../integrity/types.ts';
 
-const statusHtml = `<!doctype html>
+const statusTemplate = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -26,8 +28,8 @@ const statusHtml = `<!doctype html>
 <body>
   <h1>Ashes Born retraction status</h1>
   <section class="card">
-    <h2>Snapshot (updated 2026-10-25) · ri-20261025-1526</h2>
-    <p>98,868 papers · 572 retraction assertions · 144,814 citation edges</p>
+    <h2>__SNAPSHOT_HEADING__</h2>
+    <p>__SNAPSHOT_COUNTS__</p>
     <p>Sources: OpenAlex and Retraction Watch. Crossref only when an update-to notice exists.</p>
     <p class="muted">This is a fixed snapshot. A DOI outside the snapshot cannot be assessed as not retracted.</p>
   </section>
@@ -56,7 +58,7 @@ const statusHtml = `<!doctype html>
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[character]);
     const show = (html) => { result.innerHTML = html; result.hidden = false; };
-    const notInSnapshot = 'Not in snapshot (updated 2026-10-25). This lookup covers 98,868 papers; the service cannot say whether this DOI is retracted.';
+    const notInSnapshot = __NOT_IN_SNAPSHOT__;
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const doi = input.value.trim();
@@ -92,7 +94,45 @@ const statusHtml = `<!doctype html>
 </body>
 </html>`;
 
-export const handleLanding = (request: Request): Response | undefined => {
+type StatusFacts = {
+  readonly date: string;
+  readonly id: string;
+  readonly papers: number;
+  readonly retractions: number;
+  readonly cites: number;
+};
+
+const statusFacts = (snapshot: SnapshotRecord | undefined): StatusFacts | undefined => {
+  if (!snapshot) return undefined;
+  const builtAt = snapshot.manifest.built_at ?? snapshot.built_at;
+  if (!builtAt) return undefined;
+  const date = new Date(builtAt).toISOString().slice(0, 10);
+  const { id } = snapshot;
+  const { papers, retractions, cites } = snapshot.manifest.counts;
+  if (!id || !Number.isFinite(papers) || !Number.isFinite(retractions) || !Number.isFinite(cites)) return undefined;
+  return { date, id, papers, retractions, cites };
+};
+
+const statusHeading = (facts: StatusFacts | undefined): string => facts
+  ? `Snapshot (updated ${facts.date}) · ${facts.id}`
+  : 'Snapshot unavailable · snapshot_id unknown';
+
+const statusCounts = (facts: StatusFacts | undefined): string => facts
+  ? `${new Intl.NumberFormat('en-US').format(facts.papers)} papers · ${new Intl.NumberFormat('en-US').format(facts.retractions)} retraction assertions · ${new Intl.NumberFormat('en-US').format(facts.cites)} citation edges`
+  : '— papers · — retraction assertions · — citation edges';
+
+const notInSnapshotMessage = (facts: StatusFacts | undefined): string => facts
+  ? `Not in snapshot (updated ${facts.date}). This lookup covers ${new Intl.NumberFormat('en-US').format(facts.papers)} papers; the service cannot say whether this DOI is retracted.`
+  : 'Snapshot unavailable. This lookup covers — papers; the service cannot say whether this DOI is retracted.';
+
+const renderStatusPage = (snapshot: SnapshotRecord | undefined): string => {
+  const facts = statusFacts(snapshot);
+  return statusTemplate.replace('__SNAPSHOT_HEADING__', statusHeading(facts))
+    .replace('__SNAPSHOT_COUNTS__', statusCounts(facts))
+    .replace('__NOT_IN_SNAPSHOT__', JSON.stringify(notInSnapshotMessage(facts)));
+};
+
+export const handleLanding = async (request: Request, deps: PaidRouteDeps): Promise<Response | undefined> => {
   const { pathname } = new URL(request.url);
   if (pathname === '/') {
     if (request.method !== 'GET' && request.method !== 'HEAD') return errorResponse(405, 'Method not allowed.');
@@ -102,7 +142,13 @@ export const handleLanding = (request: Request): Response | undefined => {
   }
   if (pathname !== '/status') return undefined;
   if (request.method !== 'GET' && request.method !== 'HEAD') return errorResponse(405, 'Method not allowed.');
-  return new Response(request.method === 'HEAD' ? null : statusHtml, { status: 200, headers: {
+  let snapshot: SnapshotRecord | undefined;
+  try {
+    snapshot = await deps.integrity.activeSnapshot();
+  } catch {
+    snapshot = undefined;
+  }
+  return new Response(request.method === 'HEAD' ? null : renderStatusPage(snapshot), { status: 200, headers: {
     'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300',
   } });
 };

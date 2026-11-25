@@ -254,7 +254,7 @@ export const createHttpHandler = (
     if (paidHostname && isPaidHostname(request, paidHostname)) {
       const path = new URL(request.url).pathname;
       if (!path.startsWith('/api/v1/') && !path.startsWith('/.well-known/') && path !== '/llms.txt'
-        && path !== '/' && path !== '/status' && path !== '/paper') {
+         && path !== '/' && path !== '/status' && path !== '/version' && path !== '/paper') {
         return httpError(404, 'Not found.');
       }
     }
